@@ -28,9 +28,9 @@
 - [x] 创建 GitHub 仓库
 - [x] 编写 README.md
 - [x] 编写 docs/product-plan.md
-- [ ] 建 Xcode 项目（macOS App target）
+- [x] 建 Xcode 项目（macOS App target）
 - [ ] 建 Supabase 项目，拿到 Project URL / anon key
-- [ ] 申请 Anthropic API Key
+- [ ] 申请 OpenAI API Key
 - [ ] 配置 `.env.example`（列出需要哪些环境变量，但不填真实值）
 - [ ] 把 Anthropic API Key 配置到 Supabase Edge Function 环境变量（确认没有写进客户端代码或提交到 git）
 
