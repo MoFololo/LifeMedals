@@ -35,13 +35,13 @@
 - [x] 把 OpenAI API Key 配置到 Supabase Edge Function 环境变量（确认没有写进客户端代码或提交到 git）
 
 ### Step 1：数据模型 + 登录
-- [ ] 在 Supabase 建 `badge_categories` 表
-- [ ] 在 Supabase 建 `user_badges` 表
-- [ ] 在 Supabase 建 `tasks` 表
-- [ ] 在 Supabase 建 `evidence` 表
-- [ ] 在 Supabase 建 `xp_logs` 表
-- [ ] 把上述表结构存成 `supabase/migrations/` 里的 SQL 文件
-- [ ] 客户端接入 Supabase Auth
+- [x] 在 Supabase 建 `badge_categories` 表
+- [x] 在 Supabase 建 `user_badges` 表
+- [x] 在 Supabase 建 `tasks` 表
+- [x] 在 Supabase 建 `evidence` 表
+- [x] 在 Supabase 建 `xp_logs` 表
+- [x] 把上述表结构存成 `supabase/migrations/` 里的 SQL 文件
+- [x] 客户端接入 Supabase Auth
 - [ ] 做登录 / 注册页面（SwiftUI）
 
 ### Step 2：自然语言生成任务契约
