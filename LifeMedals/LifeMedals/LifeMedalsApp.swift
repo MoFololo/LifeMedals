@@ -9,9 +9,17 @@ import SwiftUI
 
 @main
 struct LifeMedalsApp: App {
+    @StateObject private var authViewModel = AuthViewModel()
+
     var body: some Scene {
         WindowGroup {
-            ContentView()
+            Group {
+                if authViewModel.isAuthenticated {
+                    ContentView(authViewModel: authViewModel)
+                } else {
+                    LoginView(authViewModel: authViewModel)
+                }
+            }
         }
     }
 }
