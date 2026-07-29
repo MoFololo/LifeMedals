@@ -42,7 +42,7 @@
 - [x] 在 Supabase 建 `xp_logs` 表
 - [x] 把上述表结构存成 `supabase/migrations/` 里的 SQL 文件
 - [x] 客户端接入 Supabase Auth
-- [ ] 做登录 / 注册页面（SwiftUI）
+- [x] 做登录 / 注册页面（SwiftUI）
 
 ### Step 2：自然语言生成任务契约
 - [ ] 写 `supabase/functions/generate-task` Edge Function
@@ -100,3 +100,4 @@
 
 - 2026-07-29 | 创建 GitHub 仓库，编写 README.md 和 docs/product-plan.md，创建本 PROGRESS.md | README.md, docs/product-plan.md, PROGRESS.md
 - 2026-07-29 | 配置 .env.example，列出 SUPABASE_URL / SUPABASE_ANON_KEY / SUPABASE_SERVICE_ROLE_KEY / OPENAI_API_KEY 等环境变量（含本地开发注释） | .env.example, docs/progress.md
+- 2026-07-29 | 做登录 / 注册页面（SwiftUI，Liquid Glass 风格），接入 Supabase Auth（signIn/signUp/signOut/authStateChanges），新增 Secrets.swift（gitignored）管理本地密钥，App 根据登录状态在 LoginView / ContentView 间切换，本地 xcodebuild 编译通过 | LifeMedals/LifeMedals/LifeMedals/LoginView.swift, AuthViewModel.swift, SupabaseManager.swift, Secrets.swift, Secrets.example.txt, LifeMedalsApp.swift, ContentView.swift, .gitignore, docs/progress.md
