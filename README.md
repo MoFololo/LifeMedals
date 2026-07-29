@@ -16,7 +16,7 @@
    → 用户确认
    → 执行任务
    → 提交证据
-   → AI核验（Verified / Need More Proof / Not Verified）
+   → AI核验
    → 勋章 + EXP 到账
    → 存入 Library
 ```
