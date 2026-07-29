@@ -31,8 +31,8 @@
 - [x] 建 Xcode 项目（macOS App target）
 - [x] 建 Supabase 项目，拿到 Project URL / anon key
 - [x] 申请 OpenAI API Key
-- [ ] 配置 `.env.example`（列出需要哪些环境变量，但不填真实值）
-- [ ] 把 Anthropic API Key 配置到 Supabase Edge Function 环境变量（确认没有写进客户端代码或提交到 git）
+- [x] 配置 `.env.example`（列出需要哪些环境变量，但不填真实值）
+- [x] 把 OpenAI API Key 配置到 Supabase Edge Function 环境变量（确认没有写进客户端代码或提交到 git）
 
 ### Step 1：数据模型 + 登录
 - [ ] 在 Supabase 建 `badge_categories` 表
@@ -46,7 +46,7 @@
 
 ### Step 2：自然语言生成任务契约
 - [ ] 写 `supabase/functions/generate-task` Edge Function
-- [ ] 设计 prompt，要求 Claude 严格返回 JSON（title / deadline / evidence_requirement / suggested_badge / suggested_xp）
+- [ ] 设计 prompt，要求 ChatGPT 严格返回 JSON（title / deadline / evidence_requirement / suggested_badge / suggested_xp）
 - [ ] 客户端：输入框 + 调用该 function
 - [ ] 客户端：渲染可编辑表单（标题/截止时间/验收标准/所属勋章都可改）
 - [ ] 客户端：确认按钮，确认后写入 `tasks` 表
@@ -99,3 +99,4 @@
 <!-- 每条记录格式：YYYY-MM-DD | 做了什么 | 涉及文件/commit -->
 
 - 2026-07-29 | 创建 GitHub 仓库，编写 README.md 和 docs/product-plan.md，创建本 PROGRESS.md | README.md, docs/product-plan.md, PROGRESS.md
+- 2026-07-29 | 配置 .env.example，列出 SUPABASE_URL / SUPABASE_ANON_KEY / SUPABASE_SERVICE_ROLE_KEY / OPENAI_API_KEY 等环境变量（含本地开发注释） | .env.example, docs/progress.md
