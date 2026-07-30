@@ -24,7 +24,7 @@ const TASK_CONTRACT_SCHEMA = {
       minLength: 1,
       maxLength: 500,
       description:
-        "A lightweight, objective acceptance criterion based on evidence the task naturally produces.",
+        "A lightweight, objective acceptance criterion based on evidence the task naturally produces. Ask users to submit photos of evidence. For example, `Submit a screenshot of the completed leetcode problem.`, or `Submit a photo of yourself going into the gym and after finishing your workout.`",
     },
     suggested_badge: {
       type: "string",
