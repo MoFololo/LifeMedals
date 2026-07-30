@@ -133,8 +133,8 @@ v1 业务数据只保存在当前设备的 SwiftData 本地数据库中：
   - 待办：在 Xcode/模拟器中手动验证单设备离线读写与重启后的持久化
 - [ ] **Step 2：登录占位页 + AI 代理 + 任务契约生成**
   - 制作可跳过的登录页面，不接真实账户，不影响任何功能
-  - 部署最小 `generate-task` 代理，通过全局限流和预算上限保护内测
-  - 客户端渲染可编辑表单，确认后写入 SwiftData
+  - ✅ `generate-task` 代理已加入全局限流和每月硬调用上限，待部署并在 OpenAI 控制台设置支出告警
+  - ✅ 客户端已支持自然语言输入、失败重试、可编辑契约和确认后写入 SwiftData
 - [ ] Step 3：任务列表与本地提醒
 - [ ] Step 4：证据提交与 AI 核验
 - [ ] Step 5：勋章与成就系统
@@ -166,7 +166,17 @@ open LifeMedals/LifeMedals.xcodeproj
 - **Cloudflare Workers**：本仓库的 Worker 位于 `worker/`。从 GitHub 导入时将 Project name 设为 `lifemedals-api`、Build command 留空、Deploy command 保持 `npx wrangler deploy`，并在 Advanced settings 中将 Root directory 设为 `worker`。首次部署后进入目标 Worker → **Settings → Variables and Secrets**，新增加密 Secret `OPENAI_API_KEY`，值填已申请的 Key，然后重新部署。也可在 `worker/` 目录运行 `npx wrangler secret put OPENAI_API_KEY`，按交互提示粘贴 Key；不要把 Key 直接写在命令参数中。
 - **Vercel Functions**：进入目标 Project → **Settings → Environment Variables**，新增敏感变量 `OPENAI_API_KEY`，按需勾选 Production / Preview / Development，然后重新部署。
 
-代理代码只从运行环境读取 Key：Cloudflare Workers 使用 `env.OPENAI_API_KEY`，Vercel Functions 使用 `process.env.OPENAI_API_KEY`。Cloudflare 部署完成后访问 `GET /health`；配置 Secret 前返回 503，配置成功后返回 200。不要返回或打印变量值。OpenAI 项目中另行设置用量/支出告警；代理仍需实现自己的全局请求限流与硬预算拒绝逻辑。
+代理代码只从运行环境读取 Key：Cloudflare Workers 使用 `env.OPENAI_API_KEY`，Vercel Functions 使用 `process.env.OPENAI_API_KEY`。不要返回或打印变量值。
+
+当前 Worker 使用 SQLite Durable Object，在调用 OpenAI **之前**原子预留一次额度；默认全局每分钟最多 20 次、每个 UTC 自然月最多 500 次。达到频率限制返回 429，达到月度硬上限返回 402，保护组件异常时返回 503 且不会继续调用 OpenAI。可在 `worker/wrangler.jsonc` 中调整 `GLOBAL_REQUESTS_PER_MINUTE` 和 `MONTHLY_REQUEST_BUDGET`，再运行 `npm test` 与 `npm run check` 验证。这个月度上限按请求次数计算，不是对 OpenAI 账单金额的实时估算，因此仍需在 OpenAI 项目控制台单独设置用量/支出告警。
+
+Cloudflare 部署完成后访问 `GET /health`；只有 API Key 和全局保护都配置成功时才返回 200。取得 Worker 基础 URL 后，在 Xcode 的 **Product → Scheme → Edit Scheme → Run → Arguments → Environment Variables** 中新增：
+
+```text
+LIFEMEDALS_API_BASE_URL=https://你的-worker.workers.dev
+```
+
+客户端会自动调用该地址下的 `POST /generate-task`。输入草稿使用本机 `AppStorage` 保存；断网或请求失败不会清空，恢复联网后可直接重试。生成结果可以编辑标题、截止时间、验收标准和所属勋章，确认后写入 SwiftData。
 
 ---
 

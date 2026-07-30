@@ -2,6 +2,8 @@ const OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses";
 const MAX_REQUEST_BYTES = 8 * 1024;
 const MAX_TASK_TEXT_LENGTH = 1_000;
 const DEFAULT_MODEL = "gpt-5.6-terra";
+const DEFAULT_GLOBAL_REQUESTS_PER_MINUTE = 20;
+const DEFAULT_MONTHLY_REQUEST_BUDGET = 500;
 
 const TASK_CONTRACT_SCHEMA = {
   type: "object",
@@ -51,13 +53,23 @@ export default {
     const url = new URL(request.url);
 
     if (request.method === "GET" && url.pathname === "/health") {
+      const ready = Boolean(env.OPENAI_API_KEY && env.GLOBAL_USAGE_GATE);
       return jsonResponse(
         {
-          status: env.OPENAI_API_KEY ? "ok" : "configuration_required",
+          status: ready ? "ok" : "configuration_required",
           openaiConfigured: Boolean(env.OPENAI_API_KEY),
+          usageProtectionConfigured: Boolean(env.GLOBAL_USAGE_GATE),
           model: env.OPENAI_MODEL || DEFAULT_MODEL,
+          globalRequestsPerMinute: readPositiveInteger(
+            env.GLOBAL_REQUESTS_PER_MINUTE,
+            DEFAULT_GLOBAL_REQUESTS_PER_MINUTE,
+          ),
+          monthlyRequestBudget: readPositiveInteger(
+            env.MONTHLY_REQUEST_BUDGET,
+            DEFAULT_MONTHLY_REQUEST_BUDGET,
+          ),
         },
-        env.OPENAI_API_KEY ? 200 : 503,
+        ready ? 200 : 503,
         requestId,
       );
     }
@@ -126,6 +138,33 @@ export default {
     const validationError = validateGenerateTaskInput(body);
     if (validationError) {
       return jsonError(400, "invalid_request", validationError, requestId);
+    }
+
+    const protection = await reserveProtectedRequest(env);
+    if (!protection.allowed) {
+      const status = protection.reason === "rate_limited"
+        ? 429
+        : protection.reason === "budget_exhausted"
+          ? 402
+          : 503;
+      const headers = {};
+      if (protection.retryAfterSeconds) {
+        headers["Retry-After"] = String(protection.retryAfterSeconds);
+      }
+      if (protection.resetAt) {
+        headers["X-Budget-Reset"] = protection.resetAt;
+      }
+      return jsonError(
+        status,
+        protection.reason,
+        protection.reason === "rate_limited"
+          ? "The global request rate limit has been reached."
+          : protection.reason === "budget_exhausted"
+            ? "The monthly AI request budget has been exhausted."
+            : "Global usage protection is temporarily unavailable.",
+        requestId,
+        headers,
+      );
     }
 
     const taskText = body.text.trim();
@@ -270,6 +309,120 @@ export default {
     return jsonResponse(contract, 200, requestId);
   },
 };
+
+/**
+ * A single SQLite-backed Durable Object coordinates the small v1 beta.
+ * It intentionally enforces one global fixed-window rate limit and one global
+ * monthly request ceiling. The ceiling is reserved before contacting OpenAI,
+ * so concurrent requests cannot overshoot it.
+ */
+export class GlobalUsageGate {
+  constructor(ctx) {
+    this.storage = ctx.storage;
+  }
+
+  async fetch(request) {
+    const url = new URL(request.url);
+    if (request.method !== "POST" || url.pathname !== "/reserve") {
+      return new Response("Not found", { status: 404 });
+    }
+
+    let limits;
+    try {
+      limits = await request.json();
+    } catch {
+      return Response.json({ allowed: false, reason: "protection_unavailable" }, { status: 400 });
+    }
+
+    const now = Date.now();
+    const minuteStart = Math.floor(now / 60_000) * 60_000;
+    const nextMinute = minuteStart + 60_000;
+    const month = new Date(now).toISOString().slice(0, 7);
+    const nextMonth = new Date(`${month}-01T00:00:00.000Z`);
+    nextMonth.setUTCMonth(nextMonth.getUTCMonth() + 1);
+
+    return this.storage.transaction(async (transaction) => {
+      const state = (await transaction.get("global-usage")) || {
+        minuteStart,
+        minuteCount: 0,
+        month,
+        monthlyCount: 0,
+      };
+
+      if (state.minuteStart !== minuteStart) {
+        state.minuteStart = minuteStart;
+        state.minuteCount = 0;
+      }
+      if (state.month !== month) {
+        state.month = month;
+        state.monthlyCount = 0;
+      }
+
+      if (state.minuteCount >= limits.requestsPerMinute) {
+        return Response.json({
+          allowed: false,
+          reason: "rate_limited",
+          retryAfterSeconds: Math.max(1, Math.ceil((nextMinute - now) / 1_000)),
+        });
+      }
+
+      if (state.monthlyCount >= limits.monthlyRequestBudget) {
+        return Response.json({
+          allowed: false,
+          reason: "budget_exhausted",
+          resetAt: nextMonth.toISOString(),
+        });
+      }
+
+      state.minuteCount += 1;
+      state.monthlyCount += 1;
+      await transaction.put("global-usage", state);
+
+      return Response.json({
+        allowed: true,
+        remainingThisMinute: limits.requestsPerMinute - state.minuteCount,
+        remainingThisMonth: limits.monthlyRequestBudget - state.monthlyCount,
+      });
+    });
+  }
+}
+
+async function reserveProtectedRequest(env) {
+  if (!env.GLOBAL_USAGE_GATE) {
+    return { allowed: false, reason: "protection_unavailable" };
+  }
+
+  const requestsPerMinute = readPositiveInteger(
+    env.GLOBAL_REQUESTS_PER_MINUTE,
+    DEFAULT_GLOBAL_REQUESTS_PER_MINUTE,
+  );
+  const monthlyRequestBudget = readPositiveInteger(
+    env.MONTHLY_REQUEST_BUDGET,
+    DEFAULT_MONTHLY_REQUEST_BUDGET,
+  );
+
+  try {
+    const id = env.GLOBAL_USAGE_GATE.idFromName("lifemedals-v1-global");
+    const gate = env.GLOBAL_USAGE_GATE.get(id);
+    const response = await gate.fetch("https://usage-gate.internal/reserve", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ requestsPerMinute, monthlyRequestBudget }),
+    });
+    if (!response.ok) {
+      return { allowed: false, reason: "protection_unavailable" };
+    }
+    return await response.json();
+  } catch {
+    // Cost protection fails closed: never call OpenAI when the global gate is unavailable.
+    return { allowed: false, reason: "protection_unavailable" };
+  }
+}
+
+function readPositiveInteger(value, fallback) {
+  const parsed = Number(value);
+  return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : fallback;
+}
 
 function validateGenerateTaskInput(body) {
   if (!isPlainObject(body)) return "Request body must be a JSON object.";

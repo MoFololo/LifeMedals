@@ -8,7 +8,7 @@
 
 **阶段**：Step 1 - SwiftData 本地模型与持久化（迁移已完成，待手动验证）
 **已完成**：Xcode macOS 项目、基础 UI；已定义 SwiftData 核心模型并接入 model container；已移除 Supabase 客户端依赖、Secrets、登录门槛和 `supabase/` 目录
-**下一步该做什么**：在 Xcode 中手动验证断网时的本地增删改查与重启后的持久化，然后开始 Step 2（可跳过的登录占位页、最小 AI 代理与任务契约生成）
+**下一步该做什么**：部署 Worker、配置客户端代理地址与 OpenAI 项目支出告警；随后在 Xcode 中端到端测试契约生成，并手动验证断网时的本地增删改查与重启持久化
 
 > 2026-07-30 架构已调整为本地优先。下方 2026-07-29 的 Supabase 条目保留为历史记录，不代表当前技术方向；迁移完成后不再依赖 Supabase Postgres、Auth、Storage 或 Edge Functions。
 >
@@ -59,11 +59,13 @@
 - [x] 选择 Cloudflare Workers，创建不保存业务数据的最小代理工程
 - [x] 实现带输入与请求大小校验的 `generate-task` 端点
 - [x] 设计 prompt 和 JSON Schema，使用 OpenAI Structured Outputs 返回 title / deadline / evidence_requirement / suggested_badge / suggested_xp
-- [ ] 为代理加入全局限流、OpenAI 项目用量/支出告警和代理端硬预算上限
-- [ ] 客户端：输入框 + 调用代理
-- [ ] 客户端：渲染可编辑表单（标题/截止时间/验收标准/所属勋章都可改）
-- [ ] 客户端：确认按钮，确认后写入 SwiftData
-- [ ] 网络失败时保留输入并支持稍后重试
+- [x] 代理：用 SQLite Durable Object 加入原子全局限流（默认 20 次/分钟）
+- [x] 代理：加入调用 OpenAI 前强制执行的月度硬请求上限（默认 500 次/月）
+- [ ] OpenAI 项目控制台：配置用量/支出告警（必须由项目所有者手动完成）
+- [x] 客户端：输入框 + 调用代理
+- [x] 客户端：渲染可编辑表单（标题/截止时间/验收标准/所属勋章都可改）
+- [x] 客户端：确认按钮，确认后写入 SwiftData
+- [x] 网络失败时保留输入并支持稍后重试
 
 ### Step 3：任务列表与本地提醒
 - [ ] SwiftUI 主界面：待办任务列表
@@ -138,6 +140,8 @@
 ## 更新日志
 
 <!-- 每条记录格式：YYYY-MM-DD | 做了什么 | 涉及文件/commit -->
+
+- 2026-07-30 | 完成任务契约生成客户端：新增液态玻璃主界面、自然语言输入、代理调用、可编辑契约表单、确认后 SwiftData 写入；输入使用 AppStorage 本机保存，断网/超时后保留并支持重试。Worker 新增 SQLite Durable Object 全局限流与月度硬请求上限，保护异常时失败关闭；补充自动测试、部署配置与使用说明。Xcode Debug 编译、Worker 单元测试和 Wrangler dry-run 均通过；待部署 Worker、配置客户端 URL，并由项目所有者在 OpenAI 控制台设置支出告警 | LifeMedals/LifeMedals/ContentView.swift, TaskGenerationService.swift, LifeMedals.xcodeproj/project.pbxproj, worker/src/index.ts, worker/wrangler.jsonc, worker/test/usage-gate.test.mjs, worker/package.json, README.md, docs/progress.md
 
 - 2026-07-30 | 创建 Cloudflare Worker 最小 OpenAI 代理：新增 Wrangler 工程配置、`GET /health` 与 `POST /generate-task`；服务端读取 `OPENAI_API_KEY`，调用 Responses API `gpt-5.6-terra` 并用 Structured Outputs 返回任务契约；加入请求大小/字段校验、超时与安全错误处理、`store: false`；Wrangler dry-run 与模拟请求测试通过，尚未部署或配置 Secret | worker/package.json, worker/package-lock.json, worker/wrangler.jsonc, worker/src/index.ts, README.md, docs/progress.md
 
