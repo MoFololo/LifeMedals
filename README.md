@@ -31,10 +31,10 @@
 | 本地数据 | SwiftData | 任务、证据、勋章、EXP 全部本地优先，核心功能离线可用 |
 | 跨设备同步（v1 之后） | CloudKit | 长期方案；v1 不接入、不测试 |
 | v1 登录页 | SwiftUI 占位页面 | 可跳过，不关联真实账户、权限或会员权益 |
-| v1 AI 代理 | Cloudflare Workers / Vercel Functions | 只跑通 Claude 请求转发，以全局限流和预算上限保护内测成本 |
+| v1 AI 代理 | Cloudflare Workers / Vercel Functions | 只跑通 OpenAI Responses API 请求转发，以全局限流和预算上限保护内测成本 |
 | v2 账户与订阅 | Sign in with Apple + StoreKit 2 | v2 再实现真实登录、购买、续费、恢复购买和 entitlement 校验 |
 | v2 轻量后端 | AI 网关 + 小型持久化存储 | v2 再保存账户、订阅和 AI 用量；始终不存本地业务数据 |
-| AI | Claude API（文本 + 多模态） | 任务契约生成 + 证据核验，两个独立调用场景 |
+| AI | OpenAI Responses API（`gpt-5.6-terra`，文本 + 图像输入） | 任务契约生成 + 证据核验，两个独立调用场景；使用 Structured Outputs 约束返回结构 |
 
 > 不使用 Supabase Postgres、Auth 或 Storage。**v1 不接入真实账户、会员或订阅系统；登录页只是可跳过的 UI 占位，不影响任何功能。** v1 只跑通 SwiftData、契约生成、证据核验、勋章和 Library 的最基本闭环，同时不配置或测试 CloudKit。
 
@@ -79,7 +79,7 @@ v1 业务数据只保存在当前设备的 SwiftData 本地数据库中：
 - `SubscriptionEntitlement`：StoreKit 原始交易 ID、产品、状态和有效期。
 - `UsageLedger`：当前计费周期内的 AI 生成/核验用量。
 
-即使进入 v2，服务端账户也不能读取用户的任务、勋章、XP 或 Library；证据图片仅在核验请求期间短暂转发给 Claude，不做持久化。
+即使进入 v2，服务端账户也不能读取用户的任务、勋章、XP 或 Library；证据图片仅在核验请求期间短暂转发给 OpenAI Responses API，不做持久化。
 
 ---
 
@@ -117,7 +117,7 @@ v1 业务数据只保存在当前设备的 SwiftData 本地数据库中：
 4. **每个勋章类别独立计算 EXP/等级**，不要把所有类别合并成一个总等级。
 5. **v1 纯本地优先**：本地增删改查、Library、EXP 和通知不依赖网络；AI 请求可稍后重试且不能导致本地数据丢失。CloudKit 不属于 v1。
 6. **v1 登录页没有业务权限**：登录页必须允许跳过，不连接 Sign in with Apple，不区分免费/会员，也不能阻塞本地或 AI 主链路；它只是为 v2 预留产品入口。
-7. **v1 只验证闭环**：AI 代理不做账户、订阅或个人额度系统，仅用全局限流、内测范围、Anthropic 用量告警和预算上限控制成本，不作为可公开扩张的商业架构。
+7. **v1 只验证闭环**：AI 代理不做账户、订阅或个人额度系统，仅用全局限流、内测范围、OpenAI 项目用量/支出告警和代理端硬预算上限控制成本，不作为可公开扩张的商业架构。
 8. **v2 再做商业化**：Sign in with Apple、StoreKit、entitlement、周期 AI 配额和账户删除全部在 v2 实现；届时后端仍只保存账户/计费控制数据，不保存任务或证据。
 
 ---
@@ -157,7 +157,16 @@ open LifeMedals/LifeMedals.xcodeproj
 # 3. 直接运行；v1 不需要配置 iCloud / CloudKit
 ```
 
-> Claude API Key 只配置在 Cloudflare Worker / Vercel Function 的服务端环境变量中，禁止写入客户端或提交到 Git。v1 使用全局限流、有限内测和预算上限控制调用；按账户验证订阅与额度的能力推迟到 v2。
+### OpenAI API Key：只配置到代理服务端
+
+使用专门供 LifeMedals 使用的 OpenAI Project Key，环境变量名固定为 `OPENAI_API_KEY`。Key 不能写入 Swift、`Info.plist`、Xcode Scheme、客户端请求、Markdown、日志或任何会提交到 Git 的文件；macOS 客户端只能调用自己的代理端点。
+
+在确定代理平台后，任选其一完成配置：
+
+- **Cloudflare Workers**：进入目标 Worker → **Settings → Variables and Secrets**，新增加密 Secret `OPENAI_API_KEY`，值填已申请的 Key，然后重新部署。也可在 Worker 项目目录运行 `npx wrangler secret put OPENAI_API_KEY`，按交互提示粘贴 Key；不要把 Key 直接写在命令参数中。
+- **Vercel Functions**：进入目标 Project → **Settings → Environment Variables**，新增敏感变量 `OPENAI_API_KEY`，按需勾选 Production / Preview / Development，然后重新部署。
+
+代理代码只从运行环境读取 Key：Cloudflare Workers 使用 `env.OPENAI_API_KEY`，Vercel Functions 使用 `process.env.OPENAI_API_KEY`。部署后调用一次代理健康检查或测试端点，只确认变量“存在”，不要返回或打印变量值。OpenAI 项目中另行设置用量/支出告警；代理仍需实现自己的请求限流与硬预算拒绝逻辑。
 
 ---
 

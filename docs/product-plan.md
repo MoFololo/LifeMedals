@@ -99,7 +99,7 @@ AI 生成（可编辑）：
 - v1 做一个可跳过的登录页面，为未来账户入口和视觉流程占位。
 - v1 登录页不接 Sign in with Apple，不建立真实服务账户，也不参与任何权限判断；用户登录或跳过后的功能完全相同。
 - v1 不做会员制度、付费订阅、StoreKit、entitlement、恢复购买、账户删除或按用户统计 AI 用量。
-- v1 只服务开发与有限内测，用全局请求限制、Anthropic 用量告警和预算上限控制成本，不按公开商业产品规模设计。
+- v1 只服务开发与有限内测，用全局请求限制、OpenAI 项目用量/支出告警和代理端硬预算上限控制成本，不按公开商业产品规模设计。
 - 真实账户、会员、订阅和用量计费整体推迟到 v2，避免商业化工作干扰 MVP 核心闭环验证。
 
 ---
@@ -159,7 +159,7 @@ LifeMedals 需要一个服务账户来识别会员并控制 LLM 成本，但不�
 
 ### 6.6 后端：v1 最小代理，v2 商业化网关
 
-Claude API Key 不能放在客户端。v1 使用一个最小代理跑通请求链路：校验请求格式和大小，从服务端环境变量读取 Anthropic API Key，调用 Claude API并返回结构化结果。v1 只加入全局限流、用量告警和预算上限，不建立账户、订阅或个人额度数据库。
+OpenAI API Key 不能放在客户端。v1 使用一个最小代理跑通请求链路：校验请求格式和大小，从服务端环境变量 `OPENAI_API_KEY` 读取 Key，调用 OpenAI Responses API（默认使用兼顾能力与成本的 `gpt-5.6-terra`），并通过 Structured Outputs 返回结构化结果。v1 只加入全局限流、OpenAI 项目用量/支出告警和代理端硬预算上限，不建立账户、订阅或个人额度数据库。
 
 v2 才将代理升级为账户、计费与 AI 网关，并连接小型持久化存储。它负责：
 
@@ -167,7 +167,7 @@ v2 才将代理升级为账户、计费与 AI 网关，并连接小型持久化�
 2. 验证 StoreKit 签名交易与当前订阅 entitlement。
 3. 保存最小账户、订阅状态、计费周期 AI 用量和限流记录。
 4. 校验请求格式、大小、会员/免费额度和调用频率。
-5. 从服务端环境变量读取 Anthropic API Key，调用 Claude API并返回结构化结果。
+5. 从服务端环境变量 `OPENAI_API_KEY` 读取 Key，调用 OpenAI Responses API并通过 Structured Outputs 返回结构化结果。
 
 后端**不得持久化**任务契约、勋章、XP、Library 或证据图片。核验图片只在单次请求期间短暂处理，完成后即丢弃。可在后续加入 App Attest / DeviceCheck 等客户端完整性校验。
 
@@ -181,15 +181,15 @@ v2 才将代理升级为账户、计费与 AI 网关，并连接小型持久化�
 ### 6.7 AI 调用与成本控制
 
 1. **任务契约生成**（文本→结构化 JSON）
-   - 输入用户一句话，要求 Claude 严格按 JSON 格式输出 `{title, deadline, evidence_requirement, suggested_badge, suggested_xp}`
+   - 输入用户一句话，使用 OpenAI Responses API 的 Structured Outputs 按 JSON Schema 输出 `{title, deadline, evidence_requirement, suggested_badge, suggested_xp}`
    - 客户端渲染成可编辑表单，用户改完后再确认
 
 2. **证据核验**（多模态：图片+已确认的验收标准）
-   - 把用户提交的截图 + 之前确认的验收标准一起发给 Claude
-   - 要求返回 `{verdict: "Verified"|"Need More Proof"|"Not Verified", explanation}`
+   - 把用户提交的截图作为图像输入，连同之前确认的验收标准一起发给 OpenAI Responses API
+   - 使用 Structured Outputs 返回 `{verdict: "Verified"|"Need More Proof"|"Not Verified", explanation}`
    - **关键原则**：验收标准必须在任务确认时就锁定，AI 核验阶段不能"临时改规则"，否则用户会觉得被不讲理地拒绝
 
-v1 仅在开发和有限内测范围内通过全局限流、请求大小限制、Anthropic 用量告警和预算上限控制成本。v2 再在每次调用前验证账户、entitlement、剩余额度和限流状态，并在调用成功后原子地计入用户用量。免费版、Pro 周期额度和额外 StoreKit consumable 都属于 v2。
+v1 仅在开发和有限内测范围内通过全局限流、请求大小限制、OpenAI 项目用量/支出告警和代理端硬预算上限控制成本。v2 再在每次调用前验证账户、entitlement、剩余额度和限流状态，并在调用成功后原子地计入用户用量。免费版、Pro 周期额度和额外 StoreKit consumable 都属于 v2。
 
 ### 6.8 SwiftData 核心模型（简要）
 
@@ -219,7 +219,7 @@ AI 请求失败时保留用户当前输入和待核验记录，允许稍后重�
 ## 7. 分步开发路线图
 
 **Step 0：环境搭建**
-建 Xcode 项目（macOS App target）；申请 Anthropic API Key（只放在代理服务的环境变量里，不进客户端）。v1 不配置 iCloud / CloudKit。
+建 Xcode 项目（macOS App target）；申请 OpenAI API Key，并在选定代理平台后只以 `OPENAI_API_KEY` 配置到代理服务端的加密环境变量/Secret，不进客户端。v1 不配置 iCloud / CloudKit。
 
 **Step 1：SwiftData 本地模型与持久化**
 实现核心 SwiftData 模型和 model container；验证单台 Mac 上的离线增删改查和重启后的持久化。应用直接进入主界面，本地功能不设置登录门槛。此阶段不配置 CloudKit，也不做同步测试。
@@ -263,7 +263,7 @@ EXP 累加逻辑、等级计算、Library 页面（按勋章分类回顾历史�
 - **隐私敏感任务先不做**：订机票这类涉及个人信息的任务证据，放到后续版本，且需要考虑截图脱敏（比如生成契约时提醒用户可以裁剪掉姓名/订单号）。
 - **CloudKit 范围膨胀**：CloudKit 明确推迟到 v1 之后，v1 不开发、不配置、不测试；当前只保证单台 Mac 的本地数据可靠性。
 - **v1 范围膨胀**：真实账户、StoreKit、会员、个人额度和账户删除全部推迟到 v2；v1 登录页只能是可跳过的界面占位。
-- **v1 内测 AI 成本失控**：限制测试人数、请求大小和全局频率，设置 Anthropic 用量告警与硬预算上限；v1 不承诺公开规模服务。
+- **v1 内测 AI 成本失控**：限制测试人数、请求大小和全局频率，设置 OpenAI 项目用量/支出告警，并由代理端实施硬预算拒绝逻辑；v1 不承诺公开规模服务。
 - **v2 AI 成本超过会员收入**：不承诺无限调用；为免费版和各会员档设置清晰的周期额度，并由后端验证 entitlement 和统计用量。
 - **不要一开始就想"完美系统"**：MVP 的意义是尽快验证"这个反馈机制是否真的比打勾更有动力"，这是产品成立与否的核心假设，值得优先验证，而不是优先把技术做全。
 

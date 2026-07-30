@@ -36,9 +36,10 @@
 - [x] 编写 docs/product-plan.md
 - [x] 建 Xcode 项目（macOS App target）
 - [x] 明确采用 SwiftData 本地优先架构，CloudKit 推迟到 v1 之后
-- [x] 明确 v1 后端只做最小 Claude API 代理；账户、订阅和按用户用量网关推迟到 v2
-- [ ] 申请/确认 Anthropic API Key，并只配置到代理服务端环境变量
-- [x] 更新或移除旧 `.env.example` 中的 Supabase / OpenAI 配置
+- [x] 明确 v1 后端只做最小 OpenAI Responses API 代理；账户、订阅和按用户用量网关推迟到 v2
+- [x] 申请/确认 OpenAI API Key
+- [ ] 选定代理平台后，将 Key 仅以 `OPENAI_API_KEY` 配置到代理服务端加密环境变量/Secret
+- [x] 更新或移除旧 `.env.example` 中的 Supabase 配置
 
 ### Step 1：SwiftData 本地模型与持久化 👈 当前阶段
 - [x] 定义 `BadgeCategory` SwiftData 模型
@@ -57,8 +58,8 @@
 - [x] 确认登录或跳过后的功能完全相同，登录状态不参与任何权限判断
 - [ ] 选择 Cloudflare Workers 或 Vercel Functions，创建不保存业务数据的最小代理
 - [ ] 写带全局限流、请求大小限制和预算保护的 `generate-task` 端点
-- [ ] 设计 prompt，要求 Claude 严格返回 JSON（title / deadline / evidence_requirement / suggested_badge / suggested_xp）
-- [ ] 为代理加入输入校验、全局限流、Anthropic 用量告警和硬预算上限
+- [ ] 设计 prompt 和 JSON Schema，使用 OpenAI Structured Outputs 返回 title / deadline / evidence_requirement / suggested_badge / suggested_xp
+- [ ] 为代理加入输入校验、全局限流、OpenAI 项目用量/支出告警和代理端硬预算上限
 - [ ] 客户端：输入框 + 调用代理
 - [ ] 客户端：渲染可编辑表单（标题/截止时间/验收标准/所属勋章都可改）
 - [ ] 客户端：确认按钮，确认后写入 SwiftData
@@ -137,6 +138,8 @@
 ## 更新日志
 
 <!-- 每条记录格式：YYYY-MM-DD | 做了什么 | 涉及文件/commit -->
+
+- 2026-07-30 | 将当前 AI 方案从 Anthropic/Claude 迁移为 OpenAI Responses API：默认模型设为 `gpt-5.6-terra`，结构化结果改用 Structured Outputs，服务端密钥统一为 `OPENAI_API_KEY`；已确认 OpenAI API Key 申请完成，待选定代理平台后配置加密环境变量 | README.md, docs/product-plan.md, docs/progress.md, .env.example
 
 - 2026-07-30 | 恢复登录页（重新实现为 v1 可跳过占位 UI，不接真实认证/账户，登录与跳过效果完全相同）；`LifeMedalsApp` 用本地 `@State` 控制展示 LoginView 或 ContentView，不做持久化、不影响 SwiftData/AI 功能；`xcodebuild` 编译通过 | LifeMedals/LifeMedals/LifeMedals/LoginView.swift, LifeMedalsApp.swift, docs/progress.md
 
