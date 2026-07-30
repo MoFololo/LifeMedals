@@ -87,10 +87,20 @@ AI 生成（可编辑）：
 
 ### v1 暂不做
 - 订机票等涉及姓名、订单号、支付信息的任务（隐私/合规风险，且证据形态复杂）——可以作为 v1.x 的加分项，不必完全排除，只是不放进第一版
+- CloudKit 接入、iCloud 同步状态 UI、Mac/iPhone 跨设备同步，以及所有相关的同步测试
 - 复杂防作弊机制（GPS、实时拍摄水印等）
 - 社交排行榜、好友监督
 - 金钱惩罚
 - 通用 AI 聊天助手功能
+- Sign in with Apple 真实账户、StoreKit 订阅、会员权益、entitlement 校验和按用户统计 AI 配额
+
+### v1 的登录与付费边界
+
+- v1 做一个可跳过的登录页面，为未来账户入口和视觉流程占位。
+- v1 登录页不接 Sign in with Apple，不建立真实服务账户，也不参与任何权限判断；用户登录或跳过后的功能完全相同。
+- v1 不做会员制度、付费订阅、StoreKit、entitlement、恢复购买、账户删除或按用户统计 AI 用量。
+- v1 只服务开发与有限内测，用全局请求限制、OpenAI 项目用量/支出告警和代理端硬预算上限控制成本，不按公开商业产品规模设计。
+- 真实账户、会员、订阅和用量计费整体推迟到 v2，避免商业化工作干扰 MVP 核心闭环验证。
 
 ---
 
@@ -107,65 +117,121 @@ AI 生成（可编辑）：
 
 不做 Electron / 网页套壳：不是网页产品，而且 Electron 做出来的 Mac 应用在系统集成和体验上天然弱于原生 SwiftUI。
 
-### 6.2 后端：两条路径，先走快速路径
+### 6.2 数据层：v1 使用 SwiftData 纯本地存储
 
-因为 AI 需要调用 Claude API（不能把 API Key 放进客户端），并且要存储任务、图片、勋章数据，需要一个后端。两个选项：
+任务、证据、勋章和 EXP 都以 **SwiftData 本地数据库**为唯一业务数据源。创建任务、编辑契约、浏览 Library、累计 EXP 等操作直接读写设备本地，不依赖网络，也不需要等待远程数据库响应。
 
-**方案A（先做这个，能最快跑通产品）：Supabase**
-- Postgres 数据库 + 内置 Auth（登录注册）+ Storage（存截图）+ Edge Functions（Deno/TypeScript，用来调用 Claude API）
-- 优点：不用自己搭鉴权、不用自己管数据库运维，几天内就能把"提交截图→触发AI核验→写回结果"这条链路跑通
-- 缺点：作为求职作品集，"深度"不如自建后端
+**v1 的边界必须明确：只做单设备本地持久化，不接入 CloudKit。** v1 不配置 iCloud capability 或 CloudKit container，不实现同步状态、冲突处理或恢复逻辑，也不安排跨设备与 CloudKit 相关测试。v1 的数据不会自动出现在其他设备上。
 
-**方案B（如果想在简历上体现完整后端工程能力，可以在方案A跑通产品逻辑后，逐步替换）：**
-- 后端：Python FastAPI 或 Node.js（Express/NestJS）
-- 数据库：PostgreSQL
-- 队列：Redis + 任务队列（处理"异步AI核验、失败重试"，是很好的加分点）
-- 存储：Cloudflare R2 或 AWS S3（存截图）
-- 部署：Railway / Fly.io / Render
+CloudKit 仍是 v1 之后的同步方向，届时再单独规划和验收：
 
-**做法**：先用方案A把产品做出来、自己用起来、验证核心体验是否真的有动力感；如果产品验证成立且后续要用它做求职作品集，再把核心服务迁移到方案B，顺便积累"重构一个真实产品的后端"这种更有说服力的经历。
+- Mac 和未来的 iPhone target 复用同一套 SwiftData schema 与 CloudKit container。
+- 数据通过用户自己的 iCloud 账号在设备间同步；CloudKit 不承担会员登录或计费账户职责。
+- 无网络时所有本地功能继续工作；恢复网络后由系统完成增量同步和冲突合并。
+- 应用需要明确展示 iCloud 未登录、同步关闭、同步失败等状态，但这些状态不能阻塞本地使用。
 
-### 6.3 AI 调用：Claude API，两类场景
+以上四项均为后续版本设想，不是 v1 的实现或测试任务。
+
+### 6.3 证据图片：v1 仅保存在本地
+
+用户选择的证据图片保存在当前设备，并由 SwiftData 模型记录元数据和关联关系；适合大字段的数据使用外部存储。v1 不把图片上传到 Supabase Storage、自建对象存储或 CloudKit。
+
+为控制本地存储体积，并兼顾未来可能的同步，客户端在保存前生成尺寸和质量适中的证据副本；原始照片无需长期复制进应用。成就卡按数据动态渲染，不额外存成图片文件。
+
+### 6.4 v1 登录页：仅作界面占位
+
+v1 保留一个简单登录页面，用于确认品牌、布局、跳过路径和未来入口位置。该页面必须明确可跳过，且不连接真实认证服务、不保存账号密码、不创建服务端用户、不影响 AI 或本地功能。不要为了这个占位页提前实现 token、会话、账户恢复或账户删除。
+
+### 6.5 v2 账户与付费：Sign in with Apple + StoreKit 2
+
+LifeMedals 需要一个服务账户来识别会员并控制 LLM 成本，但不应强迫用户为了本地功能先注册：
+
+1. 应用启动后直接进入本地功能，SwiftData 不依赖登录状态。
+2. 用户第一次使用 AI 或购买会员时，通过 Sign in with Apple 建立 LifeMedals 服务账户。
+3. 会员通过 StoreKit 2 自动续期订阅购买；客户端支持购买、恢复购买、`Transaction.currentEntitlements` 检查和交易更新监听。
+4. 购买时使用稳定的 `appAccountToken` 将 StoreKit 交易关联到 LifeMedals 账户。
+5. 后端验证 Apple 签名交易，并以原始交易 ID 跟踪订阅状态、续费、退款和撤销。
+6. 设置页提供完整账户删除入口；删除时清理服务端账户及非必要关联数据并撤销 Sign in with Apple token。若仍有自动续期订阅，要明确提示用户前往 App Store 管理或取消订阅。
+
+三套身份必须保持职责分离：iCloud 账号用于未来 CloudKit 数据同步，App Store 账号拥有购买记录，Sign in with Apple 创建 LifeMedals 服务身份。它们可能属于同一个人，但技术上不能互相替代。
+
+以上全部属于 v2，不计入 v1 的开发、测试或验收。
+
+### 6.6 后端：v1 最小代理，v2 商业化网关
+
+OpenAI API Key 不能放在客户端。v1 使用一个最小代理跑通请求链路：校验请求格式和大小，从服务端环境变量 `OPENAI_API_KEY` 读取 Key，调用 OpenAI Responses API（默认使用兼顾能力与成本的 `gpt-5.6-terra`），并通过 Structured Outputs 返回结构化结果。v1 只加入全局限流、OpenAI 项目用量/支出告警和代理端硬预算上限，不建立账户、订阅或个人额度数据库。
+
+v2 才将代理升级为账户、计费与 AI 网关，并连接小型持久化存储。它负责：
+
+1. 验证 Sign in with Apple 身份并签发/校验应用会话。
+2. 验证 StoreKit 签名交易与当前订阅 entitlement。
+3. 保存最小账户、订阅状态、计费周期 AI 用量和限流记录。
+4. 校验请求格式、大小、会员/免费额度和调用频率。
+5. 从服务端环境变量 `OPENAI_API_KEY` 读取 Key，调用 OpenAI Responses API并通过 Structured Outputs 返回结构化结果。
+
+后端**不得持久化**任务契约、勋章、XP、Library 或证据图片。核验图片只在单次请求期间短暂处理，完成后即丢弃。可在后续加入 App Attest / DeviceCheck 等客户端完整性校验。
+
+服务端最小数据模型：
+
+- `UserAccount`：内部 UUID、Sign in with Apple 稳定标识、创建时间和账户状态。
+- `SubscriptionEntitlement`：用户、StoreKit 产品 ID、原始交易 ID、状态、有效期和最近验证时间。
+- `UsageLedger`：用户、计费周期、契约生成次数、证据核验次数及用量上限。
+- `RateLimitEvent`：必要的限流计数或短期风控信息，不记录用户任务内容。
+
+### 6.7 AI 调用与成本控制
 
 1. **任务契约生成**（文本→结构化 JSON）
-   - 输入用户一句话，要求 Claude 严格按 JSON 格式输出 `{title, deadline, evidence_requirement, suggested_badge, suggested_xp}`
+   - 输入用户一句话，使用 OpenAI Responses API 的 Structured Outputs 按 JSON Schema 输出 `{title, deadline, evidence_requirement, suggested_badge, suggested_xp}`
    - 客户端渲染成可编辑表单，用户改完后再确认
 
 2. **证据核验**（多模态：图片+已确认的验收标准）
-   - 把用户提交的截图 + 之前确认的验收标准一起发给 Claude
-   - 要求返回 `{verdict: "Verified"|"Need More Proof"|"Not Verified", explanation}`
+   - 把用户提交的截图作为图像输入，连同之前确认的验收标准一起发给 OpenAI Responses API
+   - 使用 Structured Outputs 返回 `{verdict: "Verified"|"Need More Proof"|"Not Verified", explanation}`
    - **关键原则**：验收标准必须在任务确认时就锁定，AI 核验阶段不能"临时改规则"，否则用户会觉得被不讲理地拒绝
 
-### 6.4 核心数据表（简要）
+v1 仅在开发和有限内测范围内通过全局限流、请求大小限制、OpenAI 项目用量/支出告警和代理端硬预算上限控制成本。v2 再在每次调用前验证账户、entitlement、剩余额度和限流状态，并在调用成功后原子地计入用户用量。免费版、Pro 周期额度和额外 StoreKit consumable 都属于 v2。
 
-- `users`：用户基础信息
-- `badge_categories`：勋章类别（Problem Solver / Builder / Athlete...），支持用户自定义
-- `user_badges`：每个用户每个类别的当前 EXP、等级
-- `tasks`：任务契约（标题、截止时间、验收标准、所属勋章、状态）
-- `evidence`：提交的证据（图片链接、AI判定结果、解释、提交时间）
-- `xp_logs`：每次 EXP 变动记录（关联任务，方便做"本周完成了什么"的统计）
+### 6.8 SwiftData 核心模型（简要）
 
-### 6.5 图片存储
-Supabase Storage（方案A）或 Cloudflare R2（方案B），成就卡本身可以按需动态生成，不必存成图片文件，省存储成本。
+- `BadgeCategory`：勋章类别（Problem Solver / Builder / Athlete...），支持用户自定义。
+- `UserBadge`：每个类别的当前 EXP、等级。
+- `TaskContract`：任务契约（标题、截止时间、锁定的验收标准、所属勋章、XP 奖励、状态）。
+- `Evidence`：证据图片、提交时间、三态核验结果和解释。
+- `XPLog`：每次 EXP 变动记录，关联任务和勋章，用于周报与历史回顾。
+
+模型使用稳定的 UUID 标识和可选关系，状态字段采用可持久化的原始值，避免未来增加枚举值时破坏已有数据。可以为未来 CloudKit 兼容性留出设计空间，但不得因此扩大 v1 的开发与测试范围。
+
+### 6.9 v1 在线与登录边界
+
+| 功能 | 网络 | v1 登录页 | 会员/额度 |
+|---|---|---|---|
+| 创建、编辑、查看任务 | 不需要 | 不需要 | 不需要 |
+| 提交和查看本地证据 | 不需要 | 不需要 | 不需要 |
+| 勋章、EXP、Library、本地通知 | 不需要 | 不需要 | 不需要 |
+| Mac / iPhone 间 CloudKit 同步 | v1 不提供 | 不适用 | 不需要 |
+| AI 生成任务契约 | 需要 | 不影响，可跳过 | v1 不提供会员/个人额度 |
+| AI 核验证据 | 需要 | 不影响，可跳过 | v1 不提供会员/个人额度 |
+
+AI 请求失败时保留用户当前输入和待核验记录，允许稍后重试；网络故障不能造成任务或证据丢失。
 
 ---
 
 ## 7. 分步开发路线图
 
 **Step 0：环境搭建**
-建 Xcode 项目（macOS App target）；注册 Supabase 项目；申请 Anthropic API Key（放在后端 Edge Function 环境变量里，不进客户端）。
+建 Xcode 项目（macOS App target）；申请 OpenAI API Key，并在选定代理平台后只以 `OPENAI_API_KEY` 配置到代理服务端的加密环境变量/Secret，不进客户端。v1 不配置 iCloud / CloudKit。
 
-**Step 1：数据模型 + 登录**
-在 Supabase 里建好上面的表；接入 Supabase Auth，客户端做登录/注册页面。
+**Step 1：SwiftData 本地模型与持久化**
+实现核心 SwiftData 模型和 model container；验证单台 Mac 上的离线增删改查和重启后的持久化。应用直接进入主界面，本地功能不设置登录门槛。此阶段不配置 CloudKit，也不做同步测试。
 
-**Step 2：自然语言生成任务契约**
-写一个 Edge Function，接收用户一句话，调用 Claude API 返回结构化 JSON；客户端渲染成可编辑表单 + 确认按钮。
+**Step 2：登录占位页 + AI 代理 + 任务契约生成**
+制作可跳过的登录页面，但不连接真实账户系统，也不让登录状态影响功能；部署带全局限流和预算保护的最小 `generate-task` 代理。客户端收到结构化契约后渲染可编辑表单，确认后写入本地 SwiftData。
 
 **Step 3：任务列表与本地状态**
 SwiftUI 做主界面：待办任务列表、截止时间提醒（本地通知）。
 
 **Step 4：证据提交与AI核验**
-客户端用 PhotosPicker 选图 → 上传到 Storage → 触发核验 Edge Function → 轮询或用 Realtime 拿到结果 → 展示 Verified / Need More Proof / Not Verified。
+客户端用 PhotosPicker 选图 → 生成并保存本地证据副本 → 调用最小核验代理 → 展示 Verified / Need More Proof / Not Verified → 把结果写入本地 SwiftData。登录占位页不参与判断，服务端不持久化图片，v1 不同步证据图片或核验结果。
 
 **Step 5：勋章与成就系统**
 EXP 累加逻辑、等级计算、Library 页面（按勋章分类回顾历史任务和截图）、每周小结页面。
@@ -177,10 +243,16 @@ EXP 累加逻辑、等级计算、Library 页面（按勋章分类回顾历史�
 找 5-10 个同学/朋友用起来，重点收集"AI 生成的验收标准是否合理"和"误判率"两个问题的反馈。
 
 **Step 8：打磨与上架准备**
-优化 UI 细节、补充空状态/错误态、准备 Mac App Store 上架素材（如果打算上架）。
+优化 UI 细节、补充空状态/错误态，验证登录页可跳过且不会阻塞任何 v1 功能；准备 Mac App Store 上架素材（如果打算上架）。v1 不测试购买、会员或订阅。
 
 **Step 9：迁移到 iOS**
 因为 SwiftUI 代码已经跨平台共享，这一步主要是加 iOS target、适配触屏交互（比如相机直接拍照上传）、适配小屏布局，工作量比从零开始小很多。
+
+**v1 之后：CloudKit 同步（不计入 v1 roadmap）**
+待 Mac v1 核心闭环完成并验证后，再配置 CloudKit container、处理同步状态与冲突，并安排 Mac/iPhone 跨设备、离线恢复、图片同步等专项测试。在这之前，CloudKit 不能成为 v1 的完成条件。
+
+**v2：真实账户、会员与订阅（不计入 v1 roadmap）**
+接入 Sign in with Apple、StoreKit 2 和服务端账户体系；实现 entitlement、周期 AI 配额、购买/恢复/退款处理、账户删除与 token 撤销。后端从 v1 最小代理升级为账户、计费和用量网关，但仍不存储任务、勋章、XP、Library 或证据图片。
 
 ---
 
@@ -189,6 +261,10 @@ EXP 累加逻辑、等级计算、Library 页面（按勋章分类回顾历史�
 - **AI 误判**：保留三态核验结果，允许用户补交证据或申诉，第一版不设金钱惩罚可以让误判的代价降到最低。
 - **证据门槛**：每类任务的默认证据要求尽量选"用户本来就会产生的东西"（LeetCode 的 Accepted 截图、Apple Health 的运动记录），减少"为了证明而额外做的动作"。
 - **隐私敏感任务先不做**：订机票这类涉及个人信息的任务证据，放到后续版本，且需要考虑截图脱敏（比如生成契约时提醒用户可以裁剪掉姓名/订单号）。
+- **CloudKit 范围膨胀**：CloudKit 明确推迟到 v1 之后，v1 不开发、不配置、不测试；当前只保证单台 Mac 的本地数据可靠性。
+- **v1 范围膨胀**：真实账户、StoreKit、会员、个人额度和账户删除全部推迟到 v2；v1 登录页只能是可跳过的界面占位。
+- **v1 内测 AI 成本失控**：限制测试人数、请求大小和全局频率，设置 OpenAI 项目用量/支出告警，并由代理端实施硬预算拒绝逻辑；v1 不承诺公开规模服务。
+- **v2 AI 成本超过会员收入**：不承诺无限调用；为免费版和各会员档设置清晰的周期额度，并由后端验证 entitlement 和统计用量。
 - **不要一开始就想"完美系统"**：MVP 的意义是尽快验证"这个反馈机制是否真的比打勾更有动力"，这是产品成立与否的核心假设，值得优先验证，而不是优先把技术做全。
 
 ---
