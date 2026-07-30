@@ -38,7 +38,7 @@
 - [x] 明确采用 SwiftData 本地优先架构，CloudKit 推迟到 v1 之后
 - [x] 明确 v1 后端只做最小 OpenAI Responses API 代理；账户、订阅和按用户用量网关推迟到 v2
 - [x] 申请/确认 OpenAI API Key
-- [ ] 选定代理平台后，将 Key 仅以 `OPENAI_API_KEY` 配置到代理服务端加密环境变量/Secret
+- [x] 选定代理平台后，将 Key 仅以 `OPENAI_API_KEY` 配置到代理服务端加密环境变量/Secret
 - [x] 更新或移除旧 `.env.example` 中的 Supabase 配置
 
 ### Step 1：SwiftData 本地模型与持久化 👈 当前阶段
