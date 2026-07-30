@@ -61,7 +61,7 @@
 - [x] 设计 prompt 和 JSON Schema，使用 OpenAI Structured Outputs 返回 title / deadline / evidence_requirement / suggested_badge / suggested_xp
 - [x] 代理：用 SQLite Durable Object 加入原子全局限流（默认 20 次/分钟）
 - [x] 代理：加入调用 OpenAI 前强制执行的月度硬请求上限（默认 500 次/月）
-- [ ] OpenAI 项目控制台：配置用量/支出告警（必须由项目所有者手动完成）
+- [x] OpenAI 项目控制台：配置用量/支出告警（必须由项目所有者手动完成）
 - [x] 客户端：输入框 + 调用代理
 - [x] 客户端：渲染可编辑表单（标题/截止时间/验收标准/所属勋章都可改）
 - [x] 客户端：确认按钮，确认后写入 SwiftData
