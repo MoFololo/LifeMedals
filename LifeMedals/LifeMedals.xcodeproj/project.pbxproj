@@ -6,10 +6,6 @@
 	objectVersion = 77;
 	objects = {
 
-/* Begin PBXBuildFile section */
-		010B3C3F301A05CF0006060B /* Supabase in Frameworks */ = {isa = PBXBuildFile; productRef = 010B3C3E301A05CF0006060B /* Supabase */; };
-/* End PBXBuildFile section */
-
 /* Begin PBXFileReference section */
 		010B3C2F301A052D0006060B /* LifeMedals.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = LifeMedals.app; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -27,7 +23,6 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				010B3C3F301A05CF0006060B /* Supabase in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -70,7 +65,6 @@
 			);
 			name = LifeMedals;
 			packageProductDependencies = (
-				010B3C3E301A05CF0006060B /* Supabase */,
 			);
 			productName = LifeMedals;
 			productReference = 010B3C2F301A052D0006060B /* LifeMedals.app */;
@@ -101,7 +95,6 @@
 			mainGroup = 010B3C26301A052D0006060B;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				010B3C3D301A05CF0006060B /* XCRemoteSwiftPackageReference "supabase-swift" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 010B3C30301A052D0006060B /* Products */;
@@ -265,6 +258,7 @@
 				DEVELOPMENT_TEAM = VKZW7QSYT3;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -297,6 +291,7 @@
 				DEVELOPMENT_TEAM = VKZW7QSYT3;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
+				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
 				ENABLE_PREVIEWS = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
@@ -340,25 +335,6 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
-
-/* Begin XCRemoteSwiftPackageReference section */
-		010B3C3D301A05CF0006060B /* XCRemoteSwiftPackageReference "supabase-swift" */ = {
-			isa = XCRemoteSwiftPackageReference;
-			repositoryURL = "https://github.com/supabase/supabase-swift";
-			requirement = {
-				kind = upToNextMajorVersion;
-				minimumVersion = 2.5.1;
-			};
-		};
-/* End XCRemoteSwiftPackageReference section */
-
-/* Begin XCSwiftPackageProductDependency section */
-		010B3C3E301A05CF0006060B /* Supabase */ = {
-			isa = XCSwiftPackageProductDependency;
-			package = 010B3C3D301A05CF0006060B /* XCRemoteSwiftPackageReference "supabase-swift" */;
-			productName = Supabase;
-		};
-/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 010B3C27301A052D0006060B /* Project object */;
 }

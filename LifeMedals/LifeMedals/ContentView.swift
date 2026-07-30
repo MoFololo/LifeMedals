@@ -6,9 +6,10 @@
 //
 
 import SwiftUI
+import SwiftData
 
 struct ContentView: View {
-    @ObservedObject var authViewModel: AuthViewModel
+    @Query private var badgeCategories: [BadgeCategory]
 
     var body: some View {
         VStack(spacing: 16) {
@@ -17,9 +18,8 @@ struct ContentView: View {
                 .foregroundStyle(.tint)
             Text("欢迎回来！")
                 .font(.title2.bold())
-            Button("退出登录") {
-                Task { await authViewModel.signOut() }
-            }
+            Text("勋章类别：\(badgeCategories.count)")
+                .foregroundStyle(.secondary)
         }
         .padding()
         .frame(minWidth: 480, minHeight: 360)
@@ -27,5 +27,12 @@ struct ContentView: View {
 }
 
 #Preview {
-    ContentView(authViewModel: AuthViewModel())
+    ContentView()
+        .modelContainer(for: [
+            BadgeCategory.self,
+            UserBadge.self,
+            TaskContract.self,
+            Evidence.self,
+            XPLog.self
+        ], inMemory: true)
 }

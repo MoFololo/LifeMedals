@@ -6,9 +6,15 @@
 
 ## 当前状态
 
-**阶段**：Step 0 - 环境搭建（尚未开始具体搭建）
-**已完成**：仅创建 GitHub 仓库 + 编写 README.md / docs/product-plan.md
-**下一步该做什么**：见下方 "Step 0" 里第一个未勾选的子任务
+**阶段**：Step 1 - SwiftData 本地模型与持久化（迁移已完成，待手动验证）
+**已完成**：Xcode macOS 项目、基础 UI；已定义 SwiftData 核心模型并接入 model container；已移除 Supabase 客户端依赖、Secrets、登录门槛和 `supabase/` 目录
+**下一步该做什么**：在 Xcode 中手动验证断网时的本地增删改查与重启后的持久化，然后开始 Step 2（可跳过的登录占位页、最小 AI 代理与任务契约生成）
+
+> 2026-07-30 架构已调整为本地优先。下方 2026-07-29 的 Supabase 条目保留为历史记录，不代表当前技术方向；迁移完成后不再依赖 Supabase Postgres、Auth、Storage 或 Edge Functions。
+>
+> **v1 范围强调：CloudKit 不进入当前开发阶段。v1 不配置 CloudKit、不实现跨设备同步或同步状态 UI，也不做 CloudKit、跨设备、同步冲突、离线恢复等相关测试。v1 只验收单台 Mac 上的 SwiftData 本地持久化。**
+>
+> **v1 登录与付费边界：v1 只做一个可跳过、没有实际权限作用的登录页面，不接 Sign in with Apple，不创建真实账户。会员、StoreKit 订阅、entitlement、个人 AI 配额和账户删除全部推迟到 v2。登录或跳过不能影响 v1 的本地与 AI 功能。**
 
 ---
 
@@ -16,7 +22,7 @@
 
 1. 开始写代码前先读 `README.md`（尤其是"关键设计原则"部分），必要时也读 `docs/product-plan.md`。
 2. 每完成一个子任务，把对应的 `[ ]` 改成 `[x]`。
-3. 不要跳着做——按 Step 顺序推进，不要提前实现后面 Step 的功能。
+3. 不要跳着做——先完成 SwiftData 本地迁移，再继续 AI 功能；不要提前接入或测试 CloudKit。
 4. 每次会话结束前，在"更新日志"里追加一条：日期 + 做了什么 + 涉及哪些文件/commit。
 5. 如果发现某个子任务需要拆得更细，可以直接在对应 Step 下面加新的 `[ ]` 行。
 
@@ -24,32 +30,39 @@
 
 ## Roadmap 详细进度
 
-### Step 0：环境搭建 👈 当前阶段
+### Step 0：基础环境与架构调整
 - [x] 创建 GitHub 仓库
 - [x] 编写 README.md
 - [x] 编写 docs/product-plan.md
 - [x] 建 Xcode 项目（macOS App target）
-- [x] 建 Supabase 项目，拿到 Project URL / anon key
-- [x] 申请 OpenAI API Key
-- [x] 配置 `.env.example`（列出需要哪些环境变量，但不填真实值）
-- [x] 把 OpenAI API Key 配置到 Supabase Edge Function 环境变量（确认没有写进客户端代码或提交到 git）
+- [x] 明确采用 SwiftData 本地优先架构，CloudKit 推迟到 v1 之后
+- [x] 明确 v1 后端只做最小 Claude API 代理；账户、订阅和按用户用量网关推迟到 v2
+- [ ] 申请/确认 Anthropic API Key，并只配置到代理服务端环境变量
+- [x] 更新或移除旧 `.env.example` 中的 Supabase / OpenAI 配置
 
-### Step 1：数据模型 + 登录
-- [x] 在 Supabase 建 `badge_categories` 表
-- [x] 在 Supabase 建 `user_badges` 表
-- [x] 在 Supabase 建 `tasks` 表
-- [x] 在 Supabase 建 `evidence` 表
-- [x] 在 Supabase 建 `xp_logs` 表
-- [x] 把上述表结构存成 `supabase/migrations/` 里的 SQL 文件
-- [x] 客户端接入 Supabase Auth
-- [x] 做登录 / 注册页面（SwiftUI）
+### Step 1：SwiftData 本地模型与持久化 👈 当前阶段
+- [x] 定义 `BadgeCategory` SwiftData 模型
+- [x] 定义 `UserBadge` SwiftData 模型
+- [x] 定义 `TaskContract` SwiftData 模型
+- [x] 定义 `Evidence` SwiftData 模型（图片使用外部存储）
+- [x] 定义 `XPLog` SwiftData 模型
+- [x] 在 App 中配置 SwiftData model container
+- [ ] 验证断网时的本地增删改查与重启持久化（需在 Xcode/模拟器中手动验证）
+- [x] 移除 Supabase Auth 登录门槛，让应用直接进入本地主界面
+- [x] 移除 Supabase 客户端依赖、Secrets 配置与废弃代码
+- [x] 确认迁移完成后再移除 `supabase/` 旧方案目录
 
-### Step 2：自然语言生成任务契约
-- [ ] 写 `supabase/functions/generate-task` Edge Function
-- [ ] 设计 prompt，要求 ChatGPT 严格返回 JSON（title / deadline / evidence_requirement / suggested_badge / suggested_xp）
-- [ ] 客户端：输入框 + 调用该 function
+### Step 2：登录占位页 + AI 代理 + 任务契约生成
+- [x] 制作登录页面和跳过入口（只做 UI 占位，不接真实认证）
+- [x] 确认登录或跳过后的功能完全相同，登录状态不参与任何权限判断
+- [ ] 选择 Cloudflare Workers 或 Vercel Functions，创建不保存业务数据的最小代理
+- [ ] 写带全局限流、请求大小限制和预算保护的 `generate-task` 端点
+- [ ] 设计 prompt，要求 Claude 严格返回 JSON（title / deadline / evidence_requirement / suggested_badge / suggested_xp）
+- [ ] 为代理加入输入校验、全局限流、Anthropic 用量告警和硬预算上限
+- [ ] 客户端：输入框 + 调用代理
 - [ ] 客户端：渲染可编辑表单（标题/截止时间/验收标准/所属勋章都可改）
-- [ ] 客户端：确认按钮，确认后写入 `tasks` 表
+- [ ] 客户端：确认按钮，确认后写入 SwiftData
+- [ ] 网络失败时保留输入并支持稍后重试
 
 ### Step 3：任务列表与本地提醒
 - [ ] SwiftUI 主界面：待办任务列表
@@ -58,14 +71,16 @@
 
 ### Step 4：证据提交与 AI 核验
 - [ ] 客户端：PhotosPicker 选图 / 拍照
-- [ ] 图片上传到 Supabase Storage
-- [ ] 写 `supabase/functions/verify-evidence` Edge Function
+- [ ] 压缩并把证据副本保存到本地 SwiftData 外部存储
+- [ ] 写带全局限流和预算保护的 `verify-evidence` 端点
+- [ ] 确认证据图片只在请求期间处理，服务端不持久化
 - [ ] 设计 prompt：传入图片 + 锁定的 `evidence_requirement`，返回三态结果 + 解释
 - [ ] 客户端：展示 Verified / Need More Proof / Not Verified
 - [ ] 客户端：`Need More Proof` 时支持补交证据
+- [ ] 把核验结果写回 SwiftData；失败时保留待核验记录以便重试
 
 ### Step 5：勋章与成就系统
-- [ ] EXP 累加逻辑（写入 `xp_logs`，更新 `user_badges`）
+- [ ] EXP 累加逻辑（写入 `XPLog`，更新 `UserBadge`）
 - [ ] 等级计算逻辑
 - [ ] Library 页面：按勋章分类回顾历史任务和证据截图
 - [ ] 首页周小结（本周完成率、连续天数、勋章进度条）
@@ -85,6 +100,7 @@
 ### Step 8：打磨与上架准备
 - [ ] UI 细节打磨
 - [ ] 补充空状态 / 错误态页面
+- [ ] 验证登录页可跳过，且不会阻塞任何 v1 功能
 - [ ] Mac App Store 上架素材（截图、描述等，如决定上架）
 
 ### Step 9：迁移到 iOS
@@ -92,12 +108,43 @@
 - [ ] 适配触屏交互（拍照直接上传等）
 - [ ] 适配小屏布局
 
+### v1 之后：CloudKit 同步（不属于当前 roadmap）
+
+- [ ] 配置 iCloud / CloudKit capability 和 container
+- [ ] 实现并展示同步状态与错误状态
+- [ ] 验证 CloudKit 恢复联网后的自动同步
+- [ ] 验证 Mac 与 iPhone 之间的跨设备同步
+- [ ] 测试同步冲突、离线恢复和证据图片同步
+
+> 上述任务在 v1 完成前不得开始，也不计入 v1 的开发进度或验收标准。
+
+### v2：真实账户、会员与订阅（不属于当前 roadmap）
+
+- [ ] 接入 Sign in with Apple capability、真实登录和安全会话
+- [ ] 建立 `UserAccount` / `SubscriptionEntitlement` / `UsageLedger` 服务端模型
+- [ ] 在 App Store Connect 配置 StoreKit 2 自动续期订阅产品
+- [ ] 实现购买、恢复购买、交易更新监听和服务端 entitlement 验证
+- [ ] 使用 `appAccountToken` 关联 LifeMedals 账户与 StoreKit 交易
+- [ ] 定义免费版/会员版周期 AI 配额并实现按用户计量与限流
+- [ ] 实现 App 内账户删除、服务端数据清理和 Sign in with Apple token 撤销
+- [ ] 测试购买、续费、过期、退款、恢复购买、额度重置和超额拒绝
+- [ ] 完成会员权益说明、订阅管理入口、隐私政策及数据删除说明
+
+> v2 商业化任务不得提前进入 v1；v1 只需要把产品最基本闭环跑通。
+
 ---
 
 ## 更新日志
 
 <!-- 每条记录格式：YYYY-MM-DD | 做了什么 | 涉及文件/commit -->
 
+- 2026-07-30 | 恢复登录页（重新实现为 v1 可跳过占位 UI，不接真实认证/账户，登录与跳过效果完全相同）；`LifeMedalsApp` 用本地 `@State` 控制展示 LoginView 或 ContentView，不做持久化、不影响 SwiftData/AI 功能；`xcodebuild` 编译通过 | LifeMedals/LifeMedals/LifeMedals/LoginView.swift, LifeMedalsApp.swift, docs/progress.md
+
 - 2026-07-29 | 创建 GitHub 仓库，编写 README.md 和 docs/product-plan.md，创建本 PROGRESS.md | README.md, docs/product-plan.md, PROGRESS.md
 - 2026-07-29 | 配置 .env.example，列出 SUPABASE_URL / SUPABASE_ANON_KEY / SUPABASE_SERVICE_ROLE_KEY / OPENAI_API_KEY 等环境变量（含本地开发注释） | .env.example, docs/progress.md
 - 2026-07-29 | 做登录 / 注册页面（SwiftUI，Liquid Glass 风格），接入 Supabase Auth（signIn/signUp/signOut/authStateChanges），新增 Secrets.swift（gitignored）管理本地密钥，App 根据登录状态在 LoginView / ContentView 间切换，本地 xcodebuild 编译通过 | LifeMedals/LifeMedals/LifeMedals/LoginView.swift, AuthViewModel.swift, SupabaseManager.swift, Secrets.swift, Secrets.example.txt, LifeMedalsApp.swift, ContentView.swift, .gitignore, docs/progress.md
+- 2026-07-30 | 调整技术架构为 SwiftData 本地优先 + CloudKit 自动同步；取消应用登录和 Supabase 数据层；后端缩减为无状态 Claude API 代理，并重排开发路线 | README.md, docs/product-plan.md, docs/progress.md
+- 2026-07-30 | 收紧 v1 范围：v1 只做 SwiftData 单设备本地持久化；CloudKit 接入、跨设备同步及全部相关测试推迟到 v1 之后 | README.md, docs/product-plan.md, docs/progress.md
+- 2026-07-30 | 完成 Supabase → SwiftData 迁移：新增 `BadgeCategory`/`UserBadge`/`TaskContract`/`Evidence`/`XPLog` SwiftData 模型并接入 App 的 model container；移除 Supabase Auth 登录门槛、SupabaseManager、Secrets.swift/Secrets.example.txt、SPM 的 supabase-swift 包依赖（project.pbxproj、Package.resolved）以及旧 `supabase/migrations` 目录；`.env.example` 改为仅列出无状态 AI 代理所需的 `ANTHROPIC_API_KEY`；`xcodebuild` 编译通过 | LifeMedals/LifeMedals/LifeMedals/Models/BadgeCategory.swift, UserBadge.swift, TaskContract.swift, Evidence.swift, XPLog.swift, LifeMedalsApp.swift, ContentView.swift, LifeMedals/LifeMedals.xcodeproj/project.pbxproj, .env.example, .gitignore, docs/progress.md
+- 2026-07-30 | 补充账户与商业化架构：本地功能游客可用，AI/会员功能使用 Sign in with Apple；StoreKit 2 管理订阅；后端改为最小化账户、entitlement、AI 用量与限流网关，仍不保存任务和证据；CloudKit 继续推迟到 v1 之后 | README.md, docs/product-plan.md, docs/progress.md
+- 2026-07-30 | 再次收紧 v1：登录页仅作可跳过的 UI 占位且没有实际权限作用；Sign in with Apple、会员、StoreKit 订阅、entitlement 和个人 AI 配额全部推迟到 v2；v1 只跑通本地数据、AI 契约与证据核验闭环 | README.md, docs/product-plan.md, docs/progress.md
