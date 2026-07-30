@@ -163,10 +163,10 @@ open LifeMedals/LifeMedals.xcodeproj
 
 在确定代理平台后，任选其一完成配置：
 
-- **Cloudflare Workers**：进入目标 Worker → **Settings → Variables and Secrets**，新增加密 Secret `OPENAI_API_KEY`，值填已申请的 Key，然后重新部署。也可在 Worker 项目目录运行 `npx wrangler secret put OPENAI_API_KEY`，按交互提示粘贴 Key；不要把 Key 直接写在命令参数中。
+- **Cloudflare Workers**：本仓库的 Worker 位于 `worker/`。从 GitHub 导入时将 Project name 设为 `lifemedals-api`、Build command 留空、Deploy command 保持 `npx wrangler deploy`，并在 Advanced settings 中将 Root directory 设为 `worker`。首次部署后进入目标 Worker → **Settings → Variables and Secrets**，新增加密 Secret `OPENAI_API_KEY`，值填已申请的 Key，然后重新部署。也可在 `worker/` 目录运行 `npx wrangler secret put OPENAI_API_KEY`，按交互提示粘贴 Key；不要把 Key 直接写在命令参数中。
 - **Vercel Functions**：进入目标 Project → **Settings → Environment Variables**，新增敏感变量 `OPENAI_API_KEY`，按需勾选 Production / Preview / Development，然后重新部署。
 
-代理代码只从运行环境读取 Key：Cloudflare Workers 使用 `env.OPENAI_API_KEY`，Vercel Functions 使用 `process.env.OPENAI_API_KEY`。部署后调用一次代理健康检查或测试端点，只确认变量“存在”，不要返回或打印变量值。OpenAI 项目中另行设置用量/支出告警；代理仍需实现自己的请求限流与硬预算拒绝逻辑。
+代理代码只从运行环境读取 Key：Cloudflare Workers 使用 `env.OPENAI_API_KEY`，Vercel Functions 使用 `process.env.OPENAI_API_KEY`。Cloudflare 部署完成后访问 `GET /health`；配置 Secret 前返回 503，配置成功后返回 200。不要返回或打印变量值。OpenAI 项目中另行设置用量/支出告警；代理仍需实现自己的全局请求限流与硬预算拒绝逻辑。
 
 ---
 

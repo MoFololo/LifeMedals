@@ -56,10 +56,10 @@
 ### Step 2：登录占位页 + AI 代理 + 任务契约生成
 - [x] 制作登录页面和跳过入口（只做 UI 占位，不接真实认证）
 - [x] 确认登录或跳过后的功能完全相同，登录状态不参与任何权限判断
-- [ ] 选择 Cloudflare Workers 或 Vercel Functions，创建不保存业务数据的最小代理
-- [ ] 写带全局限流、请求大小限制和预算保护的 `generate-task` 端点
-- [ ] 设计 prompt 和 JSON Schema，使用 OpenAI Structured Outputs 返回 title / deadline / evidence_requirement / suggested_badge / suggested_xp
-- [ ] 为代理加入输入校验、全局限流、OpenAI 项目用量/支出告警和代理端硬预算上限
+- [x] 选择 Cloudflare Workers，创建不保存业务数据的最小代理工程
+- [x] 实现带输入与请求大小校验的 `generate-task` 端点
+- [x] 设计 prompt 和 JSON Schema，使用 OpenAI Structured Outputs 返回 title / deadline / evidence_requirement / suggested_badge / suggested_xp
+- [ ] 为代理加入全局限流、OpenAI 项目用量/支出告警和代理端硬预算上限
 - [ ] 客户端：输入框 + 调用代理
 - [ ] 客户端：渲染可编辑表单（标题/截止时间/验收标准/所属勋章都可改）
 - [ ] 客户端：确认按钮，确认后写入 SwiftData
@@ -138,6 +138,8 @@
 ## 更新日志
 
 <!-- 每条记录格式：YYYY-MM-DD | 做了什么 | 涉及文件/commit -->
+
+- 2026-07-30 | 创建 Cloudflare Worker 最小 OpenAI 代理：新增 Wrangler 工程配置、`GET /health` 与 `POST /generate-task`；服务端读取 `OPENAI_API_KEY`，调用 Responses API `gpt-5.6-terra` 并用 Structured Outputs 返回任务契约；加入请求大小/字段校验、超时与安全错误处理、`store: false`；Wrangler dry-run 与模拟请求测试通过，尚未部署或配置 Secret | worker/package.json, worker/package-lock.json, worker/wrangler.jsonc, worker/src/index.ts, README.md, docs/progress.md
 
 - 2026-07-30 | 将当前 AI 方案从 Anthropic/Claude 迁移为 OpenAI Responses API：默认模型设为 `gpt-5.6-terra`，结构化结果改用 Structured Outputs，服务端密钥统一为 `OPENAI_API_KEY`；已确认 OpenAI API Key 申请完成，待选定代理平台后配置加密环境变量 | README.md, docs/product-plan.md, docs/progress.md, .env.example
 
