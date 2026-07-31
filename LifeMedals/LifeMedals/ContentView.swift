@@ -1,14 +1,36 @@
-//
-//  ContentView.swift
-//  LifeMedals
-//
-//  Created by David Da Lian on 2026/7/29.
-//
-
 import SwiftUI
 import SwiftData
 
 struct ContentView: View {
+    private enum AppPage: String, CaseIterable, Identifiable {
+        case create
+        case tasks
+        case medals
+
+        var id: Self { self }
+
+        var title: String {
+            switch self {
+            case .create: "新任务"
+            case .tasks: "任务"
+            case .medals: "勋章"
+            }
+        }
+
+        var icon: String {
+            switch self {
+            case .create: "plus"
+            case .tasks: "checklist"
+            case .medals: "medal"
+            }
+        }
+    }
+
+    private enum CreationPhase {
+        case composing
+        case reviewing
+    }
+
     private static let badgeOptions = [
         "Problem Solver",
         "Builder",
@@ -17,15 +39,17 @@ struct ContentView: View {
     ]
 
     @Environment(\.modelContext) private var modelContext
-    @Query private var badgeCategories: [BadgeCategory]
-    @Query private var taskContracts: [TaskContract]
+    @Query(sort: \TaskContract.createdAt, order: .reverse) private var taskContracts: [TaskContract]
+    @Query(sort: \BadgeCategory.createdAt) private var badgeCategories: [BadgeCategory]
 
     @AppStorage("pendingTaskInput") private var taskInput = ""
+    @State private var selectedPage = AppPage.create
+    @State private var creationPhase = CreationPhase.composing
     @State private var isGenerating = false
     @State private var errorMessage: String?
     @State private var savedMessage: String?
+    @FocusState private var isTaskInputFocused: Bool
 
-    @State private var showsDraft = false
     @State private var draftTitle = ""
     @State private var draftDeadline = Date.now.addingTimeInterval(24 * 60 * 60)
     @State private var draftEvidenceRequirement = ""
@@ -36,226 +60,413 @@ struct ContentView: View {
 
     var body: some View {
         ZStack {
-            backgroundView
+            GlassBackground()
 
-            GlassEffectContainer(spacing: 18) {
-                ScrollView {
-                    VStack(alignment: .leading, spacing: 18) {
-                        header
+            VStack(spacing: 0) {
+                topNavigation
+                    .padding(.top, 22)
+                    .padding(.horizontal, 28)
 
-                        HStack(alignment: .top, spacing: 18) {
-                            inputCard
-                            if showsDraft {
-                                contractCard
-                            } else {
-                                emptyContractCard
-                            }
-                        }
-
-                        if let savedMessage {
-                            statusBanner(
-                                icon: "checkmark.circle.fill",
-                                message: savedMessage,
-                                color: .green
-                            )
-                        }
+                ZStack {
+                    switch selectedPage {
+                    case .create:
+                        creationPage
+                            .transition(pageTransition)
+                    case .tasks:
+                        taskListPage
+                            .transition(pageTransition)
+                    case .medals:
+                        medalsPage
+                            .transition(pageTransition)
                     }
-                    .padding(28)
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
+
+            if let savedMessage {
+                saveConfirmation(message: savedMessage)
+                    .transition(.move(edge: .top).combined(with: .opacity))
+                    .zIndex(10)
             }
         }
         .frame(minWidth: 920, minHeight: 680)
+        .preferredColorScheme(.light)
+        .animation(.smooth(duration: 0.42), value: selectedPage)
+        .animation(.smooth(duration: 0.42), value: creationPhase)
+        .animation(.smooth(duration: 0.32), value: savedMessage)
+        .onAppear(perform: focusTaskInput)
+        .onChange(of: selectedPage) { _, page in
+            if page == .create, creationPhase == .composing {
+                focusTaskInput()
+            }
+        }
     }
 
-    // MARK: - Main sections
+    // MARK: - Navigation
 
-    private var header: some View {
-        HStack(spacing: 14) {
-            ZStack {
-                Circle()
-                    .fill(.white.opacity(0.12))
-                    .frame(width: 54, height: 54)
-                Image(systemName: "medal.fill")
-                    .font(.system(size: 25, weight: .semibold))
-                    .foregroundStyle(.yellow)
+    private var topNavigation: some View {
+        ZStack {
+            HStack {
+                HStack(spacing: 10) {
+                    Image(systemName: "medal.fill")
+                        .font(.system(size: 18, weight: .semibold))
+                        .foregroundStyle(.orange)
+                    Text("人生勋章")
+                        .font(.headline)
+                }
+                .padding(.horizontal, 15)
+                .padding(.vertical, 10)
+                .glassEffect(.regular, in: Capsule())
+
+                Spacer()
+
+                Text("本机保存")
+                    .font(.caption.weight(.medium))
+                    .foregroundStyle(.secondary)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 10)
+                    .glassEffect(.regular, in: Capsule())
             }
 
-            VStack(alignment: .leading, spacing: 3) {
-                Text("创建一份任务契约")
-                    .font(.title.bold())
-                Text("说出你准备完成的事，AI 会把它整理成可编辑的行动计划。")
-                    .foregroundStyle(.secondary)
+            GlassEffectContainer(spacing: 10) {
+                HStack(spacing: 10) {
+                    ForEach(AppPage.allCases) { page in
+                        Button {
+                            withAnimation(.smooth(duration: 0.38)) {
+                                selectedPage = page
+                            }
+                        } label: {
+                            Label(page.title, systemImage: page.icon)
+                                .font(.subheadline.weight(selectedPage == page ? .semibold : .medium))
+                                .foregroundStyle(selectedPage == page ? .primary : .secondary)
+                                .padding(.horizontal, 16)
+                                .padding(.vertical, 10)
+                        }
+                        .buttonStyle(.plain)
+                        .contentShape(Capsule())
+                        .glassEffect(
+                            .regular
+                                .tint(selectedPage == page ? Color.accentColor.opacity(0.16) : .clear)
+                                .interactive(),
+                            in: Capsule()
+                        )
+                        .accessibilityLabel("切换到\(page.title)页面")
+                    }
+                }
+            }
+        }
+        .frame(height: 48)
+    }
+
+    // MARK: - Creation flow
+
+    @ViewBuilder
+    private var creationPage: some View {
+        switch creationPhase {
+        case .composing:
+            taskComposer
+                .transition(
+                    .asymmetric(
+                        insertion: .opacity.combined(with: .scale(scale: 0.98)),
+                        removal: .opacity.combined(with: .move(edge: .leading))
+                    )
+                )
+        case .reviewing:
+            contractReview
+                .transition(
+                    .asymmetric(
+                        insertion: .opacity.combined(with: .move(edge: .trailing)),
+                        removal: .opacity.combined(with: .scale(scale: 0.98))
+                    )
+                )
+        }
+    }
+
+    private var taskComposer: some View {
+        VStack(spacing: 24) {
+            Spacer()
+
+            VStack(spacing: 18) {
+                TextField("", text: $taskInput, axis: .vertical)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: 30, weight: .regular, design: .rounded))
+                    .multilineTextAlignment(.center)
+                    .lineLimit(1...5)
+                    .focused($isTaskInputFocused)
+                    .frame(maxWidth: 680, minHeight: 48)
+                    .padding(.horizontal, 24)
+                    .accessibilityLabel("输入你想完成的任务")
+                    .onSubmit(generateTask)
+
+                if !trimmedTaskInput.isEmpty || isGenerating || errorMessage != nil {
+                    VStack(spacing: 14) {
+                        Button(action: generateTask) {
+                            HStack(spacing: 9) {
+                                if isGenerating {
+                                    ProgressView()
+                                        .controlSize(.small)
+                                } else {
+                                    Image(systemName: errorMessage == nil ? "arrow.up" : "arrow.clockwise")
+                                }
+                                Text(buttonTitle)
+                                    .fontWeight(.semibold)
+                            }
+                            .padding(.horizontal, 22)
+                            .padding(.vertical, 12)
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(isGenerating || trimmedTaskInput.isEmpty)
+                        .contentShape(Capsule())
+                        .glassEffect(.regular.tint(Color.accentColor.opacity(0.14)).interactive(), in: Capsule())
+                        .transition(.move(edge: .bottom).combined(with: .opacity).combined(with: .scale(scale: 0.94)))
+
+                        if let errorMessage {
+                            statusBanner(icon: "wifi.exclamationmark", message: errorMessage, color: .orange)
+                                .frame(maxWidth: 560)
+                                .transition(.opacity.combined(with: .move(edge: .top)))
+                        }
+                    }
+                }
+            }
+            .animation(.snappy(duration: 0.32), value: trimmedTaskInput.isEmpty)
+            .animation(.smooth(duration: 0.3), value: errorMessage)
+
+            Spacer()
+
+            Text("在这里写下你想完成的事")
+                .font(.caption)
+                .foregroundStyle(.tertiary)
+                .opacity(taskInput.isEmpty && !isTaskInputFocused ? 1 : 0)
+                .padding(.bottom, 24)
+        }
+        .padding(.horizontal, 40)
+        .contentShape(Rectangle())
+        .onTapGesture { isTaskInputFocused = true }
+    }
+
+    private var contractReview: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                HStack(alignment: .top) {
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text("确认任务契约")
+                            .font(.largeTitle.bold())
+                        Text("保存后，验收标准将作为这项任务的约定。")
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Spacer()
+
+                    Button {
+                        withAnimation(.smooth(duration: 0.38)) {
+                            creationPhase = .composing
+                        }
+                        focusTaskInput()
+                    } label: {
+                        Label("返回修改想法", systemImage: "chevron.left")
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 9)
+                    }
+                    .buttonStyle(.plain)
+                    .glassEffect(.regular.interactive(), in: Capsule())
+                }
+
+                VStack(alignment: .leading, spacing: 18) {
+                    contractField("任务标题") {
+                        TextField("任务标题", text: $draftTitle)
+                            .textFieldStyle(.plain)
+                            .font(.title3.weight(.medium))
+                            .padding(14)
+                            .background(.white.opacity(0.46), in: RoundedRectangle(cornerRadius: 14))
+                    }
+
+                    HStack(alignment: .top, spacing: 22) {
+                        contractField("截止时间") {
+                            PlatformWheelDatePicker(selection: $draftDeadline)
+                                .frame(maxWidth: .infinity)
+                        }
+                        .frame(maxWidth: .infinity)
+
+                        VStack(alignment: .leading, spacing: 18) {
+                            contractField("所属勋章") {
+                                Picker("所属勋章", selection: $draftBadge) {
+                                    ForEach(Self.badgeOptions, id: \.self) { badge in
+                                        Label(badgeDisplayName(badge), systemImage: badgeIconName(badge))
+                                            .tag(badge)
+                                    }
+                                }
+                                .labelsHidden()
+                                .pickerStyle(.menu)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                            }
+
+                            contractField("完成奖励") {
+                                Label("+\(draftXP) EXP", systemImage: "sparkles")
+                                    .font(.title3.bold())
+                                    .foregroundStyle(.orange)
+                                    .padding(.vertical, 7)
+                            }
+                        }
+                        .frame(maxWidth: .infinity)
+                    }
+
+                    contractField("验收标准") {
+                        TextEditor(text: $draftEvidenceRequirement)
+                            .font(.body)
+                            .scrollContentBackground(.hidden)
+                            .padding(10)
+                            .frame(minHeight: 105)
+                            .background(.white.opacity(0.46), in: RoundedRectangle(cornerRadius: 14))
+                    }
+
+                    Button(action: saveTask) {
+                        Label("确认并保存到本机", systemImage: "checkmark")
+                            .fontWeight(.semibold)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 13)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(!canSaveDraft)
+                    .opacity(canSaveDraft ? 1 : 0.45)
+                    .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+                    .glassEffect(
+                        .regular.tint(Color.accentColor.opacity(0.16)).interactive(),
+                        in: RoundedRectangle(cornerRadius: 18, style: .continuous)
+                    )
+
+                    if let errorMessage {
+                        statusBanner(icon: "exclamationmark.triangle.fill", message: errorMessage, color: .orange)
+                    }
+                }
+                .padding(24)
+                .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
+            }
+            .frame(maxWidth: 790)
+            .padding(.horizontal, 36)
+            .padding(.vertical, 38)
+            .frame(maxWidth: .infinity)
+        }
+    }
+
+    // MARK: - Task list
+
+    private var taskListPage: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                pageHeader(
+                    title: "任务",
+                    subtitle: taskContracts.isEmpty ? "你保存的契约会出现在这里。" : "\(taskContracts.count) 份契约保存在这台设备上。"
+                )
+
+                if taskContracts.isEmpty {
+                    emptyState(icon: "checklist", title: "还没有任务", message: "从“新任务”开始写下第一件想完成的事。")
+                } else {
+                    LazyVStack(spacing: 14) {
+                        ForEach(taskContracts) { task in
+                            taskRow(task)
+                        }
+                    }
+                }
+            }
+            .frame(maxWidth: 790)
+            .padding(.horizontal, 36)
+            .padding(.vertical, 38)
+            .frame(maxWidth: .infinity)
+        }
+    }
+
+    private func taskRow(_ task: TaskContract) -> some View {
+        HStack(spacing: 16) {
+            Image(systemName: task.badgeCategory?.iconName ?? "medal.fill")
+                .font(.system(size: 20, weight: .semibold))
+                .foregroundStyle(.orange)
+                .frame(width: 44, height: 44)
+                .glassEffect(.regular.tint(.orange.opacity(0.12)), in: Circle())
+
+            VStack(alignment: .leading, spacing: 5) {
+                Text(task.title)
+                    .font(.headline)
+                HStack(spacing: 7) {
+                    Text(task.deadline.formatted(date: .abbreviated, time: .shortened))
+                    Text("·")
+                    Text(task.badgeCategory.map { badgeDisplayName($0.name) } ?? "未分类")
+                }
+                .font(.caption)
+                .foregroundStyle(.secondary)
             }
 
             Spacer()
 
-            VStack(alignment: .trailing, spacing: 2) {
-                Text("\(taskContracts.count)")
-                    .font(.title2.bold())
-                Text("已保存任务")
+            Text("+\(task.xpReward) EXP")
+                .font(.subheadline.bold())
+                .foregroundStyle(.orange)
+        }
+        .padding(18)
+        .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+    }
+
+    // MARK: - Medals
+
+    private var medalsPage: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                pageHeader(title: "勋章", subtitle: "每个领域独立积累经验与等级。")
+
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 230), spacing: 16)], spacing: 16) {
+                    ForEach(Self.badgeOptions, id: \.self) { badge in
+                        medalCard(for: badge)
+                    }
+                }
+            }
+            .frame(maxWidth: 790)
+            .padding(.horizontal, 36)
+            .padding(.vertical, 38)
+            .frame(maxWidth: .infinity)
+        }
+    }
+
+    private func medalCard(for badge: String) -> some View {
+        let category = badgeCategories.first { $0.name == badge }
+        let level = category?.userBadge?.level ?? 1
+        let currentXP = category?.userBadge?.currentXP ?? 0
+        let taskCount = category?.taskContracts.count ?? 0
+
+        return VStack(alignment: .leading, spacing: 16) {
+            HStack {
+                Image(systemName: badgeIconName(badge))
+                    .font(.system(size: 24, weight: .semibold))
+                    .foregroundStyle(.orange)
+                    .frame(width: 50, height: 50)
+                    .glassEffect(.regular.tint(.orange.opacity(0.13)), in: Circle())
+                Spacer()
+                Text("Lv. \(level)")
+                    .font(.headline)
+            }
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(badgeDisplayName(badge))
+                    .font(.headline)
+                Text("\(currentXP) EXP · \(taskCount) 个任务")
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
-            .padding(.horizontal, 18)
-            .padding(.vertical, 10)
-            .glassEffect(.regular, in: Capsule())
         }
-    }
-
-    private var inputCard: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            Label("你想完成什么？", systemImage: "sparkles")
-                .font(.headline)
-
-            TextEditor(text: $taskInput)
-                .font(.body)
-                .scrollContentBackground(.hidden)
-                .padding(12)
-                .frame(minHeight: 170)
-                .background(.white.opacity(0.06), in: RoundedRectangle(cornerRadius: 18))
-                .overlay {
-                    if taskInput.isEmpty {
-                        Text("例如：明晚 10 点前完成两道 LeetCode Medium")
-                            .foregroundStyle(.tertiary)
-                            .padding(18)
-                            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                            .allowsHitTesting(false)
-                    }
-                }
-
-            Text("输入会自动保存在本机。断网或请求失败后，可以原样重试。")
-                .font(.caption)
-                .foregroundStyle(.secondary)
-
-            if let errorMessage {
-                statusBanner(icon: "wifi.exclamationmark", message: errorMessage, color: .orange)
-            }
-
-            Button(action: generateTask) {
-                HStack {
-                    if isGenerating {
-                        ProgressView()
-                            .controlSize(.small)
-                    } else {
-                        Image(systemName: errorMessage == nil ? "wand.and.stars" : "arrow.clockwise")
-                    }
-                    Text(errorMessage == nil ? "生成任务契约" : "保留输入并重试")
-                        .fontWeight(.semibold)
-                }
-                .frame(maxWidth: .infinity)
-                .padding(.vertical, 13)
-            }
-            .buttonStyle(.plain)
-            .disabled(isGenerating || taskInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
-            .opacity(taskInput.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty ? 0.5 : 1)
-            .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-            .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-        }
-        .padding(22)
-        .frame(maxWidth: .infinity, alignment: .topLeading)
-        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
-    }
-
-    private var contractCard: some View {
-        VStack(alignment: .leading, spacing: 16) {
-            HStack {
-                Label("确认任务契约", systemImage: "doc.text.fill")
-                    .font(.headline)
-                Spacer()
-                Text("可编辑")
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(.secondary)
-            }
-
-            fieldLabel("任务标题")
-            TextField("任务标题", text: $draftTitle)
-                .textFieldStyle(.plain)
-                .padding(12)
-                .background(.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 14))
-
-            fieldLabel("截止时间")
-            DatePicker(
-                "截止时间",
-                selection: $draftDeadline,
-                displayedComponents: [.date, .hourAndMinute]
-            )
-            .labelsHidden()
-
-            fieldLabel("验收标准")
-            TextEditor(text: $draftEvidenceRequirement)
-                .scrollContentBackground(.hidden)
-                .padding(10)
-                .frame(minHeight: 105)
-                .background(.white.opacity(0.07), in: RoundedRectangle(cornerRadius: 14))
-
-            HStack(spacing: 16) {
-                VStack(alignment: .leading, spacing: 7) {
-                    fieldLabel("所属勋章")
-                    Picker("所属勋章", selection: $draftBadge) {
-                        ForEach(Self.badgeOptions, id: \.self) { badge in
-                            Text(badgeDisplayName(badge)).tag(badge)
-                        }
-                    }
-                    .labelsHidden()
-                }
-
-                Spacer()
-
-                VStack(alignment: .trailing, spacing: 7) {
-                    fieldLabel("完成奖励")
-                    Text("+\(draftXP) EXP")
-                        .font(.headline)
-                        .foregroundStyle(.yellow)
-                }
-            }
-
-            Button(action: saveTask) {
-                Label("确认并保存到本机", systemImage: "checkmark.circle.fill")
-                    .fontWeight(.semibold)
-                    .frame(maxWidth: .infinity)
-                    .padding(.vertical, 13)
-            }
-            .buttonStyle(.plain)
-            .disabled(!canSaveDraft)
-            .opacity(canSaveDraft ? 1 : 0.5)
-            .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-            .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
-        }
-        .padding(22)
-        .frame(maxWidth: .infinity, alignment: .topLeading)
-        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
-    }
-
-    private var emptyContractCard: some View {
-        VStack(spacing: 15) {
-            Image(systemName: "doc.badge.plus")
-                .font(.system(size: 42, weight: .light))
-                .foregroundStyle(.secondary)
-            Text("生成结果会出现在这里")
-                .font(.headline)
-            Text("标题、日期、验收标准和勋章都可以在保存前修改。")
-                .font(.subheadline)
-                .foregroundStyle(.secondary)
-                .multilineTextAlignment(.center)
-        }
-        .frame(maxWidth: .infinity, minHeight: 360)
-        .padding(22)
-        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
+        .padding(20)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
     }
 
     // MARK: - Actions
 
     private func generateTask() {
-        let input = taskInput.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !input.isEmpty else { return }
+        guard !trimmedTaskInput.isEmpty, !isGenerating else { return }
 
         isGenerating = true
         errorMessage = nil
-        savedMessage = nil
 
         Task {
             do {
-                let contract = try await generationService.generate(from: input)
+                let contract = try await generationService.generate(from: trimmedTaskInput)
                 guard let deadline = contract.parsedDeadline else {
                     throw TaskGenerationError.invalidResponse
                 }
@@ -267,7 +478,10 @@ struct ContentView: View {
                     ? contract.suggestedBadge
                     : Self.badgeOptions[0]
                 draftXP = contract.suggestedXP
-                showsDraft = true
+
+                withAnimation(.smooth(duration: 0.46)) {
+                    creationPhase = .reviewing
+                }
             } catch {
                 errorMessage = friendlyMessage(for: error)
             }
@@ -285,10 +499,7 @@ struct ContentView: View {
             if let existingCategory = badgeCategories.first(where: { $0.name == draftBadge }) {
                 category = existingCategory
             } else {
-                category = BadgeCategory(
-                    name: draftBadge,
-                    iconName: badgeIconName(draftBadge)
-                )
+                category = BadgeCategory(name: draftBadge, iconName: badgeIconName(draftBadge))
                 let userBadge = UserBadge(category: category)
                 category.userBadge = userBadge
                 modelContext.insert(category)
@@ -305,10 +516,20 @@ struct ContentView: View {
             modelContext.insert(task)
             try modelContext.save()
 
-            savedMessage = "“\(title)”已保存，可在断网状态下继续访问。"
             taskInput = ""
             errorMessage = nil
-            showsDraft = false
+            withAnimation(.smooth(duration: 0.44)) {
+                creationPhase = .composing
+                savedMessage = "“\(title)”已保存到本机"
+            }
+            focusTaskInput()
+
+            Task {
+                try? await Task.sleep(for: .seconds(2.5))
+                withAnimation(.smooth(duration: 0.3)) {
+                    savedMessage = nil
+                }
+            }
         } catch {
             errorMessage = "保存失败：\(error.localizedDescription)"
         }
@@ -316,9 +537,28 @@ struct ContentView: View {
 
     // MARK: - Helpers
 
+    private var pageTransition: AnyTransition {
+        .opacity.combined(with: .scale(scale: 0.985))
+    }
+
+    private var trimmedTaskInput: String {
+        taskInput.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var buttonTitle: String {
+        if isGenerating { return "正在整理契约" }
+        return errorMessage == nil ? "提交" : "保留输入并重试"
+    }
+
     private var canSaveDraft: Bool {
         !draftTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
             !draftEvidenceRequirement.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private func focusTaskInput() {
+        Task { @MainActor in
+            isTaskInputFocused = true
+        }
     }
 
     private func friendlyMessage(for error: Error) -> String {
@@ -335,31 +575,12 @@ struct ContentView: View {
         return error.localizedDescription
     }
 
-    private func fieldLabel(_ title: String) -> some View {
-        Text(title)
-            .font(.caption.weight(.semibold))
-            .foregroundStyle(.secondary)
-    }
-
-    private func statusBanner(icon: String, message: String, color: Color) -> some View {
-        HStack(alignment: .top, spacing: 10) {
-            Image(systemName: icon)
-                .foregroundStyle(color)
-            Text(message)
-                .font(.subheadline)
-                .fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: 0)
-        }
-        .padding(13)
-        .background(color.opacity(0.10), in: RoundedRectangle(cornerRadius: 15))
-    }
-
     private func badgeDisplayName(_ badge: String) -> String {
         switch badge {
-        case "Problem Solver": "解题者 · Problem Solver"
-        case "Builder": "创造者 · Builder"
-        case "Career": "职业成长 · Career"
-        case "Athlete": "运动者 · Athlete"
+        case "Problem Solver": "解题者"
+        case "Builder": "创造者"
+        case "Career": "职业成长"
+        case "Athlete": "运动者"
         default: badge
         }
     }
@@ -374,34 +595,72 @@ struct ContentView: View {
         }
     }
 
-    private var backgroundView: some View {
-        ZStack {
-            LinearGradient(
-                colors: [
-                    Color(red: 0.035, green: 0.045, blue: 0.13),
-                    Color(red: 0.10, green: 0.045, blue: 0.16),
-                    Color(red: 0.025, green: 0.09, blue: 0.14)
-                ],
-                startPoint: .topLeading,
-                endPoint: .bottomTrailing
-            )
-            Circle()
-                .fill(.purple.opacity(0.46))
-                .frame(width: 460, height: 460)
-                .blur(radius: 135)
-                .offset(x: -360, y: -250)
-            Circle()
-                .fill(.blue.opacity(0.42))
-                .frame(width: 430, height: 430)
-                .blur(radius: 140)
-                .offset(x: 380, y: 250)
-            Circle()
-                .fill(.pink.opacity(0.24))
-                .frame(width: 340, height: 340)
-                .blur(radius: 130)
-                .offset(x: 330, y: -270)
+    private func contractField<Content: View>(
+        _ title: String,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Text(title)
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+            content()
         }
-        .ignoresSafeArea()
+    }
+
+    private func pageHeader(title: String, subtitle: String) -> some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(title)
+                .font(.largeTitle.bold())
+            Text(subtitle)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private func emptyState(icon: String, title: String, message: String) -> some View {
+        VStack(spacing: 13) {
+            Image(systemName: icon)
+                .font(.system(size: 36, weight: .light))
+                .foregroundStyle(.secondary)
+            Text(title)
+                .font(.headline)
+            Text(message)
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, minHeight: 330)
+        .padding(24)
+        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
+    }
+
+    private func statusBanner(icon: String, message: String, color: Color) -> some View {
+        HStack(alignment: .top, spacing: 10) {
+            Image(systemName: icon)
+                .foregroundStyle(color)
+            Text(message)
+                .font(.subheadline)
+                .fixedSize(horizontal: false, vertical: true)
+            Spacer(minLength: 0)
+        }
+        .padding(13)
+        .background(.white.opacity(0.42), in: RoundedRectangle(cornerRadius: 15))
+        .glassEffect(.regular.tint(color.opacity(0.08)), in: RoundedRectangle(cornerRadius: 15))
+    }
+
+    private func saveConfirmation(message: String) -> some View {
+        VStack {
+            HStack(spacing: 10) {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(.green)
+                Text(message)
+                    .font(.subheadline.weight(.semibold))
+            }
+            .padding(.horizontal, 18)
+            .padding(.vertical, 12)
+            .glassEffect(.regular.tint(.green.opacity(0.10)), in: Capsule())
+
+            Spacer()
+        }
+        .padding(.top, 82)
     }
 }
 

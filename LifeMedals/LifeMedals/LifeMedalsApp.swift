@@ -19,10 +19,18 @@ struct LifeMedalsApp: App {
             Group {
                 if hasEnteredApp {
                     ContentView()
+                        .transition(.opacity.combined(with: .scale(scale: 1.015)))
                 } else {
-                    LoginView(onContinue: { hasEnteredApp = true })
+                    LoginView {
+                        withAnimation(.smooth(duration: 0.52)) {
+                            hasEnteredApp = true
+                        }
+                    }
+                    .transition(.opacity.combined(with: .scale(scale: 0.985)))
                 }
             }
+            .preferredColorScheme(.light)
+            .animation(.smooth(duration: 0.52), value: hasEnteredApp)
         }
         .modelContainer(for: [
             BadgeCategory.self,
