@@ -63,6 +63,142 @@ struct ContentView: View {
         }
     }
 
+    private struct MouseDragSwipeRow<Content: View>: View {
+        enum SecondaryAction {
+            case archive
+            case restore
+
+            var title: String {
+                switch self {
+                case .archive: "归档"
+                case .restore: "取消归档"
+                }
+            }
+
+            var icon: String {
+                switch self {
+                case .archive: "archivebox.fill"
+                case .restore: "tray.and.arrow.up.fill"
+                }
+            }
+
+            var tint: Color {
+                switch self {
+                case .archive: .orange
+                case .restore: .accentColor
+                }
+            }
+        }
+
+        private let revealWidth: CGFloat = 116
+        private let secondaryAction: SecondaryAction
+        private let onSelect: () -> Void
+        private let onSecondaryAction: () -> Void
+        private let onDelete: () -> Void
+        private let content: Content
+
+        @State private var settledOffset: CGFloat = 0
+        @GestureState private var dragTranslation: CGFloat = 0
+
+        init(
+            secondaryAction: SecondaryAction,
+            onSelect: @escaping () -> Void,
+            onSecondaryAction: @escaping () -> Void,
+            onDelete: @escaping () -> Void,
+            @ViewBuilder content: () -> Content
+        ) {
+            self.secondaryAction = secondaryAction
+            self.onSelect = onSelect
+            self.onSecondaryAction = onSecondaryAction
+            self.onDelete = onDelete
+            self.content = content()
+        }
+
+        var body: some View {
+            ZStack(alignment: .trailing) {
+                HStack(spacing: 8) {
+                    mouseActionButton(
+                        title: secondaryAction.title,
+                        icon: secondaryAction.icon,
+                        tint: secondaryAction.tint,
+                        action: onSecondaryAction
+                    )
+                    mouseActionButton(
+                        title: "删除",
+                        icon: "trash.fill",
+                        tint: .red,
+                        action: onDelete
+                    )
+                }
+                .padding(.trailing, 4)
+                .opacity(displayedOffset < -4 ? 1 : 0)
+
+                content
+                    .offset(x: displayedOffset)
+                    .contentShape(Rectangle())
+                    .onTapGesture {
+                        if settledOffset < 0 {
+                            closeActions()
+                        } else {
+                            onSelect()
+                        }
+                    }
+            }
+            .clipped()
+            .contentShape(Rectangle())
+            .simultaneousGesture(mouseDragGesture)
+            .accessibilityAddTraits(.isButton)
+        }
+
+        private var displayedOffset: CGFloat {
+            min(0, max(-revealWidth, settledOffset + dragTranslation))
+        }
+
+        private var mouseDragGesture: some Gesture {
+            DragGesture(minimumDistance: 6, coordinateSpace: .local)
+                .updating($dragTranslation) { value, translation, _ in
+                    guard abs(value.translation.width) > abs(value.translation.height) else { return }
+                    translation = value.translation.width
+                }
+                .onEnded { value in
+                    guard abs(value.translation.width) > abs(value.translation.height) else { return }
+                    let projectedOffset = settledOffset + value.predictedEndTranslation.width
+                    withAnimation(.snappy(duration: 0.24)) {
+                        settledOffset = projectedOffset < -(revealWidth * 0.34) ? -revealWidth : 0
+                    }
+                }
+        }
+
+        private func mouseActionButton(
+            title: String,
+            icon: String,
+            tint: Color,
+            action: @escaping () -> Void
+        ) -> some View {
+            Button {
+                closeActions()
+                action()
+            } label: {
+                Image(systemName: icon)
+                    .font(.system(size: 15, weight: .semibold))
+                    .foregroundStyle(.white)
+                    .frame(width: 50)
+                    .frame(maxHeight: .infinity)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .background(tint, in: RoundedRectangle(cornerRadius: 15, style: .continuous))
+            .accessibilityLabel(title)
+            .help(title)
+        }
+
+        private func closeActions() {
+            withAnimation(.snappy(duration: 0.22)) {
+                settledOffset = 0
+            }
+        }
+    }
+
     private static let badgeOptions = [
         "Problem Solver",
         "Builder",
@@ -85,6 +221,7 @@ struct ContentView: View {
     @State private var reminderFeedback: String?
     @State private var reminderFeedbackIsError = false
     @State private var selectedTaskTab = TaskListTab.unfinished
+    @State private var isShowingArchivedTasks = false
     @FocusState private var isTaskInputFocused: Bool
 
     @State private var draftTitle = ""
@@ -448,7 +585,11 @@ struct ContentView: View {
 
     private var taskListRoot: some View {
         TimelineView(.periodic(from: .now, by: 60)) { context in
-            taskListRoot(now: context.date)
+            if isShowingArchivedTasks {
+                archivedTaskListRoot(now: context.date)
+            } else {
+                taskListRoot(now: context.date)
+            }
         }
     }
 
@@ -462,39 +603,143 @@ struct ContentView: View {
         case .overdue: overdueTasks
         }
 
-        return ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                pageHeader(
-                    title: "任务",
-                    subtitle: taskContracts.isEmpty
-                        ? "你保存的任务契约会出现在这里。"
-                        : "\(unfinishedTasks.count) 项未完成 · \(completedTasks.count) 项已完成 · \(overdueTasks.count) 项已逾期，全部保存在这台设备上。"
-                )
+        return List {
+            taskListHeader(
+                unfinishedCount: unfinishedTasks.count,
+                completedCount: completedTasks.count,
+                overdueCount: overdueTasks.count
+            )
+            .listRowBackground(Color.clear)
+            .listRowSeparator(.hidden)
+            .listRowInsets(EdgeInsets(top: 38, leading: 36, bottom: 12, trailing: 36))
 
-                taskListTabs(
-                    unfinishedCount: unfinishedTasks.count,
-                    completedCount: completedTasks.count,
-                    overdueCount: overdueTasks.count
-                )
-
-                reminderStatusBanner
-
-                if selectedTasks.isEmpty {
-                    taskListEmptyState(for: selectedTaskTab)
-                } else {
-                    LazyVStack(spacing: 14) {
-                        ForEach(selectedTasks) { task in
-                            taskRow(task, now: now)
-                        }
+            if selectedTasks.isEmpty {
+                taskListEmptyState(for: selectedTaskTab)
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+                    .listRowInsets(EdgeInsets(top: 8, leading: 36, bottom: 36, trailing: 36))
+            } else {
+                ForEach(selectedTasks) { task in
+                    MouseDragSwipeRow(
+                        secondaryAction: .archive,
+                        onSelect: { openTask(task) },
+                        onSecondaryAction: { archiveTask(task) },
+                        onDelete: { deleteTask(task) }
+                    ) {
+                        taskRow(task, now: now)
                     }
-                    .transition(.opacity.combined(with: .move(edge: .bottom)))
+                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                            taskSwipeActions(for: task, isArchived: false)
+                        }
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
+                        .listRowInsets(EdgeInsets(top: 7, leading: 36, bottom: 7, trailing: 36))
                 }
             }
-            .frame(maxWidth: 790)
-            .padding(.horizontal, 36)
-            .padding(.vertical, 38)
-            .frame(maxWidth: .infinity)
         }
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+    }
+
+    private func taskListHeader(
+        unfinishedCount: Int,
+        completedCount: Int,
+        overdueCount: Int
+    ) -> some View {
+        VStack(alignment: .leading, spacing: 20) {
+            HStack(alignment: .top, spacing: 12) {
+                Button {
+                    withAnimation(.smooth(duration: 0.3)) {
+                        isShowingArchivedTasks = true
+                    }
+                } label: {
+                    Image(systemName: "archivebox")
+                        .font(.system(size: 14, weight: .semibold))
+                        .frame(width: 32, height: 32)
+                }
+                .buttonStyle(.plain)
+                .glassEffect(.regular.interactive(), in: Circle())
+                .accessibilityLabel("查看已归档任务")
+                .help("查看已归档任务")
+
+                pageHeader(
+                    title: "任务",
+                    subtitle: activeTaskContracts.isEmpty
+                        ? "你保存的任务契约会出现在这里。"
+                        : "\(unfinishedCount) 项未完成 · \(completedCount) 项已完成 · \(overdueCount) 项已逾期，全部保存在这台设备上。"
+                )
+            }
+
+            taskListTabs(
+                unfinishedCount: unfinishedCount,
+                completedCount: completedCount,
+                overdueCount: overdueCount
+            )
+
+            reminderStatusBanner
+        }
+        .frame(maxWidth: 790, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    private func archivedTaskListRoot(now: Date) -> some View {
+        let archivedTasks = taskContracts
+            .filter(\.isArchived)
+            .sorted { ($0.archivedAt ?? $0.createdAt) > ($1.archivedAt ?? $1.createdAt) }
+
+        return List {
+            HStack(alignment: .top, spacing: 12) {
+                Button {
+                    withAnimation(.smooth(duration: 0.3)) {
+                        isShowingArchivedTasks = false
+                    }
+                } label: {
+                    Image(systemName: "chevron.left")
+                        .font(.system(size: 13, weight: .bold))
+                        .frame(width: 32, height: 32)
+                }
+                .buttonStyle(.plain)
+                .glassEffect(.regular.interactive(), in: Circle())
+                .accessibilityLabel("返回任务")
+                .help("返回任务")
+
+                pageHeader(
+                    title: "已归档",
+                    subtitle: archivedTasks.isEmpty ? "归档的任务会保存在这里，不会出现在任务状态列表中。" : "共 \(archivedTasks.count) 项已归档任务。"
+                )
+            }
+            .frame(maxWidth: 790, alignment: .leading)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .listRowBackground(Color.clear)
+            .listRowSeparator(.hidden)
+            .listRowInsets(EdgeInsets(top: 38, leading: 36, bottom: 12, trailing: 36))
+
+            if archivedTasks.isEmpty {
+                emptyState(icon: "archivebox", title: "还没有已归档任务", message: "向左滑动任何任务，即可将它归档。")
+                    .listRowBackground(Color.clear)
+                    .listRowSeparator(.hidden)
+                    .listRowInsets(EdgeInsets(top: 8, leading: 36, bottom: 36, trailing: 36))
+            } else {
+                ForEach(archivedTasks) { task in
+                    MouseDragSwipeRow(
+                        secondaryAction: .restore,
+                        onSelect: { openTask(task) },
+                        onSecondaryAction: { restoreTask(task) },
+                        onDelete: { deleteTask(task) }
+                    ) {
+                        taskRow(task, now: now)
+                    }
+                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+                            taskSwipeActions(for: task, isArchived: true)
+                        }
+                        .listRowBackground(Color.clear)
+                        .listRowSeparator(.hidden)
+                        .listRowInsets(EdgeInsets(top: 7, leading: 36, bottom: 7, trailing: 36))
+                }
+            }
+        }
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
     }
 
     private func taskListTabs(
@@ -551,7 +796,7 @@ struct ContentView: View {
 
     @ViewBuilder
     private func taskListEmptyState(for tab: TaskListTab) -> some View {
-        if taskContracts.isEmpty {
+        if activeTaskContracts.isEmpty {
             emptyState(icon: "checklist", title: "还没有任务", message: "从“新任务”开始写下第一件想完成的事。")
         } else {
             switch tab {
@@ -566,56 +811,74 @@ struct ContentView: View {
     }
 
     private func taskRow(_ task: TaskContract, now: Date) -> some View {
-        Button {
-            withAnimation(.smooth(duration: 0.4)) {
-                selectedTask = task
+        HStack(spacing: 16) {
+            Image(systemName: task.badgeCategory?.iconName ?? "medal.fill")
+                .font(.system(size: 20, weight: .semibold))
+                .foregroundStyle(.orange)
+                .frame(width: 44, height: 44)
+                .glassEffect(.regular.tint(.orange.opacity(0.12)), in: Circle())
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text(task.title)
+                    .font(.headline)
+                    .foregroundStyle(.primary)
+                    .lineLimit(2)
+                HStack(spacing: 7) {
+                    Label(
+                        task.deadline.formatted(date: .abbreviated, time: .shortened),
+                        systemImage: task.deadline <= now ? "clock.badge.exclamationmark" : "clock"
+                    )
+                    Text("·")
+                    Text(task.badgeCategory.map { badgeDisplayName($0.name) } ?? "未分类")
+                }
+                .font(.caption)
+                .foregroundStyle(task.deadline <= now && task.status != .verified ? .red : .secondary)
             }
-        } label: {
-            HStack(spacing: 16) {
-                Image(systemName: task.badgeCategory?.iconName ?? "medal.fill")
-                    .font(.system(size: 20, weight: .semibold))
+
+            Spacer()
+
+            VStack(alignment: .trailing, spacing: 9) {
+                Text(taskListStatusTitle(for: task, now: now))
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(taskListStatusColor(for: task, now: now))
+                    .lineLimit(1)
+                Text("+\(task.xpReward) EXP")
+                    .font(.subheadline.bold())
                     .foregroundStyle(.orange)
-                    .frame(width: 44, height: 44)
-                    .glassEffect(.regular.tint(.orange.opacity(0.12)), in: Circle())
-
-                VStack(alignment: .leading, spacing: 6) {
-                    Text(task.title)
-                        .font(.headline)
-                        .foregroundStyle(.primary)
-                        .lineLimit(2)
-                    HStack(spacing: 7) {
-                        Label(
-                            task.deadline.formatted(date: .abbreviated, time: .shortened),
-                            systemImage: task.deadline <= now ? "clock.badge.exclamationmark" : "clock"
-                        )
-                        Text("·")
-                        Text(task.badgeCategory.map { badgeDisplayName($0.name) } ?? "未分类")
-                    }
-                    .font(.caption)
-                    .foregroundStyle(task.deadline <= now && task.status != .verified ? .red : .secondary)
-                }
-
-                Spacer()
-
-                VStack(alignment: .trailing, spacing: 9) {
-                    Text(taskListStatusTitle(for: task, now: now))
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(taskListStatusColor(for: task, now: now))
-                        .lineLimit(1)
-                    Text("+\(task.xpReward) EXP")
-                        .font(.subheadline.bold())
-                        .foregroundStyle(.orange)
-                    Image(systemName: "chevron.right")
-                        .font(.caption.weight(.semibold))
-                        .foregroundStyle(.tertiary)
-                }
+                Image(systemName: "chevron.right")
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.tertiary)
             }
-            .padding(18)
-            .contentShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
         }
-        .buttonStyle(.plain)
+        .padding(18)
+        .contentShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
         .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
         .accessibilityHint("查看任务契约详情")
+    }
+
+    @ViewBuilder
+    private func taskSwipeActions(for task: TaskContract, isArchived: Bool) -> some View {
+        Button(role: .destructive) {
+            deleteTask(task)
+        } label: {
+            Label("删除", systemImage: "trash")
+        }
+
+        if isArchived {
+            Button {
+                restoreTask(task)
+            } label: {
+                Label("取消归档", systemImage: "tray.and.arrow.up")
+            }
+            .tint(.accentColor)
+        } else {
+            Button {
+                archiveTask(task)
+            } label: {
+                Label("归档", systemImage: "archivebox")
+            }
+            .tint(.orange)
+        }
     }
 
     private func taskDetailPage(_ task: TaskContract) -> some View {
@@ -713,9 +976,16 @@ struct ContentView: View {
                 .padding(22)
                 .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
 
-                EvidenceSubmissionView(task: task)
-
-                taskReminderDetail(for: task)
+                if task.isArchived {
+                    statusBanner(
+                        icon: "archivebox.fill",
+                        message: "这项任务已归档。向左滑动并选择“取消归档”后，才能继续提交证据。",
+                        color: .orange
+                    )
+                } else {
+                    EvidenceSubmissionView(task: task)
+                    taskReminderDetail(for: task)
+                }
             }
             .frame(maxWidth: 790)
             .padding(.horizontal, 36)
@@ -861,6 +1131,46 @@ struct ContentView: View {
         }
     }
 
+    private func openTask(_ task: TaskContract) {
+        withAnimation(.smooth(duration: 0.4)) {
+            selectedTask = task
+        }
+    }
+
+    private func archiveTask(_ task: TaskContract) {
+        task.archivedAt = .now
+        persistTaskChange(successMessage: "“\(task.title)”已归档")
+    }
+
+    private func restoreTask(_ task: TaskContract) {
+        task.archivedAt = nil
+        persistTaskChange(successMessage: "“\(task.title)”已恢复到任务列表")
+    }
+
+    private func deleteTask(_ task: TaskContract) {
+        modelContext.delete(task)
+        persistTaskChange(successMessage: "“\(task.title)”已删除")
+    }
+
+    private func persistTaskChange(successMessage: String) {
+        do {
+            try modelContext.save()
+            withAnimation(.smooth(duration: 0.3)) {
+                savedMessage = successMessage
+            }
+            Task {
+                await restoreTaskReminders()
+                try? await Task.sleep(for: .seconds(2.5))
+                withAnimation(.smooth(duration: 0.3)) {
+                    savedMessage = nil
+                }
+            }
+        } catch {
+            reminderFeedback = "任务更新失败：\(error.localizedDescription)"
+            reminderFeedbackIsError = true
+        }
+    }
+
     // MARK: - Helpers
 
     private var pageTransition: AnyTransition {
@@ -882,7 +1192,7 @@ struct ContentView: View {
     }
 
     private var pendingTasks: [TaskContract] {
-        taskContracts
+        activeTaskContracts
             .filter { $0.status != .verified }
             .sorted {
                 if ($0.deadline < .now) != ($1.deadline < .now) {
@@ -892,8 +1202,12 @@ struct ContentView: View {
             }
     }
 
+    private var activeTaskContracts: [TaskContract] {
+        taskContracts.filter { !$0.isArchived }
+    }
+
     private func tasks(in tab: TaskListTab, now: Date) -> [TaskContract] {
-        taskContracts
+        activeTaskContracts
             .filter { task in
                 switch tab {
                 case .unfinished:

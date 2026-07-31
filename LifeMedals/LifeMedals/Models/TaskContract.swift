@@ -34,6 +34,8 @@ final class TaskContract {
     var xpReward: Int
     var statusRawValue: String
     var createdAt: Date
+    /// Nil means the task is active. Optional storage keeps existing local stores migration-compatible.
+    var archivedAt: Date?
 
     var badgeCategory: BadgeCategory?
 
@@ -46,6 +48,10 @@ final class TaskContract {
     var status: TaskStatus {
         get { TaskStatus(rawValue: statusRawValue) ?? .pending }
         set { statusRawValue = newValue.rawValue }
+    }
+
+    var isArchived: Bool {
+        archivedAt != nil
     }
 
     var requiredEvidenceImageCount: Int {
@@ -80,6 +86,7 @@ final class TaskContract {
         xpReward: Int,
         status: TaskStatus = .pending,
         createdAt: Date = .now,
+        archivedAt: Date? = nil,
         badgeCategory: BadgeCategory? = nil
     ) {
         self.id = id
@@ -97,6 +104,7 @@ final class TaskContract {
         self.xpReward = xpReward
         self.statusRawValue = status.rawValue
         self.createdAt = createdAt
+        self.archivedAt = archivedAt
         self.badgeCategory = badgeCategory
     }
 }
