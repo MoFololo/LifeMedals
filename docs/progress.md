@@ -6,9 +6,9 @@
 
 ## 当前状态
 
-**阶段**：Step 1 - SwiftData 本地模型与持久化（迁移已完成，待手动验证）
-**已完成**：Xcode macOS 项目、基础 UI；已定义 SwiftData 核心模型并接入 model container；已移除 Supabase 客户端依赖、Secrets、登录门槛和 `supabase/` 目录
-**下一步该做什么**：部署 Worker、配置客户端代理地址与 OpenAI 项目支出告警；随后在 Xcode 中端到端测试契约生成，并手动验证断网时的本地增删改查与重启持久化
+**阶段**：Step 3 - 任务列表与本地提醒（已完成）
+**已完成**：SwiftData 待办任务列表、契约详情页、截止时间系统通知；通知权限或调度失败不会影响任务本地保存
+**下一步该做什么**：进入 Step 4，实现本地证据选取、保存与 AI 核验；同时保留 Step 1 的断网增删改查和重启持久化手动验证
 
 > 2026-07-30 架构已调整为本地优先。下方 2026-07-29 的 Supabase 条目保留为历史记录，不代表当前技术方向；迁移完成后不再依赖 Supabase Postgres、Auth、Storage 或 Edge Functions。
 >
@@ -41,7 +41,7 @@
 - [x] 选定代理平台后，将 Key 仅以 `OPENAI_API_KEY` 配置到代理服务端加密环境变量/Secret
 - [x] 更新或移除旧 `.env.example` 中的 Supabase 配置
 
-### Step 1：SwiftData 本地模型与持久化 👈 当前阶段
+### Step 1：SwiftData 本地模型与持久化
 - [x] 定义 `BadgeCategory` SwiftData 模型
 - [x] 定义 `UserBadge` SwiftData 模型
 - [x] 定义 `TaskContract` SwiftData 模型
@@ -67,10 +67,10 @@
 - [x] 客户端：确认按钮，确认后写入 SwiftData
 - [x] 网络失败时保留输入并支持稍后重试
 
-### Step 3：任务列表与本地提醒
-- [ ] SwiftUI 主界面：待办任务列表
-- [ ] 任务详情页（查看契约内容）
-- [ ] 截止时间本地通知（系统 Notification）
+### Step 3：任务列表与本地提醒 👈 当前阶段
+- [x] SwiftUI 主界面：待办任务列表
+- [x] 任务详情页（查看契约内容）
+- [x] 截止时间本地通知（系统 Notification）
 
 ### Step 4：证据提交与 AI 核验
 - [ ] 客户端：PhotosPicker 选图 / 拍照
@@ -157,3 +157,5 @@
 - 2026-07-30 | 完成 Supabase → SwiftData 迁移：新增 `BadgeCategory`/`UserBadge`/`TaskContract`/`Evidence`/`XPLog` SwiftData 模型并接入 App 的 model container；移除 Supabase Auth 登录门槛、SupabaseManager、Secrets.swift/Secrets.example.txt、SPM 的 supabase-swift 包依赖（project.pbxproj、Package.resolved）以及旧 `supabase/migrations` 目录；`.env.example` 改为仅列出无状态 AI 代理所需的 `ANTHROPIC_API_KEY`；`xcodebuild` 编译通过 | LifeMedals/LifeMedals/LifeMedals/Models/BadgeCategory.swift, UserBadge.swift, TaskContract.swift, Evidence.swift, XPLog.swift, LifeMedalsApp.swift, ContentView.swift, LifeMedals/LifeMedals.xcodeproj/project.pbxproj, .env.example, .gitignore, docs/progress.md
 - 2026-07-30 | 补充账户与商业化架构：本地功能游客可用，AI/会员功能使用 Sign in with Apple；StoreKit 2 管理订阅；后端改为最小化账户、entitlement、AI 用量与限流网关，仍不保存任务和证据；CloudKit 继续推迟到 v1 之后 | README.md, docs/product-plan.md, docs/progress.md
 - 2026-07-30 | 再次收紧 v1：登录页仅作可跳过的 UI 占位且没有实际权限作用；Sign in with Apple、会员、StoreKit 订阅、entitlement 和个人 AI 配额全部推迟到 v2；v1 只跑通本地数据、AI 契约与证据核验闭环 | README.md, docs/product-plan.md, docs/progress.md
+
+- 2026-07-31 | 完成 Step 3：任务页按截止时间展示 SwiftData 待办契约，支持逾期状态与 Liquid Glass 契约详情；新增 UserNotifications 本地截止提醒，保存未来任务时请求权限并按稳定任务 UUID 调度，应用启动后恢复/清理提醒，前台也显示系统横幅，权限拒绝或调度失败不影响任务保存；macOS Debug 构建通过 | LifeMedals/LifeMedals/ContentView.swift, LifeMedals/LifeMedals/TaskNotificationService.swift, docs/progress.md

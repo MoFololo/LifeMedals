@@ -48,6 +48,10 @@ struct ContentView: View {
     @State private var isGenerating = false
     @State private var errorMessage: String?
     @State private var savedMessage: String?
+    @State private var selectedTask: TaskContract?
+    @State private var reminderAuthorization = ReminderAuthorizationState.notDetermined
+    @State private var reminderFeedback: String?
+    @State private var reminderFeedbackIsError = false
     @FocusState private var isTaskInputFocused: Bool
 
     @State private var draftTitle = ""
@@ -57,6 +61,7 @@ struct ContentView: View {
     @State private var draftXP = 10
 
     private let generationService = TaskGenerationService()
+    private let notificationService = TaskNotificationService()
 
     var body: some View {
         ZStack {
@@ -94,11 +99,17 @@ struct ContentView: View {
         .animation(.smooth(duration: 0.42), value: selectedPage)
         .animation(.smooth(duration: 0.42), value: creationPhase)
         .animation(.smooth(duration: 0.32), value: savedMessage)
-        .onAppear(perform: focusTaskInput)
+        .onAppear {
+            notificationService.configureForegroundPresentation()
+            focusTaskInput()
+        }
         .onChange(of: selectedPage) { _, page in
             if page == .create, creationPhase == .composing {
                 focusTaskInput()
             }
+        }
+        .task {
+            await restoreTaskReminders()
         }
     }
 
@@ -134,6 +145,9 @@ struct ContentView: View {
                         Button {
                             withAnimation(.smooth(duration: 0.38)) {
                                 selectedPage = page
+                                if page == .tasks {
+                                    selectedTask = nil
+                                }
                             }
                         } label: {
                             Label(page.title, systemImage: page.icon)
@@ -350,19 +364,42 @@ struct ContentView: View {
 
     // MARK: - Task list
 
+    @ViewBuilder
     private var taskListPage: some View {
+        if let selectedTask {
+            taskDetailPage(selectedTask)
+                .transition(
+                    .asymmetric(
+                        insertion: .opacity.combined(with: .move(edge: .trailing)),
+                        removal: .opacity.combined(with: .move(edge: .leading))
+                    )
+                )
+        } else {
+            taskListRoot
+                .transition(
+                    .asymmetric(
+                        insertion: .opacity.combined(with: .move(edge: .leading)),
+                        removal: .opacity.combined(with: .move(edge: .trailing))
+                    )
+                )
+        }
+    }
+
+    private var taskListRoot: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 pageHeader(
                     title: "任务",
-                    subtitle: taskContracts.isEmpty ? "你保存的契约会出现在这里。" : "\(taskContracts.count) 份契约保存在这台设备上。"
+                    subtitle: pendingTasks.isEmpty ? "你保存的待办契约会出现在这里。" : "\(pendingTasks.count) 项待办任务保存在这台设备上。"
                 )
 
-                if taskContracts.isEmpty {
-                    emptyState(icon: "checklist", title: "还没有任务", message: "从“新任务”开始写下第一件想完成的事。")
+                reminderStatusBanner
+
+                if pendingTasks.isEmpty {
+                    emptyState(icon: "checklist", title: "没有待办任务", message: "从“新任务”开始写下第一件想完成的事。")
                 } else {
                     LazyVStack(spacing: 14) {
-                        ForEach(taskContracts) { task in
+                        ForEach(pendingTasks) { task in
                             taskRow(task)
                         }
                     }
@@ -376,33 +413,142 @@ struct ContentView: View {
     }
 
     private func taskRow(_ task: TaskContract) -> some View {
-        HStack(spacing: 16) {
-            Image(systemName: task.badgeCategory?.iconName ?? "medal.fill")
-                .font(.system(size: 20, weight: .semibold))
-                .foregroundStyle(.orange)
-                .frame(width: 44, height: 44)
-                .glassEffect(.regular.tint(.orange.opacity(0.12)), in: Circle())
-
-            VStack(alignment: .leading, spacing: 5) {
-                Text(task.title)
-                    .font(.headline)
-                HStack(spacing: 7) {
-                    Text(task.deadline.formatted(date: .abbreviated, time: .shortened))
-                    Text("·")
-                    Text(task.badgeCategory.map { badgeDisplayName($0.name) } ?? "未分类")
-                }
-                .font(.caption)
-                .foregroundStyle(.secondary)
+        Button {
+            withAnimation(.smooth(duration: 0.4)) {
+                selectedTask = task
             }
+        } label: {
+            HStack(spacing: 16) {
+                Image(systemName: task.badgeCategory?.iconName ?? "medal.fill")
+                    .font(.system(size: 20, weight: .semibold))
+                    .foregroundStyle(.orange)
+                    .frame(width: 44, height: 44)
+                    .glassEffect(.regular.tint(.orange.opacity(0.12)), in: Circle())
 
-            Spacer()
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(task.title)
+                        .font(.headline)
+                        .foregroundStyle(.primary)
+                        .lineLimit(2)
+                    HStack(spacing: 7) {
+                        Label(
+                            task.deadline.formatted(date: .abbreviated, time: .shortened),
+                            systemImage: task.deadline < .now ? "clock.badge.exclamationmark" : "clock"
+                        )
+                        Text("·")
+                        Text(task.badgeCategory.map { badgeDisplayName($0.name) } ?? "未分类")
+                    }
+                    .font(.caption)
+                    .foregroundStyle(task.deadline < .now ? .red : .secondary)
+                }
 
-            Text("+\(task.xpReward) EXP")
-                .font(.subheadline.bold())
-                .foregroundStyle(.orange)
+                Spacer()
+
+                VStack(alignment: .trailing, spacing: 9) {
+                    Text("+\(task.xpReward) EXP")
+                        .font(.subheadline.bold())
+                        .foregroundStyle(.orange)
+                    Image(systemName: "chevron.right")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.tertiary)
+                }
+            }
+            .padding(18)
+            .contentShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
         }
-        .padding(18)
+        .buttonStyle(.plain)
         .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .accessibilityHint("查看任务契约详情")
+    }
+
+    private func taskDetailPage(_ task: TaskContract) -> some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                HStack(alignment: .top, spacing: 18) {
+                    Button {
+                        withAnimation(.smooth(duration: 0.4)) {
+                            selectedTask = nil
+                        }
+                    } label: {
+                        Label("返回任务", systemImage: "chevron.left")
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 9)
+                    }
+                    .buttonStyle(.plain)
+                    .glassEffect(.regular.interactive(), in: Capsule())
+
+                    VStack(alignment: .leading, spacing: 7) {
+                        Text(task.title)
+                            .font(.largeTitle.bold())
+                            .fixedSize(horizontal: false, vertical: true)
+                        Text("任务契约")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Spacer()
+
+                    statusPill(for: task)
+                }
+
+                LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 16)], spacing: 16) {
+                    detailCard(
+                        title: "截止时间",
+                        value: task.deadline.formatted(date: .long, time: .shortened),
+                        icon: task.deadline < .now ? "clock.badge.exclamationmark" : "calendar.badge.clock",
+                        tint: task.deadline < .now ? .red : .accentColor
+                    )
+                    detailCard(
+                        title: "所属勋章",
+                        value: task.badgeCategory.map { badgeDisplayName($0.name) } ?? "未分类",
+                        icon: task.badgeCategory?.iconName ?? "medal.fill",
+                        tint: .orange
+                    )
+                    detailCard(
+                        title: "完成奖励",
+                        value: "+\(task.xpReward) EXP",
+                        icon: "sparkles",
+                        tint: .orange
+                    )
+                }
+
+                VStack(alignment: .leading, spacing: 14) {
+                    HStack {
+                        Label("验收标准", systemImage: "doc.text.magnifyingglass")
+                            .font(.headline)
+                        Spacer()
+                        Label("已锁定", systemImage: "lock.fill")
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(.secondary)
+                            .padding(.horizontal, 11)
+                            .padding(.vertical, 7)
+                            .glassEffect(.regular, in: Capsule())
+                    }
+
+                    Text(task.evidenceRequirement)
+                        .font(.body)
+                        .foregroundStyle(.primary)
+                        .lineSpacing(5)
+                        .textSelection(.enabled)
+                        .fixedSize(horizontal: false, vertical: true)
+
+                    Divider()
+                        .opacity(0.45)
+
+                    Text("创建于 \(task.createdAt.formatted(date: .long, time: .shortened))")
+                        .font(.caption)
+                        .foregroundStyle(.tertiary)
+                }
+                .padding(22)
+                .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+
+                taskReminderDetail(for: task)
+            }
+            .frame(maxWidth: 790)
+            .padding(.horizontal, 36)
+            .padding(.vertical, 38)
+            .frame(maxWidth: .infinity)
+        }
     }
 
     // MARK: - Medals
@@ -515,6 +661,9 @@ struct ContentView: View {
             )
             modelContext.insert(task)
             try modelContext.save()
+            scheduleReminderAfterSave(
+                LocalTaskReminder(taskID: task.id, title: task.title, deadline: task.deadline)
+            )
 
             taskInput = ""
             errorMessage = nil
@@ -553,6 +702,143 @@ struct ContentView: View {
     private var canSaveDraft: Bool {
         !draftTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
             !draftEvidenceRequirement.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var pendingTasks: [TaskContract] {
+        taskContracts
+            .filter { $0.status != .verified }
+            .sorted {
+                if ($0.deadline < .now) != ($1.deadline < .now) {
+                    return $0.deadline < .now
+                }
+                return $0.deadline < $1.deadline
+            }
+    }
+
+    @ViewBuilder
+    private var reminderStatusBanner: some View {
+        if let reminderFeedback {
+            statusBanner(
+                icon: reminderFeedbackIsError ? "bell.slash.fill" : "bell.badge.fill",
+                message: reminderFeedback,
+                color: reminderFeedbackIsError ? .orange : .green
+            )
+        } else {
+            switch reminderAuthorization {
+            case .authorized:
+                statusBanner(icon: "bell.badge.fill", message: "截止提醒已开启；未来任务会在截止时间发送系统通知。", color: .green)
+            case .denied:
+                statusBanner(icon: "bell.slash.fill", message: "系统通知已关闭。任务仍会保存在本机；可在系统设置中为 LifeMedals 开启通知。", color: .orange)
+            case .notDetermined:
+                statusBanner(icon: "bell", message: "保存未来任务时，系统会询问是否允许截止提醒。", color: .accentColor)
+            }
+        }
+    }
+
+    private func detailCard(title: String, value: String, icon: String, tint: Color) -> some View {
+        HStack(spacing: 14) {
+            Image(systemName: icon)
+                .font(.system(size: 18, weight: .semibold))
+                .foregroundStyle(tint)
+                .frame(width: 40, height: 40)
+                .glassEffect(.regular.tint(tint.opacity(0.10)), in: Circle())
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(.caption.weight(.semibold))
+                    .foregroundStyle(.secondary)
+                Text(value)
+                    .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(.primary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(17)
+        .frame(maxWidth: .infinity, minHeight: 78, alignment: .leading)
+        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 21, style: .continuous))
+    }
+
+    private func statusPill(for task: TaskContract) -> some View {
+        let presentation: (title: String, icon: String, color: Color) = switch task.status {
+        case .pending:
+            (task.deadline < .now ? "已逾期" : "待完成", task.deadline < .now ? "exclamationmark.circle.fill" : "circle.dashed", task.deadline < .now ? .red : .accentColor)
+        case .awaitingVerification:
+            ("等待核验", "hourglass", .accentColor)
+        case .verified:
+            ("已完成", "checkmark.circle.fill", .green)
+        case .needMoreProof:
+            ("需补充证据", "photo.badge.plus", .orange)
+        case .notVerified:
+            ("未通过核验", "xmark.circle.fill", .red)
+        }
+
+        return Label(presentation.title, systemImage: presentation.icon)
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(presentation.color)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .glassEffect(.regular.tint(presentation.color.opacity(0.10)), in: Capsule())
+    }
+
+    @ViewBuilder
+    private func taskReminderDetail(for task: TaskContract) -> some View {
+        if task.deadline <= .now {
+            statusBanner(icon: "clock.badge.exclamationmark", message: "这项任务已过截止时间，不再安排新的系统提醒。", color: .red)
+        } else {
+            switch reminderAuthorization {
+            case .authorized:
+                statusBanner(
+                    icon: "bell.badge.fill",
+                    message: "将在 \(task.deadline.formatted(date: .long, time: .shortened)) 发送本地通知。",
+                    color: .green
+                )
+            case .denied:
+                statusBanner(icon: "bell.slash.fill", message: "系统通知权限已关闭；任务本身不受影响。", color: .orange)
+            case .notDetermined:
+                statusBanner(icon: "bell", message: "尚未授予通知权限。新建任务时可以开启截止提醒。", color: .accentColor)
+            }
+        }
+    }
+
+    private func scheduleReminderAfterSave(_ reminder: LocalTaskReminder) {
+        Task {
+            do {
+                let state = try await notificationService.requestAuthorizationAndSchedule(reminder)
+                reminderAuthorization = state
+                switch state {
+                case .authorized:
+                    reminderFeedback = reminder.deadline > .now
+                        ? "任务已保存，截止提醒也已安排。"
+                        : "任务已保存；截止时间已过，因此没有安排提醒。"
+                    reminderFeedbackIsError = false
+                case .denied:
+                    reminderFeedback = "任务已保存，但系统通知未开启。可稍后在系统设置中允许通知。"
+                    reminderFeedbackIsError = true
+                case .notDetermined:
+                    reminderFeedback = "任务已保存，但暂未取得系统通知权限。"
+                    reminderFeedbackIsError = true
+                }
+            } catch {
+                reminderFeedback = "任务已保存，但提醒安排失败：\(error.localizedDescription)"
+                reminderFeedbackIsError = true
+            }
+        }
+    }
+
+    @MainActor
+    private func restoreTaskReminders() async {
+        let reminders = pendingTasks.map {
+            LocalTaskReminder(taskID: $0.id, title: $0.title, deadline: $0.deadline)
+        }
+
+        do {
+            reminderAuthorization = try await notificationService.synchronize(reminders)
+        } catch {
+            reminderFeedback = "已读取本地任务，但恢复截止提醒失败：\(error.localizedDescription)"
+            reminderFeedbackIsError = true
+        }
     }
 
     private func focusTaskInput() {
