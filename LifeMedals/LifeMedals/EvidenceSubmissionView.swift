@@ -47,6 +47,7 @@ struct EvidenceSubmissionView: View {
     @State private var isWorking = false
     @State private var feedbackMessage: String?
     @State private var feedbackIsError = false
+    @State private var cardSize: CGSize = .zero
     @FocusState private var isDraftAreaFocused: Bool
 
     private let verificationService = EvidenceVerificationService()
@@ -87,6 +88,42 @@ struct EvidenceSubmissionView: View {
         }
         .padding(22)
         .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .onGeometryChange(for: CGSize.self) { proxy in
+            proxy.size
+        } action: { newSize in
+            cardSize = newSize
+        }
+        .focusable()
+        .focused($isDraftAreaFocused)
+        .focusEffectDisabled()
+        .onPasteCommand(of: [.image]) { providers in
+            guard !isWorking, remainingDraftSlots > 0 else { return }
+            importItemProviders(providers, targetSlot: nil)
+        }
+        // Registered here, outside/after `.glassEffect(...)`, rather than on the
+        // individual photo slots. Liquid Glass rendering was found to swallow
+        // `onDrop` hit-testing for any descendant nested inside a
+        // `.glassEffect`-wrapped view, so a single delegate-based onDrop on the
+        // card's own boundary (routed to the right slot via drop location) is
+        // used instead.
+        .onDrop(
+            of: [UTType.image, UTType.fileURL],
+            delegate: EvidenceDropDelegate(
+                requiredImageCount: requiredImageCount,
+                cardWidth: cardSize.width,
+                isWorking: isWorking,
+                setHighlight: { isHovering, slot in
+                    if requiredImageCount <= 2 {
+                        targetedFixedSlot = isHovering ? slot : nil
+                    } else {
+                        isBulkDropTargeted = isHovering
+                    }
+                },
+                performImport: { providers, slot in
+                    importItemProviders(providers, targetSlot: slot)
+                }
+            )
+        )
         .fileImporter(
             isPresented: $isFileImporterPresented,
             allowedContentTypes: [.image],
@@ -100,6 +137,59 @@ struct EvidenceSubmissionView: View {
         }
         .onAppear {
             isDraftAreaFocused = true
+        }
+    }
+
+    /// Location-routed drop handler attached to the outer card boundary (see
+    /// the comment at its call site for why it isn't attached to the
+    /// individual photo slots directly).
+    private struct EvidenceDropDelegate: DropDelegate {
+        let requiredImageCount: Int
+        let cardWidth: CGFloat
+        let isWorking: Bool
+        let setHighlight: (Bool, Int?) -> Void
+        let performImport: ([NSItemProvider], Int?) -> Void
+
+        private static let acceptedTypes: [UTType] = [.image, .fileURL]
+
+        func validateDrop(info: DropInfo) -> Bool {
+            info.hasItemsConforming(to: Self.acceptedTypes)
+        }
+
+        func dropEntered(info: DropInfo) {
+            setHighlight(true, targetSlot(for: info))
+        }
+
+        func dropUpdated(info: DropInfo) -> DropProposal? {
+            setHighlight(true, targetSlot(for: info))
+            return DropProposal(operation: .copy)
+        }
+
+        func dropExited(info: DropInfo) {
+            setHighlight(false, nil)
+        }
+
+        func performDrop(info: DropInfo) -> Bool {
+            setHighlight(false, nil)
+            guard !isWorking else { return false }
+            let providers = info.itemProviders(for: Self.acceptedTypes)
+            guard !providers.isEmpty else { return false }
+            performImport(providers, targetSlot(for: info))
+            return true
+        }
+
+        /// Only 1- and 2-image tasks map the drop location to a specific slot
+        /// (left half / right half of the card); >2-image tasks just add to
+        /// the next available slot regardless of where the drop lands.
+        private func targetSlot(for info: DropInfo) -> Int? {
+            switch requiredImageCount {
+            case 1:
+                return 0
+            case 2:
+                return cardWidth > 0 && info.location.x >= cardWidth / 2 ? 1 : 0
+            default:
+                return nil
+            }
         }
     }
 
@@ -176,32 +266,19 @@ struct EvidenceSubmissionView: View {
                 .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
-        .focusable()
-        .focused($isDraftAreaFocused)
-        .onPasteCommand(of: [.image]) { providers in
-            guard !isWorking, remainingDraftSlots > 0 else { return }
-            importItemProviders(providers, targetSlot: nil)
-        }
         .animation(.smooth(duration: 0.3), value: isWorking)
         .animation(.smooth(duration: 0.25), value: draftImages.count)
     }
 
     private var singleImageLayout: some View {
-        VStack(alignment: .leading, spacing: 10) {
-            evidenceDescription(for: 0)
-            fixedImageSlot(index: 0, sideLength: 360)
-                .frame(maxWidth: .infinity)
-        }
+        fixedImageSlot(index: 0, sideLength: 360)
+            .frame(maxWidth: .infinity)
     }
 
     private var twoImageLayout: some View {
         HStack(alignment: .top, spacing: 18) {
             ForEach(0..<2, id: \.self) { index in
-                VStack(alignment: .leading, spacing: 10) {
-                    evidenceDescription(for: index)
-                    fixedImageSlot(index: index, sideLength: 320)
-                }
-                .frame(maxWidth: .infinity, alignment: .topLeading)
+                fixedImageSlot(index: index, sideLength: 320, expandsToFillWidth: true)
             }
         }
     }
@@ -253,20 +330,7 @@ struct EvidenceSubmissionView: View {
         }
     }
 
-    private func evidenceDescription(for index: Int) -> some View {
-        HStack(alignment: .top, spacing: 8) {
-            Text("\(index + 1)")
-                .font(.caption.bold())
-                .foregroundStyle(.white)
-                .frame(width: 20, height: 20)
-                .background(Color.accentColor, in: Circle())
-            Text(normalizedImageDescriptions[index])
-                .font(.subheadline.weight(.medium))
-                .fixedSize(horizontal: false, vertical: true)
-        }
-    }
-
-    private func fixedImageSlot(index: Int, sideLength: CGFloat) -> some View {
+    private func fixedImageSlot(index: Int, sideLength: CGFloat, expandsToFillWidth: Bool = false) -> some View {
         ZStack {
             if let draftImage = draftImage(at: index), let image = NSImage(data: draftImage.data) {
                 Image(nsImage: image)
@@ -275,7 +339,12 @@ struct EvidenceSubmissionView: View {
                     .frame(width: sideLength, height: sideLength)
                     .clipped()
             } else {
-                VStack(spacing: 16) {
+                VStack(spacing: 14) {
+                    Text(normalizedImageDescriptions[index])
+                        .font(.subheadline.weight(.medium))
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+
                     Image(systemName: "photo.badge.plus")
                         .font(.system(size: 38, weight: .light))
                         .foregroundStyle(.secondary)
@@ -307,6 +376,7 @@ struct EvidenceSubmissionView: View {
                         .glassEffect(.regular.interactive(), in: Capsule())
                     }
                 }
+                .padding(.horizontal, 22)
             }
         }
         .frame(width: sideLength, height: sideLength)
@@ -328,15 +398,10 @@ struct EvidenceSubmissionView: View {
                     .padding(10)
             }
         }
-        .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
-        .onTapGesture { isDraftAreaFocused = true }
-        .onDrop(
-            of: [UTType.image.identifier, UTType.fileURL.identifier],
-            isTargeted: fixedSlotTargetBinding(index)
-        ) { providers in
-            guard !isWorking else { return false }
-            importItemProviders(providers, targetSlot: index)
-            return true
+        .frame(maxWidth: expandsToFillWidth ? .infinity : sideLength)
+        .contentShape(Rectangle())
+        .onTapGesture {
+            isDraftAreaFocused = true
         }
     }
 
@@ -390,14 +455,8 @@ struct EvidenceSubmissionView: View {
                 )
         }
         .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-        .onTapGesture { isDraftAreaFocused = true }
-        .onDrop(
-            of: [UTType.image.identifier, UTType.fileURL.identifier],
-            isTargeted: $isBulkDropTargeted
-        ) { providers in
-            guard !isWorking, remainingDraftSlots > 0 else { return false }
-            importItemProviders(providers, targetSlot: nil)
-            return true
+        .onTapGesture {
+            isDraftAreaFocused = true
         }
     }
 
@@ -651,19 +710,6 @@ struct EvidenceSubmissionView: View {
             set: { item in
                 guard let item else { return }
                 Task { await importPhoto(item, targetSlot: slotIndex) }
-            }
-        )
-    }
-
-    private func fixedSlotTargetBinding(_ slotIndex: Int) -> Binding<Bool> {
-        Binding(
-            get: { targetedFixedSlot == slotIndex },
-            set: { isTargeted in
-                if isTargeted {
-                    targetedFixedSlot = slotIndex
-                } else if targetedFixedSlot == slotIndex {
-                    targetedFixedSlot = nil
-                }
             }
         )
     }

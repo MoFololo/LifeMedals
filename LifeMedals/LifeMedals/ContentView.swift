@@ -104,7 +104,7 @@ struct ContentView: View {
     }
 
     private struct MouseDragSwipeRow<Content: View>: View {
-        private let revealWidth: CGFloat = 146
+        private let revealWidth: CGFloat = 188
         private let actions: [TaskRowAction]
         private let onSelect: () -> Void
         private let content: Content
@@ -131,6 +131,8 @@ struct ContentView: View {
                 }
                 .padding(.trailing, 8)
                 .opacity(displayedOffset < -4 ? 1 : 0)
+                .allowsHitTesting(displayedOffset < -4)
+                .zIndex(1)
 
                 content
                     .offset(x: displayedOffset)
@@ -143,6 +145,7 @@ struct ContentView: View {
                         }
                     }
                     .simultaneousGesture(mouseDragGesture)
+                    .zIndex(0)
             }
             .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
             .accessibilityAddTraits(.isButton)
@@ -179,7 +182,7 @@ struct ContentView: View {
                         .frame(width: 56, height: 30)
                         .contentShape(Capsule())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(.borderless)
                 .background(action.tint, in: Capsule())
                 .accessibilityLabel(action.title)
                 .help(action.title)
@@ -245,16 +248,16 @@ struct ContentView: View {
                     .padding(.horizontal, 28)
 
                 ZStack {
-                    switch selectedPage {
-                    case .create:
+                    topLevelPage(.create) {
                         creationPage
-                            .transition(pageTransition)
-                    case .tasks:
+                    }
+
+                    topLevelPage(.tasks) {
                         taskListPage
-                            .transition(pageTransition)
-                    case .medals:
+                    }
+
+                    topLevelPage(.medals) {
                         medalsPage
-                            .transition(pageTransition)
                     }
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -278,6 +281,8 @@ struct ContentView: View {
         .onChange(of: selectedPage) { _, page in
             if page == .create, creationPhase == .composing {
                 focusTaskInput()
+            } else {
+                isTaskInputFocused = false
             }
         }
         .task {
@@ -315,21 +320,16 @@ struct ContentView: View {
                 HStack(spacing: 10) {
                     ForEach(AppPage.allCases) { page in
                         Button {
-                            withAnimation(.smooth(duration: 0.38)) {
-                                selectedPage = page
-                                if page == .tasks {
-                                    selectedTask = nil
-                                }
-                            }
+                            selectPage(page)
                         } label: {
                             Label(page.title, systemImage: page.icon)
                                 .font(.subheadline.weight(selectedPage == page ? .semibold : .medium))
                                 .foregroundStyle(selectedPage == page ? .primary : .secondary)
                                 .padding(.horizontal, 16)
                                 .padding(.vertical, 10)
+                                .contentShape(Capsule())
                         }
                         .buttonStyle(.plain)
-                        .contentShape(Capsule())
                         .glassEffect(
                             .regular
                                 .tint(selectedPage == page ? Color.accentColor.opacity(0.16) : .clear)
@@ -1034,6 +1034,29 @@ struct ContentView: View {
 
     // MARK: - Actions
 
+    private func selectPage(_ page: AppPage) {
+        if page == selectedPage {
+            if page == .tasks {
+                withAnimation(.smooth(duration: 0.38)) {
+                    selectedTask = nil
+                }
+            }
+            return
+        }
+
+        if page == .tasks, selectedTask != nil {
+            var transaction = Transaction()
+            transaction.disablesAnimations = true
+            withTransaction(transaction) {
+                selectedTask = nil
+            }
+        }
+
+        withAnimation(.smooth(duration: 0.38)) {
+            selectedPage = page
+        }
+    }
+
     private func generateTask() {
         guard !trimmedTaskInput.isEmpty, !isGenerating else { return }
 
@@ -1171,8 +1194,16 @@ struct ContentView: View {
 
     // MARK: - Helpers
 
-    private var pageTransition: AnyTransition {
-        .opacity.combined(with: .scale(scale: 0.985))
+    private func topLevelPage<Content: View>(
+        _ page: AppPage,
+        @ViewBuilder content: () -> Content
+    ) -> some View {
+        content()
+            .opacity(selectedPage == page ? 1 : 0)
+            .scaleEffect(selectedPage == page ? 1 : 0.985)
+            .allowsHitTesting(selectedPage == page)
+            .accessibilityHidden(selectedPage != page)
+            .zIndex(selectedPage == page ? 1 : 0)
     }
 
     private var trimmedTaskInput: String {
