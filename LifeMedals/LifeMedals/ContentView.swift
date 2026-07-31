@@ -63,15 +63,17 @@ struct ContentView: View {
         }
     }
 
-    private struct MouseDragSwipeRow<Content: View>: View {
-        enum SecondaryAction {
+    private struct TaskRowAction: Identifiable {
+        enum Kind: Hashable {
             case archive
             case restore
+            case delete
 
             var title: String {
                 switch self {
                 case .archive: "归档"
                 case .restore: "取消归档"
+                case .delete: "删除"
                 }
             }
 
@@ -79,6 +81,7 @@ struct ContentView: View {
                 switch self {
                 case .archive: "archivebox.fill"
                 case .restore: "tray.and.arrow.up.fill"
+                case .delete: "trash.fill"
                 }
             }
 
@@ -86,51 +89,47 @@ struct ContentView: View {
                 switch self {
                 case .archive: .orange
                 case .restore: .accentColor
+                case .delete: .red
                 }
             }
         }
 
-        private let revealWidth: CGFloat = 116
-        private let secondaryAction: SecondaryAction
+        let kind: Kind
+        let perform: () -> Void
+
+        var id: Kind { kind }
+        var title: String { kind.title }
+        var icon: String { kind.icon }
+        var tint: Color { kind.tint }
+    }
+
+    private struct MouseDragSwipeRow<Content: View>: View {
+        private let revealWidth: CGFloat = 146
+        private let actions: [TaskRowAction]
         private let onSelect: () -> Void
-        private let onSecondaryAction: () -> Void
-        private let onDelete: () -> Void
         private let content: Content
 
         @State private var settledOffset: CGFloat = 0
         @GestureState private var dragTranslation: CGFloat = 0
 
         init(
-            secondaryAction: SecondaryAction,
+            actions: [TaskRowAction],
             onSelect: @escaping () -> Void,
-            onSecondaryAction: @escaping () -> Void,
-            onDelete: @escaping () -> Void,
             @ViewBuilder content: () -> Content
         ) {
-            self.secondaryAction = secondaryAction
+            self.actions = actions
             self.onSelect = onSelect
-            self.onSecondaryAction = onSecondaryAction
-            self.onDelete = onDelete
             self.content = content()
         }
 
         var body: some View {
             ZStack(alignment: .trailing) {
-                HStack(spacing: 8) {
-                    mouseActionButton(
-                        title: secondaryAction.title,
-                        icon: secondaryAction.icon,
-                        tint: secondaryAction.tint,
-                        action: onSecondaryAction
-                    )
-                    mouseActionButton(
-                        title: "删除",
-                        icon: "trash.fill",
-                        tint: .red,
-                        action: onDelete
-                    )
+                HStack(spacing: 16) {
+                    ForEach(actions) { action in
+                        mouseActionButton(action)
+                    }
                 }
-                .padding(.trailing, 4)
+                .padding(.trailing, 8)
                 .opacity(displayedOffset < -4 ? 1 : 0)
 
                 content
@@ -143,10 +142,9 @@ struct ContentView: View {
                             onSelect()
                         }
                     }
+                    .simultaneousGesture(mouseDragGesture)
             }
-            .clipped()
-            .contentShape(Rectangle())
-            .simultaneousGesture(mouseDragGesture)
+            .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
             .accessibilityAddTraits(.isButton)
         }
 
@@ -169,27 +167,29 @@ struct ContentView: View {
                 }
         }
 
-        private func mouseActionButton(
-            title: String,
-            icon: String,
-            tint: Color,
-            action: @escaping () -> Void
-        ) -> some View {
-            Button {
-                closeActions()
-                action()
-            } label: {
-                Image(systemName: icon)
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(.white)
-                    .frame(width: 50)
-                    .frame(maxHeight: .infinity)
-                    .contentShape(Rectangle())
+        private func mouseActionButton(_ action: TaskRowAction) -> some View {
+            VStack(spacing: 5) {
+                Button {
+                    closeActions()
+                    action.perform()
+                } label: {
+                    Image(systemName: action.icon)
+                        .font(.system(size: 13, weight: .semibold))
+                        .foregroundStyle(.white)
+                        .frame(width: 56, height: 30)
+                        .contentShape(Capsule())
+                }
+                .buttonStyle(.plain)
+                .background(action.tint, in: Capsule())
+                .accessibilityLabel(action.title)
+                .help(action.title)
+
+                Text(action.title)
+                    .font(.caption2)
+                    .foregroundStyle(.secondary)
+                    .lineLimit(1)
             }
-            .buttonStyle(.plain)
-            .background(tint, in: RoundedRectangle(cornerRadius: 15, style: .continuous))
-            .accessibilityLabel(title)
-            .help(title)
+            .frame(width: 56)
         }
 
         private func closeActions() {
@@ -620,17 +620,17 @@ struct ContentView: View {
                     .listRowInsets(EdgeInsets(top: 8, leading: 36, bottom: 36, trailing: 36))
             } else {
                 ForEach(selectedTasks) { task in
+                    let actions = taskRowActions(for: task, isArchived: false)
                     MouseDragSwipeRow(
-                        secondaryAction: .archive,
-                        onSelect: { openTask(task) },
-                        onSecondaryAction: { archiveTask(task) },
-                        onDelete: { deleteTask(task) }
+                        actions: actions,
+                        onSelect: { openTask(task) }
                     ) {
                         taskRow(task, now: now)
                     }
                         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                            taskSwipeActions(for: task, isArchived: false)
+                            taskSwipeActions(actions)
                         }
+                        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
                         .listRowBackground(Color.clear)
                         .listRowSeparator(.hidden)
                         .listRowInsets(EdgeInsets(top: 7, leading: 36, bottom: 7, trailing: 36))
@@ -721,17 +721,17 @@ struct ContentView: View {
                     .listRowInsets(EdgeInsets(top: 8, leading: 36, bottom: 36, trailing: 36))
             } else {
                 ForEach(archivedTasks) { task in
+                    let actions = taskRowActions(for: task, isArchived: true)
                     MouseDragSwipeRow(
-                        secondaryAction: .restore,
-                        onSelect: { openTask(task) },
-                        onSecondaryAction: { restoreTask(task) },
-                        onDelete: { deleteTask(task) }
+                        actions: actions,
+                        onSelect: { openTask(task) }
                     ) {
                         taskRow(task, now: now)
                     }
                         .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                            taskSwipeActions(for: task, isArchived: true)
+                            taskSwipeActions(actions)
                         }
+                        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
                         .listRowBackground(Color.clear)
                         .listRowSeparator(.hidden)
                         .listRowInsets(EdgeInsets(top: 7, leading: 36, bottom: 7, trailing: 36))
@@ -857,27 +857,14 @@ struct ContentView: View {
     }
 
     @ViewBuilder
-    private func taskSwipeActions(for task: TaskContract, isArchived: Bool) -> some View {
-        Button(role: .destructive) {
-            deleteTask(task)
-        } label: {
-            Label("删除", systemImage: "trash")
-        }
-
-        if isArchived {
-            Button {
-                restoreTask(task)
+    private func taskSwipeActions(_ actions: [TaskRowAction]) -> some View {
+        ForEach(Array(actions.reversed())) { action in
+            Button(role: action.kind == .delete ? .destructive : nil) {
+                action.perform()
             } label: {
-                Label("取消归档", systemImage: "tray.and.arrow.up")
+                Label(action.title, systemImage: action.icon)
             }
-            .tint(.accentColor)
-        } else {
-            Button {
-                archiveTask(task)
-            } label: {
-                Label("归档", systemImage: "archivebox")
-            }
-            .tint(.orange)
+            .tint(action.tint)
         }
     }
 
@@ -1135,6 +1122,17 @@ struct ContentView: View {
         withAnimation(.smooth(duration: 0.4)) {
             selectedTask = task
         }
+    }
+
+    private func taskRowActions(for task: TaskContract, isArchived: Bool) -> [TaskRowAction] {
+        let secondaryAction = TaskRowAction(
+            kind: isArchived ? .restore : .archive,
+            perform: isArchived ? { restoreTask(task) } : { archiveTask(task) }
+        )
+        let deleteAction = TaskRowAction(kind: .delete) {
+            deleteTask(task)
+        }
+        return [secondaryAction, deleteAction]
     }
 
     private func archiveTask(_ task: TaskContract) {
