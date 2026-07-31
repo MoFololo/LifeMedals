@@ -7,7 +7,7 @@
 ## 当前状态
 
 **阶段**：Step 4 - 证据提交与 AI 核验（已完成）
-**已完成**：PhotosPicker / Mac 相机取证、压缩后 SwiftData 外部存储、三态核验、补交与失败重试；Worker 核验端点共用全局限流和月度硬预算且不持久化图片
+**已完成**：AI 预先规划 1–5 张证据照片及描述；macOS 按 1 / 2 / 3–5 张切换提交布局并支持 PhotosPicker、本地文件、拖放和剪贴板；同批照片合并展示；压缩后 SwiftData 外部存储、三态核验、补交与失败重试；Worker 核验端点共用全局限流和月度硬预算且不持久化图片
 **下一步该做什么**：进入 Step 5，实现 Verified 后的 EXP 入账、等级计算和 Library；同时保留 Step 1 的断网增删改查和重启持久化手动验证
 
 > 2026-07-30 架构已调整为本地优先。下方 2026-07-29 的 Supabase 条目保留为历史记录，不代表当前技术方向；迁移完成后不再依赖 Supabase Postgres、Auth、Storage 或 Edge Functions。
@@ -58,7 +58,7 @@
 - [x] 确认登录或跳过后的功能完全相同，登录状态不参与任何权限判断
 - [x] 选择 Cloudflare Workers，创建不保存业务数据的最小代理工程
 - [x] 实现带输入与请求大小校验的 `generate-task` 端点
-- [x] 设计 prompt 和 JSON Schema，使用 OpenAI Structured Outputs 返回 title / deadline / evidence_requirement / suggested_badge / suggested_xp
+- [x] 设计 prompt 和 JSON Schema，使用 OpenAI Structured Outputs 返回 title / deadline / evidence_requirement / evidence_image_count / evidence_image_descriptions / suggested_badge / suggested_xp
 - [x] 代理：用 SQLite Durable Object 加入原子全局限流（默认 20 次/分钟）
 - [x] 代理：加入调用 OpenAI 前强制执行的月度硬请求上限（默认 500 次/月）
 - [x] OpenAI 项目控制台：配置用量/支出告警（必须由项目所有者手动完成）
@@ -73,11 +73,11 @@
 - [x] 截止时间本地通知（系统 Notification）
 
 ### Step 4：证据提交与 AI 核验
-- [x] 客户端：PhotosPicker 选图 / 拍照
+- [x] 客户端：macOS 支持 PhotosPicker、本地文件、拖放和 `⌘V` 粘贴；按 AI 规划的 1–5 张照片切换单槽、双槽和横向草稿栏，填满后再提交
 - [x] 压缩并把证据副本保存到本地 SwiftData 外部存储
 - [x] 写带全局限流和预算保护的 `verify-evidence` 端点
 - [x] 确认证据图片只在请求期间处理，服务端不持久化
-- [x] 设计 prompt：传入图片 + 锁定的 `evidence_requirement`，返回三态结果 + 解释
+- [x] 设计 prompt：传入同批图片 + 锁定的 `evidence_requirement` + 照片数量与描述，返回三态结果 + 解释
 - [x] 客户端：展示 Verified / Need More Proof / Not Verified
 - [x] 客户端：`Need More Proof` 时支持补交证据
 - [x] 把核验结果写回 SwiftData；失败时保留待核验记录以便重试
@@ -140,6 +140,8 @@
 ## 更新日志
 
 <!-- 每条记录格式：YYYY-MM-DD | 做了什么 | 涉及文件/commit -->
+
+- 2026-07-31 | 升级多图证据计划：任务生成新增 1–5 张照片数量与描述（1–2 张逐张描述，3–5 张整组描述）；提交页新增单张大方框、双张独立方框和 3–5 张横向布局，每个槽位支持图库/本地文件并保留拖放粘贴；照片填满后按批次落库与核验，历史区将同批照片合并到一行，并兼容识别上一版毫秒级连续提交的多图记录。Worker 核验上限升至 5 张并校验照片计划；Worker 8 项测试、macOS Debug 编译通过 | TaskContract.swift, Evidence.swift, ContentView.swift, TaskGenerationService.swift, EvidenceSubmissionView.swift, EvidenceImageProcessor.swift, EvidenceVerificationService.swift, worker/src/index.ts, worker/test/usage-gate.test.mjs, README.md, docs/product-plan.md, docs/progress.md
 
 - 2026-07-31 | 完成 Step 4 证据闭环：任务详情新增 Liquid Glass 证据区，支持 PhotosPicker 选图和 Mac 相机拍照；图片最长边压缩至 1800 px、单张约 1 MB 后写入 SwiftData `@Attribute(.externalStorage)`，失败时保留 Pending Verification 记录重试；新增 `verify-evidence`，与契约生成共用 Durable Object 全局限流/月度硬预算，在内存中转发最近最多 4 张证据并以 `store: false` 调用 Responses API，按锁定验收标准返回 Verified / Need More Proof / Not Verified 与解释；Need More Proof 支持补交。补充输入边界、Prompt/Schema、限流失败关闭和 no-store 测试；Worker 6 项测试、Wrangler dry-run、macOS Debug 编译通过 | LifeMedals/LifeMedals/ContentView.swift, EvidenceSubmissionView.swift, EvidenceCameraView.swift, EvidenceImageProcessor.swift, EvidenceVerificationService.swift, LifeMedals.xcodeproj/project.pbxproj, worker/src/index.ts, worker/test/usage-gate.test.mjs, README.md, docs/progress.md
 

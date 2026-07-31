@@ -7,16 +7,47 @@ import AppKit
 import PhotosUI
 import SwiftData
 import SwiftUI
+import UniformTypeIdentifiers
 
 struct EvidenceSubmissionView: View {
+    private struct DraftImage: Identifiable {
+        let id = UUID()
+        let data: Data
+        let slotIndex: Int
+    }
+
+    private struct EvidenceBatch: Identifiable {
+        let id: UUID
+        let evidences: [Evidence]
+
+        var submittedAt: Date {
+            evidences.map(\.submittedAt).max() ?? .distantPast
+        }
+
+        var verdict: EvidenceVerdict {
+            evidences.first?.verdict ?? .pending
+        }
+
+        var explanation: String? {
+            evidences.lazy.compactMap(\.explanation).first { !$0.isEmpty }
+        }
+    }
+
+    private static let thumbnailSize = CGSize(width: 112, height: 84)
+
     @Environment(\.modelContext) private var modelContext
     @Bindable var task: TaskContract
 
-    @State private var selectedPhoto: PhotosPickerItem?
-    @State private var isCameraPresented = false
+    @State private var selectedPhotos: [PhotosPickerItem] = []
+    @State private var draftImages: [DraftImage] = []
+    @State private var fileImportTargetSlot: Int?
+    @State private var isFileImporterPresented = false
+    @State private var isBulkDropTargeted = false
+    @State private var targetedFixedSlot: Int?
     @State private var isWorking = false
     @State private var feedbackMessage: String?
     @State private var feedbackIsError = false
+    @FocusState private var isDraftAreaFocused: Bool
 
     private let verificationService = EvidenceVerificationService()
 
@@ -26,34 +57,22 @@ struct EvidenceSubmissionView: View {
                 VStack(alignment: .leading, spacing: 5) {
                     Label("证据核验", systemImage: "photo.on.rectangle.angled")
                         .font(.headline)
-                    Text("图片副本压缩后保存在本机；代理只在单次请求期间转发。")
+                    Text("图片副本压缩后保存在本机；只有点击提交后才会发送核验。")
                         .font(.caption)
                         .foregroundStyle(.secondary)
                 }
 
                 Spacer()
 
-                if let latestEvidence {
-                    verdictPill(latestEvidence.verdict)
+                if let latestEvidenceBatch {
+                    verdictPill(latestEvidenceBatch.verdict)
                 }
             }
 
-            if sortedEvidences.isEmpty {
-                VStack(spacing: 10) {
-                    Image(systemName: "photo.badge.plus")
-                        .font(.system(size: 31, weight: .light))
-                        .foregroundStyle(.secondary)
-                    Text("还没有提交证据")
-                        .font(.subheadline.weight(.semibold))
-                    Text("选择截图，或直接使用这台 Mac 的相机拍照。")
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                }
-                .frame(maxWidth: .infinity, minHeight: 150)
-            } else {
+            if !evidenceBatches.isEmpty {
                 LazyVStack(spacing: 12) {
-                    ForEach(sortedEvidences) { evidence in
-                        evidenceCard(evidence)
+                    ForEach(evidenceBatches) { batch in
+                        evidenceBatchCard(batch)
                     }
                 }
             }
@@ -68,20 +87,47 @@ struct EvidenceSubmissionView: View {
         }
         .padding(22)
         .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
-        .onChange(of: selectedPhoto) { _, item in
-            guard let item else { return }
-            Task { await importPhoto(item) }
+        .fileImporter(
+            isPresented: $isFileImporterPresented,
+            allowedContentTypes: [.image],
+            allowsMultipleSelection: fileImportTargetSlot == nil
+        ) { result in
+            Task { await importFileResult(result, targetSlot: fileImportTargetSlot) }
         }
-        .sheet(isPresented: $isCameraPresented) {
-            EvidenceCameraView { sourceData in
-                Task { await saveAndVerify(sourceData) }
-            }
+        .onChange(of: selectedPhotos) { _, items in
+            guard !items.isEmpty else { return }
+            Task { await importPhotos(items) }
+        }
+        .onAppear {
+            isDraftAreaFocused = true
         }
     }
 
     private var actionArea: some View {
-        VStack(spacing: 12) {
-            if hasPendingEvidence {
+        VStack(alignment: .leading, spacing: 14) {
+            HStack {
+                Text("待提交照片")
+                    .font(.subheadline.weight(.semibold))
+                Spacer()
+                Text("\(draftImages.count)/\(requiredImageCount)")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+
+            switch requiredImageCount {
+            case 1:
+                singleImageLayout
+            case 2:
+                twoImageLayout
+            default:
+                multiImageLayout
+            }
+
+            Text(pasteAndDropHint)
+                .font(.caption2)
+                .foregroundStyle(.tertiary)
+
+            if hasPendingEvidence && draftImages.isEmpty {
                 Button {
                     Task { await retryPendingVerification() }
                 } label: {
@@ -99,38 +145,24 @@ struct EvidenceSubmissionView: View {
                     .regular.tint(Color.accentColor.opacity(0.14)).interactive(),
                     in: RoundedRectangle(cornerRadius: 17, style: .continuous)
                 )
-            } else {
-                GlassEffectContainer(spacing: 12) {
-                    HStack(spacing: 12) {
-                        PhotosPicker(selection: $selectedPhoto, matching: .images) {
-                            Label(photoActionTitle, systemImage: "photo.on.rectangle")
-                                .fontWeight(.semibold)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 12)
-                        }
-                        .buttonStyle(.plain)
-                        .disabled(isWorking)
-                        .glassEffect(
-                            .regular.tint(Color.accentColor.opacity(0.14)).interactive(),
-                            in: RoundedRectangle(cornerRadius: 17, style: .continuous)
-                        )
+            }
 
-                        Button {
-                            isCameraPresented = true
-                        } label: {
-                            Label("拍照", systemImage: "camera")
-                                .fontWeight(.semibold)
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 12)
-                        }
-                        .buttonStyle(.plain)
-                        .disabled(isWorking)
-                        .glassEffect(
-                            .regular.interactive(),
-                            in: RoundedRectangle(cornerRadius: 17, style: .continuous)
-                        )
-                    }
+            if !draftImages.isEmpty {
+                Button {
+                    Task { await submitDraftEvidence() }
+                } label: {
+                    Label(submitButtonTitle, systemImage: isDraftComplete ? "paperplane.fill" : "photo.badge.plus")
+                        .fontWeight(.semibold)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
                 }
+                .buttonStyle(.plain)
+                .disabled(isWorking || !isDraftComplete)
+                .opacity(isDraftComplete ? 1 : 0.52)
+                .glassEffect(
+                    .regular.tint(Color.accentColor.opacity(0.18)).interactive(),
+                    in: RoundedRectangle(cornerRadius: 17, style: .continuous)
+                )
             }
 
             if isWorking {
@@ -144,44 +176,303 @@ struct EvidenceSubmissionView: View {
                 .transition(.opacity.combined(with: .move(edge: .top)))
             }
         }
+        .focusable()
+        .focused($isDraftAreaFocused)
+        .onPasteCommand(of: [.image]) { providers in
+            guard !isWorking, remainingDraftSlots > 0 else { return }
+            importItemProviders(providers, targetSlot: nil)
+        }
         .animation(.smooth(duration: 0.3), value: isWorking)
+        .animation(.smooth(duration: 0.25), value: draftImages.count)
     }
 
-    private func evidenceCard(_ evidence: Evidence) -> some View {
-        HStack(alignment: .top, spacing: 14) {
-            Group {
-                if
-                    let imageData = evidence.imageData,
-                    let image = NSImage(data: imageData)
-                {
-                    Image(nsImage: image)
-                        .resizable()
-                        .scaledToFill()
-                } else {
-                    Image(systemName: "photo")
-                        .font(.title2)
-                        .foregroundStyle(.secondary)
+    private var singleImageLayout: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            evidenceDescription(for: 0)
+            fixedImageSlot(index: 0, sideLength: 360)
+                .frame(maxWidth: .infinity)
+        }
+    }
+
+    private var twoImageLayout: some View {
+        HStack(alignment: .top, spacing: 18) {
+            ForEach(0..<2, id: \.self) { index in
+                VStack(alignment: .leading, spacing: 10) {
+                    evidenceDescription(for: index)
+                    fixedImageSlot(index: index, sideLength: 320)
+                }
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+            }
+        }
+    }
+
+    private var multiImageLayout: some View {
+        VStack(alignment: .leading, spacing: 12) {
+            Text(normalizedImageDescriptions[0])
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
+
+            bulkDraftImageArea
+
+            GlassEffectContainer(spacing: 12) {
+                HStack(spacing: 12) {
+                    PhotosPicker(
+                        selection: $selectedPhotos,
+                        maxSelectionCount: remainingDraftSlots,
+                        matching: .images
+                    ) {
+                        Label("照片图库", systemImage: "photo.on.rectangle")
+                            .fontWeight(.semibold)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(isWorking || remainingDraftSlots == 0)
+                    .glassEffect(
+                        .regular.tint(Color.accentColor.opacity(0.14)).interactive(),
+                        in: RoundedRectangle(cornerRadius: 17, style: .continuous)
+                    )
+
+                    Button {
+                        presentFileImporter(targetSlot: nil)
+                    } label: {
+                        Label("选择本地文件", systemImage: "folder")
+                            .fontWeight(.semibold)
+                            .frame(maxWidth: .infinity)
+                            .padding(.vertical, 12)
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(isWorking || remainingDraftSlots == 0)
+                    .glassEffect(
+                        .regular.interactive(),
+                        in: RoundedRectangle(cornerRadius: 17, style: .continuous)
+                    )
                 }
             }
-            .frame(width: 104, height: 78)
-            .background(.white.opacity(0.4))
-            .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        }
+    }
+
+    private func evidenceDescription(for index: Int) -> some View {
+        HStack(alignment: .top, spacing: 8) {
+            Text("\(index + 1)")
+                .font(.caption.bold())
+                .foregroundStyle(.white)
+                .frame(width: 20, height: 20)
+                .background(Color.accentColor, in: Circle())
+            Text(normalizedImageDescriptions[index])
+                .font(.subheadline.weight(.medium))
+                .fixedSize(horizontal: false, vertical: true)
+        }
+    }
+
+    private func fixedImageSlot(index: Int, sideLength: CGFloat) -> some View {
+        ZStack {
+            if let draftImage = draftImage(at: index), let image = NSImage(data: draftImage.data) {
+                Image(nsImage: image)
+                    .resizable()
+                    .scaledToFill()
+                    .frame(width: sideLength, height: sideLength)
+                    .clipped()
+            } else {
+                VStack(spacing: 16) {
+                    Image(systemName: "photo.badge.plus")
+                        .font(.system(size: 38, weight: .light))
+                        .foregroundStyle(.secondary)
+
+                    VStack(spacing: 10) {
+                        PhotosPicker(selection: photoSelectionBinding(for: index), matching: .images) {
+                            Label("照片图库", systemImage: "photo.on.rectangle")
+                                .font(.subheadline.weight(.semibold))
+                                .frame(width: 150)
+                                .padding(.vertical, 10)
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(isWorking)
+                        .glassEffect(
+                            .regular.tint(Color.accentColor.opacity(0.14)).interactive(),
+                            in: Capsule()
+                        )
+
+                        Button {
+                            presentFileImporter(targetSlot: index)
+                        } label: {
+                            Label("选择本地文件", systemImage: "folder")
+                                .font(.subheadline.weight(.semibold))
+                                .frame(width: 150)
+                                .padding(.vertical, 10)
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(isWorking)
+                        .glassEffect(.regular.interactive(), in: Capsule())
+                    }
+                }
+            }
+        }
+        .frame(width: sideLength, height: sideLength)
+        .background(
+            targetedFixedSlot == index ? Color.accentColor.opacity(0.12) : Color.white.opacity(0.28),
+            in: RoundedRectangle(cornerRadius: 20, style: .continuous)
+        )
+        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .overlay {
+            RoundedRectangle(cornerRadius: 20, style: .continuous)
+                .strokeBorder(
+                    targetedFixedSlot == index ? Color.accentColor : Color.secondary.opacity(0.22),
+                    style: StrokeStyle(lineWidth: targetedFixedSlot == index ? 2 : 1, dash: [7, 5])
+                )
+        }
+        .overlay(alignment: .topTrailing) {
+            if let draftImage = draftImage(at: index) {
+                removeButton(for: draftImage)
+                    .padding(10)
+            }
+        }
+        .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .onTapGesture { isDraftAreaFocused = true }
+        .onDrop(
+            of: [UTType.image.identifier, UTType.fileURL.identifier],
+            isTargeted: fixedSlotTargetBinding(index)
+        ) { providers in
+            guard !isWorking else { return false }
+            importItemProviders(providers, targetSlot: index)
+            return true
+        }
+    }
+
+    private var bulkDraftImageArea: some View {
+        ScrollView(.horizontal) {
+            HStack(spacing: 12) {
+                ForEach(draftImages.sorted { $0.slotIndex < $1.slotIndex }) { draftImage in
+                    draftThumbnail(draftImage)
+                }
+
+                if remainingDraftSlots > 0 {
+                    Button {
+                        presentFileImporter(targetSlot: nil)
+                    } label: {
+                        VStack(spacing: 7) {
+                            Image(systemName: "plus")
+                                .font(.title2.weight(.medium))
+                            Text(draftImages.isEmpty ? "添加照片" : "继续添加")
+                                .font(.caption)
+                        }
+                        .foregroundStyle(.secondary)
+                        .frame(width: Self.thumbnailSize.width, height: Self.thumbnailSize.height)
+                        .background(.white.opacity(0.28))
+                        .overlay {
+                            RoundedRectangle(cornerRadius: 14, style: .continuous)
+                                .strokeBorder(
+                                    Color.secondary.opacity(0.34),
+                                    style: StrokeStyle(lineWidth: 1.2, dash: [6, 5])
+                                )
+                        }
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(isWorking)
+                    .accessibilityLabel("添加照片，还可添加 \(remainingDraftSlots) 张")
+                }
+            }
+            .padding(2)
+        }
+        .scrollIndicators(.hidden)
+        .frame(maxWidth: .infinity, minHeight: Self.thumbnailSize.height + 4, alignment: .leading)
+        .padding(12)
+        .background(
+            isBulkDropTargeted ? Color.accentColor.opacity(0.12) : Color.white.opacity(0.18),
+            in: RoundedRectangle(cornerRadius: 18, style: .continuous)
+        )
+        .overlay {
+            RoundedRectangle(cornerRadius: 18, style: .continuous)
+                .strokeBorder(
+                    isBulkDropTargeted ? Color.accentColor : Color.secondary.opacity(0.18),
+                    lineWidth: isBulkDropTargeted ? 2 : 1
+                )
+        }
+        .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .onTapGesture { isDraftAreaFocused = true }
+        .onDrop(
+            of: [UTType.image.identifier, UTType.fileURL.identifier],
+            isTargeted: $isBulkDropTargeted
+        ) { providers in
+            guard !isWorking, remainingDraftSlots > 0 else { return false }
+            importItemProviders(providers, targetSlot: nil)
+            return true
+        }
+    }
+
+    private func draftThumbnail(_ draftImage: DraftImage) -> some View {
+        Group {
+            if let image = NSImage(data: draftImage.data) {
+                Image(nsImage: image)
+                    .resizable()
+                    .scaledToFill()
+            } else {
+                Image(systemName: "photo")
+                    .font(.title2)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .frame(width: Self.thumbnailSize.width, height: Self.thumbnailSize.height)
+        .background(.white.opacity(0.4))
+        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .overlay(alignment: .topTrailing) {
+            removeButton(for: draftImage)
+                .padding(6)
+        }
+    }
+
+    private func removeButton(for draftImage: DraftImage) -> some View {
+        Button {
+            removeDraftImage(draftImage.id)
+        } label: {
+            Image(systemName: "xmark")
+                .font(.caption2.weight(.bold))
+                .foregroundStyle(.white)
+                .frame(width: 22, height: 22)
+                .background(.black.opacity(0.68), in: Circle())
+        }
+        .buttonStyle(.plain)
+        .disabled(isWorking)
+        .accessibilityLabel("删除这张照片")
+    }
+
+    private func evidenceBatchCard(_ batch: EvidenceBatch) -> some View {
+        HStack(alignment: .top, spacing: 14) {
+            ScrollView(.horizontal) {
+                HStack(spacing: 8) {
+                    ForEach(batch.evidences) { evidence in
+                        evidenceThumbnail(evidence)
+                    }
+                }
+            }
+            .scrollIndicators(.hidden)
+            .frame(
+                width: min(CGFloat(batch.evidences.count) * 96, 288),
+                height: 66,
+                alignment: .leading
+            )
 
             VStack(alignment: .leading, spacing: 7) {
                 HStack {
-                    verdictPill(evidence.verdict)
+                    verdictPill(batch.verdict)
+                    if batch.evidences.count > 1 {
+                        Text("\(batch.evidences.count) 张照片")
+                            .font(.caption.weight(.medium))
+                            .foregroundStyle(.secondary)
+                    }
                     Spacer()
-                    Text(evidence.submittedAt.formatted(date: .abbreviated, time: .shortened))
+                    Text(batch.submittedAt.formatted(date: .abbreviated, time: .shortened))
                         .font(.caption2)
                         .foregroundStyle(.tertiary)
                 }
 
-                if let explanation = evidence.explanation, !explanation.isEmpty {
+                if let explanation = batch.explanation {
                     Text(explanation)
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                         .fixedSize(horizontal: false, vertical: true)
-                } else if evidence.verdict == .pending {
+                } else if batch.verdict == .pending {
                     Text("已保存在本机，等待核验。")
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
@@ -191,6 +482,23 @@ struct EvidenceSubmissionView: View {
         }
         .padding(13)
         .background(.white.opacity(0.36), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+    }
+
+    private func evidenceThumbnail(_ evidence: Evidence) -> some View {
+        Group {
+            if let imageData = evidence.imageData, let image = NSImage(data: imageData) {
+                Image(nsImage: image)
+                    .resizable()
+                    .scaledToFill()
+            } else {
+                Image(systemName: "photo")
+                    .font(.title2)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .frame(width: 88, height: 66)
+        .background(.white.opacity(0.4))
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
     }
 
     private func verdictPill(_ verdict: EvidenceVerdict) -> some View {
@@ -229,68 +537,301 @@ struct EvidenceSubmissionView: View {
         )
     }
 
-    private var sortedEvidences: [Evidence] {
-        task.evidences.sorted { $0.submittedAt > $1.submittedAt }
+    private var requiredImageCount: Int {
+        if task.evidenceImageCount != nil {
+            return task.requiredEvidenceImageCount
+        }
+
+        // The immediately preceding client stored each image independently,
+        // but images from one submit are only milliseconds apart. Preserve the
+        // intended count for those already-created tasks during migration.
+        return min(max(evidenceBatches.map { $0.evidences.count }.max() ?? 1, 1), 5)
     }
 
-    private var latestEvidence: Evidence? {
-        sortedEvidences.first
+    private var normalizedImageDescriptions: [String] {
+        let descriptions = task.evidenceImageDescriptions
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+
+        if requiredImageCount <= 2 {
+            return (0..<requiredImageCount).map { index in
+                descriptions.indices.contains(index) ? descriptions[index] : task.evidenceRequirement
+            }
+        }
+        return [descriptions.first ?? task.evidenceRequirement]
+    }
+
+    private var evidenceBatches: [EvidenceBatch] {
+        let explicitBatches = Dictionary(
+            grouping: task.evidences.filter { $0.submissionBatchID != nil },
+            by: { $0.submissionBatchID! }
+        )
+        .map { id, evidences in
+            makeEvidenceBatch(id: id, evidences: evidences)
+        }
+
+        let legacyEvidences = task.evidences
+            .filter { $0.submissionBatchID == nil }
+            .sorted { $0.submittedAt < $1.submittedAt }
+        var legacyGroups: [[Evidence]] = []
+
+        for evidence in legacyEvidences {
+            if
+                let lastGroup = legacyGroups.last,
+                let previous = lastGroup.last,
+                evidence.submittedAt.timeIntervalSince(previous.submittedAt) <= 1,
+                evidence.verdict == previous.verdict,
+                evidence.explanation == previous.explanation
+            {
+                legacyGroups[legacyGroups.count - 1].append(evidence)
+            } else {
+                legacyGroups.append([evidence])
+            }
+        }
+
+        let legacyBatches = legacyGroups.compactMap { evidences -> EvidenceBatch? in
+            guard let id = evidences.first?.id else { return nil }
+            return makeEvidenceBatch(id: id, evidences: evidences)
+        }
+
+        return (explicitBatches + legacyBatches)
+        .sorted { $0.submittedAt > $1.submittedAt }
+    }
+
+    private func makeEvidenceBatch(id: UUID, evidences: [Evidence]) -> EvidenceBatch {
+        EvidenceBatch(
+            id: id,
+            evidences: evidences.sorted {
+                ($0.submissionIndex ?? 0, $0.submittedAt) <
+                    ($1.submissionIndex ?? 0, $1.submittedAt)
+            }
+        )
+    }
+
+    private var latestEvidenceBatch: EvidenceBatch? {
+        evidenceBatches.first
     }
 
     private var hasPendingEvidence: Bool {
-        task.evidences.contains { $0.verdict == .pending }
+        evidenceBatches.contains { $0.verdict == .pending }
     }
 
-    private var photoActionTitle: String {
-        switch task.status {
-        case .needMoreProof:
-            "补交证据"
-        case .notVerified:
-            "重新提交证据"
-        default:
-            "选择图片"
-        }
+    private var remainingDraftSlots: Int {
+        max(0, requiredImageCount - draftImages.count)
+    }
+
+    private var availableSlotIndices: [Int] {
+        let occupied = Set(draftImages.map(\.slotIndex))
+        return (0..<requiredImageCount).filter { !occupied.contains($0) }
+    }
+
+    private var isDraftComplete: Bool {
+        draftImages.count == requiredImageCount
+    }
+
+    private var submitButtonTitle: String {
+        if isWorking { return "正在核验" }
+        if isDraftComplete { return "提交 \(requiredImageCount) 张照片" }
+        return "还需添加 \(remainingDraftSlots) 张照片"
+    }
+
+    private var pasteAndDropHint: String {
+        requiredImageCount <= 2
+            ? "可拖放到指定图片框；⌘V 会从第一个空位开始添加截图"
+            : "拖放图片到上方栏框，或按 ⌘V 粘贴截图"
+    }
+
+    private func draftImage(at slotIndex: Int) -> DraftImage? {
+        draftImages.first { $0.slotIndex == slotIndex }
+    }
+
+    private func photoSelectionBinding(for slotIndex: Int) -> Binding<PhotosPickerItem?> {
+        Binding(
+            get: { nil },
+            set: { item in
+                guard let item else { return }
+                Task { await importPhoto(item, targetSlot: slotIndex) }
+            }
+        )
+    }
+
+    private func fixedSlotTargetBinding(_ slotIndex: Int) -> Binding<Bool> {
+        Binding(
+            get: { targetedFixedSlot == slotIndex },
+            set: { isTargeted in
+                if isTargeted {
+                    targetedFixedSlot = slotIndex
+                } else if targetedFixedSlot == slotIndex {
+                    targetedFixedSlot = nil
+                }
+            }
+        )
+    }
+
+    private func presentFileImporter(targetSlot: Int?) {
+        fileImportTargetSlot = targetSlot
+        isFileImporterPresented = true
     }
 
     @MainActor
-    private func importPhoto(_ item: PhotosPickerItem) async {
+    private func importPhoto(_ item: PhotosPickerItem, targetSlot: Int) async {
         feedbackMessage = nil
         do {
             guard let sourceData = try await item.loadTransferable(type: Data.self) else {
                 throw EvidenceImageProcessingError.unreadableImage
             }
-            selectedPhoto = nil
-            await saveAndVerify(sourceData)
+            try addDraftImage(sourceData, targetSlot: targetSlot)
         } catch {
-            selectedPhoto = nil
-            feedbackMessage = error.localizedDescription
-            feedbackIsError = true
+            showImportError(error)
         }
     }
 
     @MainActor
-    private func saveAndVerify(_ sourceData: Data) async {
-        guard !isWorking else { return }
+    private func importPhotos(_ items: [PhotosPickerItem]) async {
+        feedbackMessage = nil
+        let slots = Array(availableSlotIndices.prefix(items.count))
+
+        for (item, slotIndex) in zip(items, slots) {
+            do {
+                guard let sourceData = try await item.loadTransferable(type: Data.self) else {
+                    throw EvidenceImageProcessingError.unreadableImage
+                }
+                try addDraftImage(sourceData, targetSlot: slotIndex)
+            } catch {
+                showImportError(error)
+            }
+        }
+
+        selectedPhotos = []
+    }
+
+    @MainActor
+    private func importFileResult(_ result: Result<[URL], Error>, targetSlot: Int?) async {
+        defer { fileImportTargetSlot = nil }
+        feedbackMessage = nil
+
+        do {
+            let urls = try result.get()
+            let slots = targetSlot.map { [$0] } ?? Array(availableSlotIndices.prefix(urls.count))
+
+            for (url, slotIndex) in zip(urls, slots) {
+                let hasAccess = url.startAccessingSecurityScopedResource()
+                defer {
+                    if hasAccess {
+                        url.stopAccessingSecurityScopedResource()
+                    }
+                }
+                try addDraftImage(Data(contentsOf: url), targetSlot: slotIndex)
+            }
+        } catch {
+            showImportError(error)
+        }
+    }
+
+    private func importItemProviders(_ providers: [NSItemProvider], targetSlot: Int?) {
+        let slots = targetSlot.map { [$0] } ?? Array(availableSlotIndices.prefix(providers.count))
+        let providerAssignments = Array(zip(providers, slots))
+        guard !providerAssignments.isEmpty else { return }
+
+        feedbackMessage = nil
+        for (provider, slotIndex) in providerAssignments {
+            if provider.hasItemConformingToTypeIdentifier(UTType.image.identifier) {
+                provider.loadDataRepresentation(forTypeIdentifier: UTType.image.identifier) { data, error in
+                    Task { @MainActor in
+                        if let data {
+                            do {
+                                try addDraftImage(data, targetSlot: slotIndex)
+                            } catch {
+                                showImportError(error)
+                            }
+                        } else {
+                            showImportError(error ?? EvidenceImageProcessingError.unreadableImage)
+                        }
+                    }
+                }
+            } else if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
+                provider.loadDataRepresentation(forTypeIdentifier: UTType.fileURL.identifier) { data, error in
+                    Task { @MainActor in
+                        guard let data, let url = URL(dataRepresentation: data, relativeTo: nil) else {
+                            showImportError(error ?? EvidenceImageProcessingError.unreadableImage)
+                            return
+                        }
+
+                        do {
+                            try addDraftImage(Data(contentsOf: url), targetSlot: slotIndex)
+                        } catch {
+                            showImportError(error)
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    @MainActor
+    private func addDraftImage(_ sourceData: Data, targetSlot: Int) throws {
+        guard (0..<requiredImageCount).contains(targetSlot) else {
+            feedbackMessage = "本任务需要提交 \(requiredImageCount) 张照片。"
+            feedbackIsError = true
+            return
+        }
+
+        let compressedData = try EvidenceImageProcessor.compressedJPEG(from: sourceData)
+        draftImages.removeAll { $0.slotIndex == targetSlot }
+        draftImages.append(DraftImage(data: compressedData, slotIndex: targetSlot))
+        draftImages.sort { $0.slotIndex < $1.slotIndex }
+        feedbackMessage = nil
+        isDraftAreaFocused = true
+    }
+
+    @MainActor
+    private func removeDraftImage(_ id: UUID) {
+        draftImages.removeAll { $0.id == id }
+        feedbackMessage = nil
+        isDraftAreaFocused = true
+    }
+
+    @MainActor
+    private func showImportError(_ error: Error) {
+        feedbackMessage = "添加照片失败：\(error.localizedDescription)"
+        feedbackIsError = true
+    }
+
+    @MainActor
+    private func submitDraftEvidence() async {
+        guard !isWorking, isDraftComplete else { return }
+
         isWorking = true
         feedbackMessage = nil
         let previousStatus = task.status
-        var insertedEvidence: Evidence?
+        let submittedImages = draftImages.sorted { $0.slotIndex < $1.slotIndex }
+        let submissionBatchID = UUID()
+        let submittedAt = Date.now
+        var insertedEvidences: [Evidence] = []
 
         do {
-            let compressedData = try EvidenceImageProcessor.compressedJPEG(from: sourceData)
-            let evidence = Evidence(imageData: compressedData)
-            insertedEvidence = evidence
-            modelContext.insert(evidence)
-            task.evidences.append(evidence)
+            for draftImage in submittedImages {
+                let evidence = Evidence(
+                    imageData: draftImage.data,
+                    submittedAt: submittedAt,
+                    submissionBatchID: submissionBatchID,
+                    submissionIndex: draftImage.slotIndex
+                )
+                modelContext.insert(evidence)
+                task.evidences.append(evidence)
+                insertedEvidences.append(evidence)
+            }
+
             task.status = .awaitingVerification
             try modelContext.save()
-
-            await verify(evidence)
+            draftImages.removeAll()
+            await verify(insertedEvidences)
         } catch {
-            if let insertedEvidence {
-                modelContext.delete(insertedEvidence)
+            for evidence in insertedEvidences {
+                modelContext.delete(evidence)
             }
             task.status = previousStatus
+            try? modelContext.save()
             feedbackMessage = "保存证据失败：\(error.localizedDescription)"
             feedbackIsError = true
         }
@@ -301,45 +842,56 @@ struct EvidenceSubmissionView: View {
     @MainActor
     private func retryPendingVerification() async {
         guard !isWorking else { return }
-        guard let pending = sortedEvidences.first(where: { $0.verdict == .pending }) else { return }
+        guard let pendingBatch = evidenceBatches.first(where: { $0.verdict == .pending }) else { return }
+
         isWorking = true
         feedbackMessage = nil
         task.status = .awaitingVerification
         try? modelContext.save()
-        await verify(pending)
+        await verify(pendingBatch.evidences)
         isWorking = false
     }
 
     @MainActor
-    private func verify(_ evidence: Evidence) async {
-        let images = sortedEvidences
-            .prefix(4)
-            .compactMap(\.imageData)
+    private func verify(_ evidences: [Evidence]) async {
+        let orderedEvidences = evidences.sorted { ($0.submissionIndex ?? 0) < ($1.submissionIndex ?? 0) }
+        let images = orderedEvidences.compactMap(\.imageData)
 
         do {
             let result = try await verificationService.verify(
                 lockedRequirement: task.evidenceRequirement,
+                expectedImageCount: requiredImageCount,
+                imageDescriptions: normalizedImageDescriptions,
                 imageData: images
             )
 
-            evidence.explanation = result.explanation
+            for evidence in evidences {
+                evidence.explanation = result.explanation
+                switch result.verdict {
+                case .verified:
+                    evidence.verdict = .verified
+                case .needMoreProof:
+                    evidence.verdict = .needMoreProof
+                case .notVerified:
+                    evidence.verdict = .notVerified
+                }
+            }
+
             switch result.verdict {
             case .verified:
-                evidence.verdict = .verified
                 task.status = .verified
             case .needMoreProof:
-                evidence.verdict = .needMoreProof
                 task.status = .needMoreProof
             case .notVerified:
-                evidence.verdict = .notVerified
                 task.status = .notVerified
             }
             try modelContext.save()
             feedbackMessage = "核验结果已写入本机。"
             feedbackIsError = false
         } catch {
-            // Keep the pending record and compressed image for a later retry.
-            evidence.verdict = .pending
+            for evidence in evidences {
+                evidence.verdict = .pending
+            }
             task.status = .awaitingVerification
             try? modelContext.save()
             feedbackMessage = error.localizedDescription

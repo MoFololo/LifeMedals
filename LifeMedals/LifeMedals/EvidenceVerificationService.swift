@@ -29,10 +29,14 @@ struct EvidenceVerificationService: Sendable {
         }
 
         let evidenceRequirement: String
+        let evidenceImageCount: Int
+        let evidenceImageDescriptions: [String]
         let images: [ImagePayload]
 
         enum CodingKeys: String, CodingKey {
             case evidenceRequirement = "evidence_requirement"
+            case evidenceImageCount = "evidence_image_count"
+            case evidenceImageDescriptions = "evidence_image_descriptions"
             case images
         }
     }
@@ -46,8 +50,17 @@ struct EvidenceVerificationService: Sendable {
         let error: APIError
     }
 
-    func verify(lockedRequirement: String, imageData: [Data]) async throws -> EvidenceVerificationResult {
-        guard !imageData.isEmpty, imageData.count <= 4 else {
+    func verify(
+        lockedRequirement: String,
+        expectedImageCount: Int,
+        imageDescriptions: [String],
+        imageData: [Data]
+    ) async throws -> EvidenceVerificationResult {
+        guard
+            (1...5).contains(expectedImageCount),
+            imageData.count == expectedImageCount,
+            !imageDescriptions.isEmpty
+        else {
             throw EvidenceVerificationError.invalidEvidence
         }
 
@@ -61,6 +74,8 @@ struct EvidenceVerificationService: Sendable {
         request.httpBody = try JSONEncoder().encode(
             VerificationRequest(
                 evidenceRequirement: lockedRequirement,
+                evidenceImageCount: expectedImageCount,
+                evidenceImageDescriptions: imageDescriptions,
                 images: imageData.map {
                     VerificationRequest.ImagePayload(base64Data: $0.base64EncodedString())
                 }
@@ -121,7 +136,7 @@ enum EvidenceVerificationError: LocalizedError {
         case .missingConfiguration:
             return "尚未配置代理地址。证据已保存在本机，配置后可重试核验。"
         case .invalidEvidence:
-            return "没有可核验的本地证据图片。"
+            return "证据照片数量与任务要求不一致。"
         case .invalidResponse:
             return "代理返回了无法读取的核验结果，证据仍在本机。"
         case let .server(statusCode, message):

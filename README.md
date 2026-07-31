@@ -67,8 +67,8 @@ v1 业务数据只保存在当前设备的 SwiftData 本地数据库中：
 
 - `BadgeCategory`：默认或自定义勋章类别。
 - `UserBadge`：每个类别独立累计的 EXP 和等级。
-- `TaskContract`：标题、截止时间、锁定的验收标准、所属勋章、XP 奖励和状态。
-- `Evidence`：本地证据图片、提交时间、AI 三态核验结果和解释。
+- `TaskContract`：标题、截止时间、锁定的验收标准、1–5 张证据照片计划、所属勋章、XP 奖励和状态。
+- `Evidence`：本地证据图片、提交批次与顺序、提交时间、AI 三态核验结果和解释。
 - `XPLog`：关联任务与勋章的 EXP 变动记录。
 
 所有模型使用稳定 UUID。证据图片先保存到本地，并使用适合大字段的外部存储方式；后端不会持久化图片或上述模型数据。模型设计尽量为未来 CloudKit 同步保留兼容性，但这不是 v1 的开发或验收内容。
@@ -178,7 +178,7 @@ LIFEMEDALS_API_BASE_URL=https://你的-worker.workers.dev
 
 客户端会自动调用该地址下的 `POST /generate-task` 与 `POST /verify-evidence`。输入草稿使用本机 `AppStorage` 保存；断网或请求失败不会清空，恢复联网后可直接重试。生成结果可以编辑标题、截止时间、验收标准和所属勋章，确认后写入 SwiftData。
 
-证据可通过 PhotosPicker 选择或使用 Mac 相机拍摄。客户端先把原图转换为最长边不超过 1800 px、单张不超过约 1 MB 的 JPEG 副本，再写入 `Evidence.imageData` 的 SwiftData 外部存储；原始照片不复制进应用。核验失败时，该本地记录保持 `Pending Verification`，可从任务详情重试；`Need More Proof` 会显示补交入口，并把最近最多 4 张本地证据一起核验。
+生成任务契约时，AI 会同时给出 1–5 张证据照片数量及内容描述：1–2 张分别描述每个槽位，3–5 张使用一条整组描述。macOS 提交页据此显示单张大正方形、双张独立正方形或 3–5 张横向草稿栏。每个槽位支持 PhotosPicker、本地文件、拖放和 `⌘V`，照片可在提交前预览删除；必须填满任务要求的照片数并明确点击提交，才会保存并调用 AI 核验。同一次提交的照片共享批次 ID，在历史区合并为一行。客户端先把原图转换为最长边不超过 1800 px、单张不超过约 1 MB 的 JPEG 副本，再写入 `Evidence.imageData` 的 SwiftData 外部存储；原始照片不复制进应用。核验失败时，整批本地记录保持 `Pending Verification`，可从任务详情重试。iOS 版本后续仍使用照片图库与拍照入口。
 
 `verify-evidence` 只在当前请求的内存中读取 Base64 图片，图片不会写入 Durable Object、KV、R2、日志或其他 Worker 持久化服务；响应也带 `Cache-Control: no-store`。转发给 OpenAI Responses API 时固定使用 `store: false`，不创建 Responses 应用状态。需要注意：OpenAI 默认的滥用监控日志属于平台数据政策范围，除非项目获批并启用 Zero Data Retention，不能把 `store: false` 表述为整个上游链路的零保留。
 

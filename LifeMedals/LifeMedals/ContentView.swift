@@ -57,6 +57,8 @@ struct ContentView: View {
     @State private var draftTitle = ""
     @State private var draftDeadline = Date.now.addingTimeInterval(24 * 60 * 60)
     @State private var draftEvidenceRequirement = ""
+    @State private var draftEvidenceImageCount = 1
+    @State private var draftEvidenceImageDescriptions: [String] = []
     @State private var draftBadge = "Problem Solver"
     @State private var draftXP = 10
 
@@ -333,6 +335,32 @@ struct ContentView: View {
                             .background(.white.opacity(0.46), in: RoundedRectangle(cornerRadius: 14))
                     }
 
+                    contractField("证据照片") {
+                        VStack(alignment: .leading, spacing: 10) {
+                            Label("需要 \(draftEvidenceImageCount) 张照片", systemImage: "photo.stack")
+                                .font(.subheadline.weight(.semibold))
+
+                            ForEach(Array(draftEvidenceImageDescriptions.enumerated()), id: \.offset) { index, description in
+                                HStack(alignment: .top, spacing: 8) {
+                                    if draftEvidenceImageCount <= 2 {
+                                        Text("\(index + 1)")
+                                            .font(.caption.bold())
+                                            .foregroundStyle(.white)
+                                            .frame(width: 20, height: 20)
+                                            .background(Color.accentColor, in: Circle())
+                                    }
+                                    Text(description)
+                                        .font(.subheadline)
+                                        .foregroundStyle(.secondary)
+                                        .fixedSize(horizontal: false, vertical: true)
+                                }
+                            }
+                        }
+                        .padding(14)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                        .background(.white.opacity(0.46), in: RoundedRectangle(cornerRadius: 14))
+                    }
+
                     Button(action: saveTask) {
                         Label("确认并保存到本机", systemImage: "checkmark")
                             .fontWeight(.semibold)
@@ -541,6 +569,20 @@ struct ContentView: View {
                     Divider()
                         .opacity(0.45)
 
+                    VStack(alignment: .leading, spacing: 8) {
+                        Label("需要 \(task.requiredEvidenceImageCount) 张照片", systemImage: "photo.stack")
+                            .font(.subheadline.weight(.semibold))
+                        ForEach(Array(task.evidenceImageDescriptions.enumerated()), id: \.offset) { index, description in
+                            Text(task.requiredEvidenceImageCount <= 2 ? "\(index + 1). \(description)" : description)
+                                .font(.subheadline)
+                                .foregroundStyle(.secondary)
+                                .fixedSize(horizontal: false, vertical: true)
+                        }
+                    }
+
+                    Divider()
+                        .opacity(0.45)
+
                     Text("创建于 \(task.createdAt.formatted(date: .long, time: .shortened))")
                         .font(.caption)
                         .foregroundStyle(.tertiary)
@@ -628,6 +670,8 @@ struct ContentView: View {
                 draftTitle = contract.title
                 draftDeadline = deadline
                 draftEvidenceRequirement = contract.evidenceRequirement
+                draftEvidenceImageCount = contract.evidenceImageCount
+                draftEvidenceImageDescriptions = contract.evidenceImageDescriptions
                 draftBadge = Self.badgeOptions.contains(contract.suggestedBadge)
                     ? contract.suggestedBadge
                     : Self.badgeOptions[0]
@@ -664,6 +708,8 @@ struct ContentView: View {
                 title: title,
                 deadline: draftDeadline,
                 evidenceRequirement: requirement,
+                evidenceImageCount: draftEvidenceImageCount,
+                evidenceImageDescriptions: draftEvidenceImageDescriptions,
                 xpReward: draftXP,
                 badgeCategory: category
             )

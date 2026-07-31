@@ -238,11 +238,11 @@ v2 才将代理升级为账户、计费与 AI 网关，并连接小型持久化�
 ### 6.7 AI 调用与成本控制
 
 1. **任务契约生成**（文本→结构化 JSON）
-   - 输入用户一句话，使用 OpenAI Responses API 的 Structured Outputs 按 JSON Schema 输出 `{title, deadline, evidence_requirement, suggested_badge, suggested_xp}`
+   - 输入用户一句话，使用 OpenAI Responses API 的 Structured Outputs 按 JSON Schema 输出 `{title, deadline, evidence_requirement, evidence_image_count, evidence_image_descriptions, suggested_badge, suggested_xp}`；照片数限制为 1–5，1–2 张逐张描述，3–5 张使用一条整组描述
    - 客户端渲染成可编辑表单，用户改完后再确认
 
 2. **证据核验**（多模态：图片+已确认的验收标准）
-   - 把用户提交的截图作为图像输入，连同之前确认的验收标准一起发给 OpenAI Responses API
+   - 把用户同一批次提交的 1–5 张截图作为图像输入，连同之前确认的验收标准、照片数量和内容描述一起发给 OpenAI Responses API
    - 使用 Structured Outputs 返回 `{verdict: "Verified"|"Need More Proof"|"Not Verified", explanation}`
    - **关键原则**：验收标准必须在任务确认时就锁定，AI 核验阶段不能"临时改规则"，否则用户会觉得被不讲理地拒绝
 
@@ -252,8 +252,8 @@ v1 仅在开发和有限内测范围内通过全局限流、请求大小限制�
 
 - `BadgeCategory`：勋章类别（Problem Solver / Builder / Athlete...），支持用户自定义。
 - `UserBadge`：每个类别的当前 EXP、等级。
-- `TaskContract`：任务契约（标题、截止时间、锁定的验收标准、所属勋章、XP 奖励、状态）。
-- `Evidence`：证据图片、提交时间、三态核验结果和解释。
+- `TaskContract`：任务契约（标题、截止时间、锁定的验收标准、证据照片数量与描述、所属勋章、XP 奖励、状态）。
+- `Evidence`：证据图片、提交批次与顺序、提交时间、三态核验结果和解释。
 - `XPLog`：每次 EXP 变动记录，关联任务和勋章，用于周报与历史回顾。
 
 模型使用稳定的 UUID 标识和可选关系，状态字段采用可持久化的原始值，避免未来增加枚举值时破坏已有数据。可以为未来 CloudKit 兼容性留出设计空间，但不得因此扩大 v1 的开发与测试范围。
@@ -288,7 +288,7 @@ AI 请求失败时保留用户当前输入和待核验记录，允许稍后重�
 SwiftUI 做主界面：待办任务列表、截止时间提醒（本地通知）。
 
 **Step 4：证据提交与AI核验**
-客户端用 PhotosPicker 选图 → 生成并保存本地证据副本 → 调用最小核验代理 → 展示 Verified / Need More Proof / Not Verified → 把结果写入本地 SwiftData。登录占位页不参与判断，服务端不持久化图片，v1 不同步证据图片或核验结果。
+客户端按任务的 1–5 张证据计划，通过 PhotosPicker、本地文件、拖放或粘贴组装一次提交 → 生成并保存带批次 ID 的本地证据副本 → 调用最小核验代理 → 展示 Verified / Need More Proof / Not Verified → 把整批结果写入本地 SwiftData。登录占位页不参与判断，服务端不持久化图片，v1 不同步证据图片或核验结果。
 
 **Step 5：勋章与成就系统**
 EXP 累加逻辑、等级计算、Library 页面（按勋章分类回顾历史任务和截图）、每周小结页面。

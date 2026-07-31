@@ -8,7 +8,7 @@ import Foundation
 import ImageIO
 
 enum EvidenceImageProcessor {
-    // Four Base64-encoded copies stay below the Worker's 6 MiB request cap.
+    // Five Base64-encoded copies stay below the Worker's 8 MiB request cap.
     static let maximumStoredBytes = 1_000_000
 
     /// Creates the app-owned evidence copy. The original Photos item or camera

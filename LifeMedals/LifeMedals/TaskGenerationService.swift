@@ -11,6 +11,8 @@ struct GeneratedTaskContract: Decodable, Sendable {
     let title: String
     let deadline: String
     let evidenceRequirement: String
+    let evidenceImageCount: Int
+    let evidenceImageDescriptions: [String]
     let suggestedBadge: String
     let suggestedXP: Int
 
@@ -18,8 +20,30 @@ struct GeneratedTaskContract: Decodable, Sendable {
         case title
         case deadline
         case evidenceRequirement = "evidence_requirement"
+        case evidenceImageCount = "evidence_image_count"
+        case evidenceImageDescriptions = "evidence_image_descriptions"
         case suggestedBadge = "suggested_badge"
         case suggestedXP = "suggested_xp"
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        title = try container.decode(String.self, forKey: .title)
+        deadline = try container.decode(String.self, forKey: .deadline)
+        evidenceRequirement = try container.decode(String.self, forKey: .evidenceRequirement)
+        suggestedBadge = try container.decode(String.self, forKey: .suggestedBadge)
+        suggestedXP = try container.decode(Int.self, forKey: .suggestedXP)
+
+        // Tolerate the previously deployed Worker while it is being upgraded.
+        let decodedCount = try container.decodeIfPresent(Int.self, forKey: .evidenceImageCount) ?? 1
+        evidenceImageCount = min(max(decodedCount, 1), 5)
+        let decodedDescriptions = try container.decodeIfPresent(
+            [String].self,
+            forKey: .evidenceImageDescriptions
+        ) ?? []
+        evidenceImageDescriptions = decodedDescriptions.isEmpty
+            ? [evidenceRequirement]
+            : decodedDescriptions
     }
 
     var parsedDeadline: Date? {

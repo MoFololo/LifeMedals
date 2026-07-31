@@ -27,6 +27,10 @@ final class TaskContract {
     var title: String
     var deadline: Date
     var evidenceRequirement: String
+    /// Optional backing values keep existing local stores lightweight-migration compatible.
+    /// Tasks created before evidence planning default to one photo.
+    var evidenceImageCount: Int?
+    var evidenceImageDescriptionsJSON: String?
     var xpReward: Int
     var statusRawValue: String
     var createdAt: Date
@@ -44,11 +48,35 @@ final class TaskContract {
         set { statusRawValue = newValue.rawValue }
     }
 
+    var requiredEvidenceImageCount: Int {
+        min(max(evidenceImageCount ?? 1, 1), 5)
+    }
+
+    var evidenceImageDescriptions: [String] {
+        get {
+            guard
+                let evidenceImageDescriptionsJSON,
+                let data = evidenceImageDescriptionsJSON.data(using: .utf8),
+                let descriptions = try? JSONDecoder().decode([String].self, from: data),
+                !descriptions.isEmpty
+            else {
+                return [evidenceRequirement]
+            }
+            return descriptions
+        }
+        set {
+            guard let data = try? JSONEncoder().encode(newValue) else { return }
+            evidenceImageDescriptionsJSON = String(data: data, encoding: .utf8)
+        }
+    }
+
     init(
         id: UUID = UUID(),
         title: String,
         deadline: Date,
         evidenceRequirement: String,
+        evidenceImageCount: Int = 1,
+        evidenceImageDescriptions: [String] = [],
         xpReward: Int,
         status: TaskStatus = .pending,
         createdAt: Date = .now,
@@ -58,6 +86,14 @@ final class TaskContract {
         self.title = title
         self.deadline = deadline
         self.evidenceRequirement = evidenceRequirement
+        self.evidenceImageCount = min(max(evidenceImageCount, 1), 5)
+        let normalizedDescriptions = evidenceImageDescriptions.isEmpty
+            ? [evidenceRequirement]
+            : evidenceImageDescriptions
+        let descriptionsData = try? JSONEncoder().encode(normalizedDescriptions)
+        self.evidenceImageDescriptionsJSON = descriptionsData.flatMap {
+            String(data: $0, encoding: .utf8)
+        }
         self.xpReward = xpReward
         self.statusRawValue = status.rawValue
         self.createdAt = createdAt

@@ -22,6 +22,10 @@ final class Evidence {
     @Attribute(.unique) var id: UUID
     @Attribute(.externalStorage) var imageData: Data?
     var submittedAt: Date
+    /// Images created by one tap of “Submit” share this identifier.
+    /// Legacy evidence remains nil and is displayed as a one-image batch.
+    var submissionBatchID: UUID?
+    var submissionIndex: Int?
     var verdictRawValue: String
     var explanation: String?
 
@@ -36,6 +40,8 @@ final class Evidence {
         id: UUID = UUID(),
         imageData: Data? = nil,
         submittedAt: Date = .now,
+        submissionBatchID: UUID? = nil,
+        submissionIndex: Int? = nil,
         verdict: EvidenceVerdict = .pending,
         explanation: String? = nil,
         taskContract: TaskContract? = nil
@@ -43,6 +49,8 @@ final class Evidence {
         self.id = id
         self.imageData = imageData
         self.submittedAt = submittedAt
+        self.submissionBatchID = submissionBatchID
+        self.submissionIndex = submissionIndex
         self.verdictRawValue = verdict.rawValue
         self.explanation = explanation
         self.taskContract = taskContract

@@ -4,6 +4,7 @@ import assert from "node:assert/strict";
 import worker, {
   GlobalUsageGate,
   buildEvidenceVerificationOpenAIRequest,
+  isTaskContract,
   validateEvidenceVerificationInput,
 } from "../src/index.ts";
 
@@ -57,6 +58,8 @@ test("enforces the monthly hard request budget", async () => {
 
 const validEvidenceBody = {
   evidence_requirement: "提交显示两道题均为 Accepted 的截图。",
+  evidence_image_count: 1,
+  evidence_image_descriptions: ["显示两道题均为 Accepted 的截图。"],
   images: [
     {
       mime_type: "image/jpeg",
@@ -87,11 +90,61 @@ test("builds a stateless vision request around the locked requirement", () => {
   assert.equal(request.store, false);
   assert.equal(request.input[0].content[0].type, "input_text");
   assert.match(request.input[0].content[0].text, /提交显示两道题均为 Accepted 的截图。/);
+  assert.match(request.input[0].content[0].text, /EXPECTED_IMAGE_COUNT\n1/);
+  assert.match(request.input[0].content[0].text, /显示两道题均为 Accepted 的截图。/);
   assert.equal(request.input[0].content[1].type, "input_image");
   assert.match(request.input[0].content[1].image_url, /^data:image\/jpeg;base64,/);
   assert.deepEqual(
     request.text.format.schema.properties.verdict.enum,
     ["verified", "need_more_proof", "not_verified"],
+  );
+});
+
+test("validates task contracts with count-aware evidence descriptions", () => {
+  const baseContract = {
+    title: "完成两道 LeetCode",
+    deadline: "2026-08-01T22:00:00+08:00",
+    evidence_requirement: "提交两道题均为 Accepted 的截图。",
+    evidence_image_count: 2,
+    evidence_image_descriptions: [
+      "第一道 LeetCode 题的 Accepted 截图。",
+      "第二道 LeetCode 题的 Accepted 截图。",
+    ],
+    suggested_badge: "Problem Solver",
+    suggested_xp: 20,
+  };
+
+  assert.equal(isTaskContract(baseContract), true);
+  assert.equal(
+    isTaskContract({
+      ...baseContract,
+      evidence_image_count: 5,
+      evidence_image_descriptions: ["五道 LeetCode 题的完成截图。"],
+    }),
+    true,
+  );
+  assert.equal(
+    isTaskContract({ ...baseContract, evidence_image_descriptions: ["只有一条"] }),
+    false,
+  );
+});
+
+test("requires evidence payloads to match the planned image count", () => {
+  assert.match(
+    validateEvidenceVerificationInput({
+      ...validEvidenceBody,
+      evidence_image_count: 2,
+      evidence_image_descriptions: ["第一张", "第二张"],
+    }),
+    /exactly evidence_image_count/,
+  );
+  assert.match(
+    validateEvidenceVerificationInput({
+      ...validEvidenceBody,
+      evidence_image_count: 3,
+      evidence_image_descriptions: ["第一张", "第二张", "第三张"],
+    }),
+    /exactly 1 valid description/,
   );
 });
 
