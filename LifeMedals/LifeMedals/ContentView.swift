@@ -31,6 +31,38 @@ struct ContentView: View {
         case reviewing
     }
 
+    private enum TaskListTab: String, CaseIterable, Identifiable {
+        case unfinished
+        case completed
+        case overdue
+
+        var id: Self { self }
+
+        var title: String {
+            switch self {
+            case .unfinished: "未完成"
+            case .completed: "已完成"
+            case .overdue: "已逾期"
+            }
+        }
+
+        var icon: String {
+            switch self {
+            case .unfinished: "circle.dashed"
+            case .completed: "checkmark.circle.fill"
+            case .overdue: "clock.badge.exclamationmark"
+            }
+        }
+
+        var tint: Color {
+            switch self {
+            case .unfinished: .accentColor
+            case .completed: .green
+            case .overdue: .red
+            }
+        }
+    }
+
     private static let badgeOptions = [
         "Problem Solver",
         "Builder",
@@ -52,6 +84,7 @@ struct ContentView: View {
     @State private var reminderAuthorization = ReminderAuthorizationState.notDetermined
     @State private var reminderFeedback: String?
     @State private var reminderFeedbackIsError = false
+    @State private var selectedTaskTab = TaskListTab.unfinished
     @FocusState private var isTaskInputFocused: Bool
 
     @State private var draftTitle = ""
@@ -414,25 +447,47 @@ struct ContentView: View {
     }
 
     private var taskListRoot: some View {
-        ScrollView {
+        TimelineView(.periodic(from: .now, by: 60)) { context in
+            taskListRoot(now: context.date)
+        }
+    }
+
+    private func taskListRoot(now: Date) -> some View {
+        let unfinishedTasks = tasks(in: .unfinished, now: now)
+        let completedTasks = tasks(in: .completed, now: now)
+        let overdueTasks = tasks(in: .overdue, now: now)
+        let selectedTasks = switch selectedTaskTab {
+        case .unfinished: unfinishedTasks
+        case .completed: completedTasks
+        case .overdue: overdueTasks
+        }
+
+        return ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 pageHeader(
                     title: "任务",
                     subtitle: taskContracts.isEmpty
                         ? "你保存的任务契约会出现在这里。"
-                        : "\(pendingTasks.count) 项待处理 · \(verifiedTasks.count) 项 Verified，全部保存在这台设备上。"
+                        : "\(unfinishedTasks.count) 项未完成 · \(completedTasks.count) 项已完成 · \(overdueTasks.count) 项已逾期，全部保存在这台设备上。"
+                )
+
+                taskListTabs(
+                    unfinishedCount: unfinishedTasks.count,
+                    completedCount: completedTasks.count,
+                    overdueCount: overdueTasks.count
                 )
 
                 reminderStatusBanner
 
-                if taskContracts.isEmpty {
-                    emptyState(icon: "checklist", title: "还没有任务", message: "从“新任务”开始写下第一件想完成的事。")
+                if selectedTasks.isEmpty {
+                    taskListEmptyState(for: selectedTaskTab)
                 } else {
                     LazyVStack(spacing: 14) {
-                        ForEach(visibleTasks) { task in
-                            taskRow(task)
+                        ForEach(selectedTasks) { task in
+                            taskRow(task, now: now)
                         }
                     }
+                    .transition(.opacity.combined(with: .move(edge: .bottom)))
                 }
             }
             .frame(maxWidth: 790)
@@ -442,7 +497,75 @@ struct ContentView: View {
         }
     }
 
-    private func taskRow(_ task: TaskContract) -> some View {
+    private func taskListTabs(
+        unfinishedCount: Int,
+        completedCount: Int,
+        overdueCount: Int
+    ) -> some View {
+        GlassEffectContainer(spacing: 10) {
+            HStack(spacing: 10) {
+                ForEach(TaskListTab.allCases) { tab in
+                    let count = switch tab {
+                    case .unfinished: unfinishedCount
+                    case .completed: completedCount
+                    case .overdue: overdueCount
+                    }
+
+                    Button {
+                        withAnimation(.smooth(duration: 0.3)) {
+                            selectedTaskTab = tab
+                        }
+                    } label: {
+                        HStack(spacing: 8) {
+                            Image(systemName: tab.icon)
+                            Text(tab.title)
+                            Text("\(count)")
+                                .font(.caption.bold())
+                                .monospacedDigit()
+                                .padding(.horizontal, 7)
+                                .padding(.vertical, 3)
+                                .background(
+                                    (selectedTaskTab == tab ? tab.tint : Color.secondary).opacity(0.12),
+                                    in: Capsule()
+                                )
+                        }
+                        .font(.subheadline.weight(selectedTaskTab == tab ? .semibold : .medium))
+                        .foregroundStyle(selectedTaskTab == tab ? tab.tint : .secondary)
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 11)
+                        .contentShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                    .glassEffect(
+                        .regular
+                            .tint(selectedTaskTab == tab ? tab.tint.opacity(0.12) : .clear)
+                            .interactive(),
+                        in: Capsule()
+                    )
+                    .accessibilityLabel("\(tab.title)，\(count) 项")
+                    .accessibilityAddTraits(selectedTaskTab == tab ? .isSelected : [])
+                }
+            }
+        }
+    }
+
+    @ViewBuilder
+    private func taskListEmptyState(for tab: TaskListTab) -> some View {
+        if taskContracts.isEmpty {
+            emptyState(icon: "checklist", title: "还没有任务", message: "从“新任务”开始写下第一件想完成的事。")
+        } else {
+            switch tab {
+            case .unfinished:
+                emptyState(icon: tab.icon, title: "没有未完成任务", message: "当前没有仍在截止时间内、需要继续处理的任务。")
+            case .completed:
+                emptyState(icon: tab.icon, title: "还没有已完成任务", message: "任务通过证据核验后，会出现在这里。")
+            case .overdue:
+                emptyState(icon: tab.icon, title: "没有已逾期任务", message: "很好，所有未完成任务都还在截止时间内。")
+            }
+        }
+    }
+
+    private func taskRow(_ task: TaskContract, now: Date) -> some View {
         Button {
             withAnimation(.smooth(duration: 0.4)) {
                 selectedTask = task
@@ -463,21 +586,21 @@ struct ContentView: View {
                     HStack(spacing: 7) {
                         Label(
                             task.deadline.formatted(date: .abbreviated, time: .shortened),
-                            systemImage: task.deadline < .now ? "clock.badge.exclamationmark" : "clock"
+                            systemImage: task.deadline <= now ? "clock.badge.exclamationmark" : "clock"
                         )
                         Text("·")
                         Text(task.badgeCategory.map { badgeDisplayName($0.name) } ?? "未分类")
                     }
                     .font(.caption)
-                    .foregroundStyle(task.deadline < .now ? .red : .secondary)
+                    .foregroundStyle(task.deadline <= now && task.status != .verified ? .red : .secondary)
                 }
 
                 Spacer()
 
                 VStack(alignment: .trailing, spacing: 9) {
-                    Text(taskListStatusTitle(task.status))
+                    Text(taskListStatusTitle(for: task, now: now))
                         .font(.caption.weight(.semibold))
-                        .foregroundStyle(taskListStatusColor(task.status))
+                        .foregroundStyle(taskListStatusColor(for: task, now: now))
                         .lineLimit(1)
                     Text("+\(task.xpReward) EXP")
                         .font(.subheadline.bold())
@@ -769,20 +892,97 @@ struct ContentView: View {
             }
     }
 
-    private var verifiedTasks: [TaskContract] {
-        taskContracts.filter { $0.status == .verified }
-    }
-
-    private var visibleTasks: [TaskContract] {
-        taskContracts.sorted { lhs, rhs in
-            if (lhs.status == .verified) != (rhs.status == .verified) {
-                return lhs.status != .verified
+    private func tasks(in tab: TaskListTab, now: Date) -> [TaskContract] {
+        taskContracts
+            .filter { task in
+                switch tab {
+                case .unfinished:
+                    task.status != .verified && task.deadline > now
+                case .completed:
+                    task.status == .verified
+                case .overdue:
+                    task.status != .verified && task.deadline <= now
+                }
             }
-            if lhs.status == .verified {
+            .sorted { lhs, rhs in
+                switch tab {
+                case .unfinished:
+                    if lhs.deadline != rhs.deadline {
+                        return lhs.deadline < rhs.deadline
+                    }
+                case .completed:
+                    let lhsCompletedAt = lhs.evidences
+                        .filter { $0.verdict == .verified }
+                        .map(\.submittedAt)
+                        .max() ?? lhs.createdAt
+                    let rhsCompletedAt = rhs.evidences
+                        .filter { $0.verdict == .verified }
+                        .map(\.submittedAt)
+                        .max() ?? rhs.createdAt
+                    if lhsCompletedAt != rhsCompletedAt {
+                        return lhsCompletedAt > rhsCompletedAt
+                    }
+                case .overdue:
+                    if lhs.deadline != rhs.deadline {
+                        return lhs.deadline > rhs.deadline
+                    }
+                }
                 return lhs.createdAt > rhs.createdAt
             }
-            return lhs.deadline < rhs.deadline
+    }
+
+    private func taskListStatusTitle(for task: TaskContract, now: Date) -> String {
+        if task.status != .verified, task.deadline <= now {
+            return "已逾期"
         }
+
+        return switch task.status {
+        case .pending: "待完成"
+        case .awaitingVerification: "等待核验"
+        case .verified: "已完成"
+        case .needMoreProof: "需补充证据"
+        case .notVerified: "未通过核验"
+        }
+    }
+
+    private func taskListStatusColor(for task: TaskContract, now: Date) -> Color {
+        if task.status != .verified, task.deadline <= now {
+            return .red
+        }
+
+        return switch task.status {
+        case .pending, .awaitingVerification: .accentColor
+        case .verified: .green
+        case .needMoreProof: .orange
+        case .notVerified: .red
+        }
+    }
+
+    private func statusPill(for task: TaskContract) -> some View {
+        let presentation: (title: String, icon: String, color: Color)
+        if task.status != .verified, task.deadline <= .now {
+            presentation = ("已逾期", "exclamationmark.circle.fill", .red)
+        } else {
+            presentation = switch task.status {
+            case .pending:
+                ("待完成", "circle.dashed", .accentColor)
+            case .awaitingVerification:
+                ("等待核验", "hourglass", .accentColor)
+            case .verified:
+                ("已完成", "checkmark.circle.fill", .green)
+            case .needMoreProof:
+                ("需补充证据", "photo.badge.plus", .orange)
+            case .notVerified:
+                ("未通过核验", "xmark.circle.fill", .red)
+            }
+        }
+
+        return Label(presentation.title, systemImage: presentation.icon)
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(presentation.color)
+            .padding(.horizontal, 12)
+            .padding(.vertical, 8)
+            .glassEffect(.regular.tint(presentation.color.opacity(0.10)), in: Capsule())
     }
 
     @ViewBuilder
@@ -828,47 +1028,6 @@ struct ContentView: View {
         .padding(17)
         .frame(maxWidth: .infinity, minHeight: 78, alignment: .leading)
         .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 21, style: .continuous))
-    }
-
-    private func taskListStatusTitle(_ status: TaskStatus) -> String {
-        switch status {
-        case .pending: "待完成"
-        case .awaitingVerification: "Pending Verification"
-        case .verified: "Verified"
-        case .needMoreProof: "Need More Proof"
-        case .notVerified: "Not Verified"
-        }
-    }
-
-    private func taskListStatusColor(_ status: TaskStatus) -> Color {
-        switch status {
-        case .pending, .awaitingVerification: .accentColor
-        case .verified: .green
-        case .needMoreProof: .orange
-        case .notVerified: .red
-        }
-    }
-
-    private func statusPill(for task: TaskContract) -> some View {
-        let presentation: (title: String, icon: String, color: Color) = switch task.status {
-        case .pending:
-            (task.deadline < .now ? "已逾期" : "待完成", task.deadline < .now ? "exclamationmark.circle.fill" : "circle.dashed", task.deadline < .now ? .red : .accentColor)
-        case .awaitingVerification:
-            ("等待核验", "hourglass", .accentColor)
-        case .verified:
-            ("已完成", "checkmark.circle.fill", .green)
-        case .needMoreProof:
-            ("需补充证据", "photo.badge.plus", .orange)
-        case .notVerified:
-            ("未通过核验", "xmark.circle.fill", .red)
-        }
-
-        return Label(presentation.title, systemImage: presentation.icon)
-            .font(.caption.weight(.semibold))
-            .foregroundStyle(presentation.color)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .glassEffect(.regular.tint(presentation.color.opacity(0.10)), in: Capsule())
     }
 
     @ViewBuilder
