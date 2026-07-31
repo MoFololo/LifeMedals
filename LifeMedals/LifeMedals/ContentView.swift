@@ -390,16 +390,18 @@ struct ContentView: View {
             VStack(alignment: .leading, spacing: 20) {
                 pageHeader(
                     title: "任务",
-                    subtitle: pendingTasks.isEmpty ? "你保存的待办契约会出现在这里。" : "\(pendingTasks.count) 项待办任务保存在这台设备上。"
+                    subtitle: taskContracts.isEmpty
+                        ? "你保存的任务契约会出现在这里。"
+                        : "\(pendingTasks.count) 项待处理 · \(verifiedTasks.count) 项 Verified，全部保存在这台设备上。"
                 )
 
                 reminderStatusBanner
 
-                if pendingTasks.isEmpty {
-                    emptyState(icon: "checklist", title: "没有待办任务", message: "从“新任务”开始写下第一件想完成的事。")
+                if taskContracts.isEmpty {
+                    emptyState(icon: "checklist", title: "还没有任务", message: "从“新任务”开始写下第一件想完成的事。")
                 } else {
                     LazyVStack(spacing: 14) {
-                        ForEach(pendingTasks) { task in
+                        ForEach(visibleTasks) { task in
                             taskRow(task)
                         }
                     }
@@ -445,6 +447,10 @@ struct ContentView: View {
                 Spacer()
 
                 VStack(alignment: .trailing, spacing: 9) {
+                    Text(taskListStatusTitle(task.status))
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(taskListStatusColor(task.status))
+                        .lineLimit(1)
                     Text("+\(task.xpReward) EXP")
                         .font(.subheadline.bold())
                         .foregroundStyle(.orange)
@@ -541,6 +547,8 @@ struct ContentView: View {
                 }
                 .padding(22)
                 .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+
+                EvidenceSubmissionView(task: task)
 
                 taskReminderDetail(for: task)
             }
@@ -715,6 +723,22 @@ struct ContentView: View {
             }
     }
 
+    private var verifiedTasks: [TaskContract] {
+        taskContracts.filter { $0.status == .verified }
+    }
+
+    private var visibleTasks: [TaskContract] {
+        taskContracts.sorted { lhs, rhs in
+            if (lhs.status == .verified) != (rhs.status == .verified) {
+                return lhs.status != .verified
+            }
+            if lhs.status == .verified {
+                return lhs.createdAt > rhs.createdAt
+            }
+            return lhs.deadline < rhs.deadline
+        }
+    }
+
     @ViewBuilder
     private var reminderStatusBanner: some View {
         if let reminderFeedback {
@@ -758,6 +782,25 @@ struct ContentView: View {
         .padding(17)
         .frame(maxWidth: .infinity, minHeight: 78, alignment: .leading)
         .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 21, style: .continuous))
+    }
+
+    private func taskListStatusTitle(_ status: TaskStatus) -> String {
+        switch status {
+        case .pending: "待完成"
+        case .awaitingVerification: "Pending Verification"
+        case .verified: "Verified"
+        case .needMoreProof: "Need More Proof"
+        case .notVerified: "Not Verified"
+        }
+    }
+
+    private func taskListStatusColor(_ status: TaskStatus) -> Color {
+        switch status {
+        case .pending, .awaitingVerification: .accentColor
+        case .verified: .green
+        case .needMoreProof: .orange
+        case .notVerified: .red
+        }
     }
 
     private func statusPill(for task: TaskContract) -> some View {

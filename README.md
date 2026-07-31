@@ -135,8 +135,8 @@ v1 业务数据只保存在当前设备的 SwiftData 本地数据库中：
   - 制作可跳过的登录页面，不接真实账户，不影响任何功能
   - ✅ `generate-task` 代理已加入全局限流和每月硬调用上限，待部署并在 OpenAI 控制台设置支出告警
   - ✅ 客户端已支持自然语言输入、失败重试、可编辑契约和确认后写入 SwiftData
-- [x] **Step 3：任务列表与本地提醒** 👈 **当前已完成**
-- [ ] Step 4：证据提交与 AI 核验
+- [x] **Step 3：任务列表与本地提醒**
+- [x] **Step 4：证据提交与 AI 核验** 👈 **当前已完成**
 - [ ] Step 5：勋章与成就系统
 - [ ] Step 6：自用内测（至少 1-2 周）
 - [ ] Step 7：小范围内测（5-10 人）
@@ -168,7 +168,7 @@ open LifeMedals/LifeMedals.xcodeproj
 
 代理代码只从运行环境读取 Key：Cloudflare Workers 使用 `env.OPENAI_API_KEY`，Vercel Functions 使用 `process.env.OPENAI_API_KEY`。不要返回或打印变量值。
 
-当前 Worker 使用 SQLite Durable Object，在调用 OpenAI **之前**原子预留一次额度；默认全局每分钟最多 20 次、每个 UTC 自然月最多 500 次。达到频率限制返回 429，达到月度硬上限返回 402，保护组件异常时返回 503 且不会继续调用 OpenAI。可在 `worker/wrangler.jsonc` 中调整 `GLOBAL_REQUESTS_PER_MINUTE` 和 `MONTHLY_REQUEST_BUDGET`，再运行 `npm test` 与 `npm run check` 验证。这个月度上限按请求次数计算，不是对 OpenAI 账单金额的实时估算，因此仍需在 OpenAI 项目控制台单独设置用量/支出告警。
+当前 Worker 使用 SQLite Durable Object，在调用 OpenAI **之前**原子预留一次额度；`POST /generate-task` 和 `POST /verify-evidence` 共用同一个全局计数器。默认全局每分钟最多 20 次、每个 UTC 自然月最多 500 次。达到频率限制返回 429，达到月度硬上限返回 402，保护组件异常时返回 503 且不会继续调用 OpenAI。可在 `worker/wrangler.jsonc` 中调整 `GLOBAL_REQUESTS_PER_MINUTE` 和 `MONTHLY_REQUEST_BUDGET`，再运行 `npm test` 与 `npm run check` 验证。这个月度上限按请求次数计算，不是对 OpenAI 账单金额的实时估算，因此仍需在 OpenAI 项目控制台单独设置用量/支出告警。
 
 Cloudflare 部署完成后访问 `GET /health`；只有 API Key 和全局保护都配置成功时才返回 200。取得 Worker 基础 URL 后，在 Xcode 的 **Product → Scheme → Edit Scheme → Run → Arguments → Environment Variables** 中新增：
 
@@ -176,7 +176,11 @@ Cloudflare 部署完成后访问 `GET /health`；只有 API Key 和全局保护�
 LIFEMEDALS_API_BASE_URL=https://你的-worker.workers.dev
 ```
 
-客户端会自动调用该地址下的 `POST /generate-task`。输入草稿使用本机 `AppStorage` 保存；断网或请求失败不会清空，恢复联网后可直接重试。生成结果可以编辑标题、截止时间、验收标准和所属勋章，确认后写入 SwiftData。
+客户端会自动调用该地址下的 `POST /generate-task` 与 `POST /verify-evidence`。输入草稿使用本机 `AppStorage` 保存；断网或请求失败不会清空，恢复联网后可直接重试。生成结果可以编辑标题、截止时间、验收标准和所属勋章，确认后写入 SwiftData。
+
+证据可通过 PhotosPicker 选择或使用 Mac 相机拍摄。客户端先把原图转换为最长边不超过 1800 px、单张不超过约 1 MB 的 JPEG 副本，再写入 `Evidence.imageData` 的 SwiftData 外部存储；原始照片不复制进应用。核验失败时，该本地记录保持 `Pending Verification`，可从任务详情重试；`Need More Proof` 会显示补交入口，并把最近最多 4 张本地证据一起核验。
+
+`verify-evidence` 只在当前请求的内存中读取 Base64 图片，图片不会写入 Durable Object、KV、R2、日志或其他 Worker 持久化服务；响应也带 `Cache-Control: no-store`。转发给 OpenAI Responses API 时固定使用 `store: false`，不创建 Responses 应用状态。需要注意：OpenAI 默认的滥用监控日志属于平台数据政策范围，除非项目获批并启用 Zero Data Retention，不能把 `store: false` 表述为整个上游链路的零保留。
 
 ---
 

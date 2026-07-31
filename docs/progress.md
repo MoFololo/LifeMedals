@@ -6,9 +6,9 @@
 
 ## 当前状态
 
-**阶段**：Step 3 - 任务列表与本地提醒（已完成）
-**已完成**：SwiftData 待办任务列表、契约详情页、截止时间系统通知；通知权限或调度失败不会影响任务本地保存
-**下一步该做什么**：进入 Step 4，实现本地证据选取、保存与 AI 核验；同时保留 Step 1 的断网增删改查和重启持久化手动验证
+**阶段**：Step 4 - 证据提交与 AI 核验（已完成）
+**已完成**：PhotosPicker / Mac 相机取证、压缩后 SwiftData 外部存储、三态核验、补交与失败重试；Worker 核验端点共用全局限流和月度硬预算且不持久化图片
+**下一步该做什么**：进入 Step 5，实现 Verified 后的 EXP 入账、等级计算和 Library；同时保留 Step 1 的断网增删改查和重启持久化手动验证
 
 > 2026-07-30 架构已调整为本地优先。下方 2026-07-29 的 Supabase 条目保留为历史记录，不代表当前技术方向；迁移完成后不再依赖 Supabase Postgres、Auth、Storage 或 Edge Functions。
 >
@@ -67,20 +67,20 @@
 - [x] 客户端：确认按钮，确认后写入 SwiftData
 - [x] 网络失败时保留输入并支持稍后重试
 
-### Step 3：任务列表与本地提醒 👈 当前阶段
+### Step 3：任务列表与本地提醒
 - [x] SwiftUI 主界面：待办任务列表
 - [x] 任务详情页（查看契约内容）
 - [x] 截止时间本地通知（系统 Notification）
 
 ### Step 4：证据提交与 AI 核验
-- [ ] 客户端：PhotosPicker 选图 / 拍照
-- [ ] 压缩并把证据副本保存到本地 SwiftData 外部存储
-- [ ] 写带全局限流和预算保护的 `verify-evidence` 端点
-- [ ] 确认证据图片只在请求期间处理，服务端不持久化
-- [ ] 设计 prompt：传入图片 + 锁定的 `evidence_requirement`，返回三态结果 + 解释
-- [ ] 客户端：展示 Verified / Need More Proof / Not Verified
-- [ ] 客户端：`Need More Proof` 时支持补交证据
-- [ ] 把核验结果写回 SwiftData；失败时保留待核验记录以便重试
+- [x] 客户端：PhotosPicker 选图 / 拍照
+- [x] 压缩并把证据副本保存到本地 SwiftData 外部存储
+- [x] 写带全局限流和预算保护的 `verify-evidence` 端点
+- [x] 确认证据图片只在请求期间处理，服务端不持久化
+- [x] 设计 prompt：传入图片 + 锁定的 `evidence_requirement`，返回三态结果 + 解释
+- [x] 客户端：展示 Verified / Need More Proof / Not Verified
+- [x] 客户端：`Need More Proof` 时支持补交证据
+- [x] 把核验结果写回 SwiftData；失败时保留待核验记录以便重试
 
 ### Step 5：勋章与成就系统
 - [ ] EXP 累加逻辑（写入 `XPLog`，更新 `UserBadge`）
@@ -140,6 +140,8 @@
 ## 更新日志
 
 <!-- 每条记录格式：YYYY-MM-DD | 做了什么 | 涉及文件/commit -->
+
+- 2026-07-31 | 完成 Step 4 证据闭环：任务详情新增 Liquid Glass 证据区，支持 PhotosPicker 选图和 Mac 相机拍照；图片最长边压缩至 1800 px、单张约 1 MB 后写入 SwiftData `@Attribute(.externalStorage)`，失败时保留 Pending Verification 记录重试；新增 `verify-evidence`，与契约生成共用 Durable Object 全局限流/月度硬预算，在内存中转发最近最多 4 张证据并以 `store: false` 调用 Responses API，按锁定验收标准返回 Verified / Need More Proof / Not Verified 与解释；Need More Proof 支持补交。补充输入边界、Prompt/Schema、限流失败关闭和 no-store 测试；Worker 6 项测试、Wrangler dry-run、macOS Debug 编译通过 | LifeMedals/LifeMedals/ContentView.swift, EvidenceSubmissionView.swift, EvidenceCameraView.swift, EvidenceImageProcessor.swift, EvidenceVerificationService.swift, LifeMedals.xcodeproj/project.pbxproj, worker/src/index.ts, worker/test/usage-gate.test.mjs, README.md, docs/progress.md
 
 - 2026-07-30 | 完成任务契约生成客户端：新增液态玻璃主界面、自然语言输入、代理调用、可编辑契约表单、确认后 SwiftData 写入；输入使用 AppStorage 本机保存，断网/超时后保留并支持重试。Worker 新增 SQLite Durable Object 全局限流与月度硬请求上限，保护异常时失败关闭；补充自动测试、部署配置与使用说明。Xcode Debug 编译、Worker 单元测试和 Wrangler dry-run 均通过；待部署 Worker、配置客户端 URL，并由项目所有者在 OpenAI 控制台设置支出告警 | LifeMedals/LifeMedals/ContentView.swift, TaskGenerationService.swift, LifeMedals.xcodeproj/project.pbxproj, worker/src/index.ts, worker/wrangler.jsonc, worker/test/usage-gate.test.mjs, worker/package.json, README.md, docs/progress.md
 
