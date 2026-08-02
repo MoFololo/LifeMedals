@@ -10,11 +10,22 @@ import SwiftData
 
 @main
 struct LifeMedalsApp: App {
+#if DEBUG
+    @Environment(\.openWindow) private var openWindow
+#endif
+
     /// v1 登录页只是可跳过的占位 UI，不代表真实登录态；不做持久化，
     /// 也不参与任何功能权限判断。
     @State private var hasEnteredApp = false
 
     var body: some Scene {
+        mainWindow
+#if DEBUG
+        medalAnimationLabWindow
+#endif
+    }
+
+    private var appWindowGroup: some Scene {
         WindowGroup {
             Group {
                 if hasEnteredApp {
@@ -40,4 +51,28 @@ struct LifeMedalsApp: App {
             XPLog.self
         ])
     }
+
+#if DEBUG
+    private var mainWindow: some Scene {
+        appWindowGroup.commands {
+            CommandMenu("调试") {
+                Button("打开勋章揭露实验") {
+                    openWindow(id: "medal-animation-lab")
+                }
+                .keyboardShortcut("m", modifiers: [.command, .shift])
+            }
+        }
+    }
+
+    private var medalAnimationLabWindow: some Scene {
+        Window("勋章揭露实验", id: "medal-animation-lab") {
+            MedalAnimationLab()
+        }
+        .defaultSize(width: 520, height: 600)
+    }
+#else
+    private var mainWindow: some Scene {
+        appWindowGroup
+    }
+#endif
 }

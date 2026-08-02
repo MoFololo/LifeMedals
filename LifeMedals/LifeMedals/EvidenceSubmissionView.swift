@@ -926,6 +926,7 @@ struct EvidenceSubmissionView: View {
             switch result.verdict {
             case .verified:
                 task.status = .verified
+                XPService.awardXP(for: task, in: modelContext)
             case .needMoreProof:
                 task.status = .needMoreProof
             case .notVerified:

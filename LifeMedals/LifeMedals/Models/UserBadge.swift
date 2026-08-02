@@ -9,6 +9,9 @@ import Foundation
 import SwiftData
 
 /// 每个勋章类别独立累计的当前 EXP 和等级。
+///
+/// `level` stores the raw value of the current `BadgeRank` (1 = 青铜 ...
+/// 9 = 王者) and is kept in sync with `currentXP` by `XPService`.
 @Model
 final class UserBadge {
     @Attribute(.unique) var id: UUID
@@ -16,6 +19,12 @@ final class UserBadge {
     var level: Int
 
     var category: BadgeCategory?
+
+    /// The current medal tier, derived from `level`. Falls back to `.bronze`
+    /// if `level` is ever out of range.
+    var rank: BadgeRank {
+        BadgeRank(rawValue: level) ?? .bronze
+    }
 
     init(
         id: UUID = UUID(),

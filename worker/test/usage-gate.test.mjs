@@ -111,7 +111,7 @@ test("validates task contracts with count-aware evidence descriptions", () => {
       "第二道 LeetCode 题的 Accepted 截图。",
     ],
     suggested_badge: "Problem Solver",
-    suggested_xp: 20,
+    estimated_hours: 0.5,
   };
 
   assert.equal(isTaskContract(baseContract), true);
@@ -125,6 +125,18 @@ test("validates task contracts with count-aware evidence descriptions", () => {
   );
   assert.equal(
     isTaskContract({ ...baseContract, evidence_image_descriptions: ["只有一条"] }),
+    false,
+  );
+  assert.equal(
+    isTaskContract({ ...baseContract, estimated_hours: 0.1 }),
+    false,
+  );
+  assert.equal(
+    isTaskContract({ ...baseContract, estimated_hours: 8.25 }),
+    false,
+  );
+  assert.equal(
+    isTaskContract({ ...baseContract, estimated_hours: 1.1 }),
     false,
   );
 });

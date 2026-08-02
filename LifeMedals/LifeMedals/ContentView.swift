@@ -1,3 +1,4 @@
+import AppKit
 import SwiftUI
 import SwiftData
 
@@ -225,6 +226,7 @@ struct ContentView: View {
     @State private var reminderFeedbackIsError = false
     @State private var selectedTaskTab = TaskListTab.unfinished
     @State private var isShowingArchivedTasks = false
+    @State private var selectedLibraryBadge: String?
     @FocusState private var isTaskInputFocused: Bool
 
     @State private var draftTitle = ""
@@ -234,6 +236,7 @@ struct ContentView: View {
     @State private var draftEvidenceImageDescriptions: [String] = []
     @State private var draftBadge = "Problem Solver"
     @State private var draftXP = 10
+    @State private var draftEstimatedHours = 0.25
 
     private let generationService = TaskGenerationService()
     private let notificationService = TaskNotificationService()
@@ -487,10 +490,15 @@ struct ContentView: View {
                             }
 
                             contractField("完成奖励") {
-                                Label("+\(draftXP) EXP", systemImage: "sparkles")
-                                    .font(.title3.bold())
-                                    .foregroundStyle(.orange)
-                                    .padding(.vertical, 7)
+                                VStack(alignment: .leading, spacing: 4) {
+                                    Label("+\(draftXP) EXP", systemImage: "sparkles")
+                                        .font(.title3.bold())
+                                        .foregroundStyle(.orange)
+                                    Text("预计用时约 \(formattedEstimatedHours) 小时 · 1 小时 = 100 EXP")
+                                        .font(.caption)
+                                        .foregroundStyle(.secondary)
+                                }
+                                .padding(.vertical, 7)
                             }
                         }
                         .frame(maxWidth: .infinity)
@@ -983,14 +991,42 @@ struct ContentView: View {
 
     // MARK: - Medals
 
+    @ViewBuilder
     private var medalsPage: some View {
+        if let selectedLibraryBadge {
+            medalLibraryPage(for: selectedLibraryBadge)
+                .transition(
+                    .asymmetric(
+                        insertion: .opacity.combined(with: .move(edge: .trailing)),
+                        removal: .opacity.combined(with: .move(edge: .leading))
+                    )
+                )
+        } else {
+            medalsGridPage
+                .transition(
+                    .asymmetric(
+                        insertion: .opacity.combined(with: .move(edge: .leading)),
+                        removal: .opacity.combined(with: .move(edge: .trailing))
+                    )
+                )
+        }
+    }
+
+    private var medalsGridPage: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                pageHeader(title: "勋章", subtitle: "每个领域独立积累经验与等级。")
+                pageHeader(title: "勋章", subtitle: "每个领域独立积累经验与等级，点开一枚勋章可回顾历史任务和证据。")
 
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 230), spacing: 16)], spacing: 16) {
                     ForEach(Self.badgeOptions, id: \.self) { badge in
-                        medalCard(for: badge)
+                        Button {
+                            withAnimation(.smooth(duration: 0.38)) {
+                                selectedLibraryBadge = badge
+                            }
+                        } label: {
+                            medalCard(for: badge)
+                        }
+                        .buttonStyle(.plain)
                     }
                 }
             }
@@ -1003,8 +1039,9 @@ struct ContentView: View {
 
     private func medalCard(for badge: String) -> some View {
         let category = badgeCategories.first { $0.name == badge }
-        let level = category?.userBadge?.level ?? 1
-        let currentXP = category?.userBadge?.currentXP ?? 0
+        let userBadge = category?.userBadge
+        let rank = userBadge?.rank ?? .bronze
+        let currentXP = userBadge?.currentXP ?? 0
         let taskCount = category?.taskContracts.count ?? 0
 
         return VStack(alignment: .leading, spacing: 16) {
@@ -1015,7 +1052,7 @@ struct ContentView: View {
                     .frame(width: 50, height: 50)
                     .glassEffect(.regular.tint(.orange.opacity(0.13)), in: Circle())
                 Spacer()
-                Text("Lv. \(level)")
+                Text("Lv. \(rank.rawValue) · \(rank.displayName)")
                     .font(.headline)
             }
 
@@ -1026,11 +1063,242 @@ struct ContentView: View {
                     .font(.caption)
                     .foregroundStyle(.secondary)
             }
+
+            rankProgressView(rank: rank, currentXP: currentXP)
         }
         .padding(20)
         .frame(maxWidth: .infinity, alignment: .leading)
         .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
     }
+
+    /// A thin progress bar plus caption showing how close the badge is to
+    /// its next rank. Shared by the medal grid card and the library header.
+    private func rankProgressView(rank: BadgeRank, currentXP: Int) -> some View {
+        let progress = rankProgress(rank: rank, currentXP: currentXP)
+        return VStack(alignment: .leading, spacing: 6) {
+            GeometryReader { proxy in
+                ZStack(alignment: .leading) {
+                    Capsule().fill(Color.secondary.opacity(0.16))
+                    Capsule()
+                        .fill(Color.orange)
+                        .frame(width: proxy.size.width * progress.fraction)
+                }
+            }
+            .frame(height: 7)
+
+            Text(progress.caption)
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private func rankProgress(rank: BadgeRank, currentXP: Int) -> (fraction: Double, caption: String) {
+        guard let next = rank.next, let neededXP = rank.xpNeededForNextRank else {
+            return (1, "已到达最高段位 · 王者")
+        }
+        let earnedInRank = max(currentXP - rank.cumulativeXPThreshold, 0)
+        let fraction = neededXP > 0 ? min(Double(earnedInRank) / Double(neededXP), 1) : 1
+        let remaining = max(neededXP - earnedInRank, 0)
+        return (fraction, "距 \(next.displayName) 还需 \(remaining) EXP")
+    }
+
+    // MARK: - Library (per-badge history)
+
+    private func medalLibraryPage(for badge: String) -> some View {
+        let category = badgeCategories.first { $0.name == badge }
+        let userBadge = category?.userBadge
+        let rank = userBadge?.rank ?? .bronze
+        let currentXP = userBadge?.currentXP ?? 0
+        let historyTasks = taskContracts
+            .filter { $0.badgeCategory?.name == badge }
+            .sorted { $0.createdAt > $1.createdAt }
+
+        return ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                HStack(alignment: .top, spacing: 18) {
+                    Button {
+                        withAnimation(.smooth(duration: 0.38)) {
+                            selectedLibraryBadge = nil
+                        }
+                    } label: {
+                        Label("返回勋章", systemImage: "chevron.left")
+                            .padding(.horizontal, 14)
+                            .padding(.vertical, 9)
+                    }
+                    .buttonStyle(.plain)
+                    .glassEffect(.regular.interactive(), in: Capsule())
+
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text(badgeDisplayName(badge))
+                            .font(.largeTitle.bold())
+                        Text("Lv. \(rank.rawValue) · \(rank.displayName) · \(currentXP) EXP · \(historyTasks.count) 个任务")
+                            .font(.subheadline)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Spacer()
+
+                    Image(systemName: badgeIconName(badge))
+                        .font(.system(size: 24, weight: .semibold))
+                        .foregroundStyle(.orange)
+                        .frame(width: 56, height: 56)
+                        .glassEffect(.regular.tint(.orange.opacity(0.13)), in: Circle())
+                }
+
+                rankProgressView(rank: rank, currentXP: currentXP)
+                    .padding(18)
+                    .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+
+                #if DEBUG
+                debugXPControls(for: badge)
+                #endif
+
+                Text("历史任务与证据")
+                    .font(.headline)
+
+                if historyTasks.isEmpty {
+                    emptyState(
+                        icon: "clock.arrow.circlepath",
+                        title: "还没有历史任务",
+                        message: "完成一项属于「\(badgeDisplayName(badge))」的任务后，会出现在这里，方便随时回顾证据截图。"
+                    )
+                } else {
+                    LazyVStack(spacing: 14) {
+                        ForEach(historyTasks) { task in
+                            libraryTaskRow(task)
+                        }
+                    }
+                }
+            }
+            .frame(maxWidth: 790)
+            .padding(.horizontal, 36)
+            .padding(.vertical, 38)
+            .frame(maxWidth: .infinity)
+        }
+    }
+
+    private func libraryTaskRow(_ task: TaskContract) -> some View {
+        Button {
+            withAnimation(.smooth(duration: 0.4)) {
+                selectedLibraryBadge = nil
+                selectedPage = .tasks
+                selectedTask = task
+            }
+        } label: {
+            VStack(alignment: .leading, spacing: 12) {
+                HStack(alignment: .top) {
+                    VStack(alignment: .leading, spacing: 5) {
+                        Text(task.title)
+                            .font(.headline)
+                            .foregroundStyle(.primary)
+                            .lineLimit(2)
+                        Text(task.createdAt.formatted(date: .abbreviated, time: .shortened))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                    }
+
+                    Spacer()
+
+                    VStack(alignment: .trailing, spacing: 7) {
+                        statusPill(for: task)
+                        Text("+\(task.xpReward) EXP")
+                            .font(.caption.bold())
+                            .foregroundStyle(.orange)
+                    }
+                }
+
+                if !task.evidences.isEmpty {
+                    ScrollView(.horizontal) {
+                        HStack(spacing: 8) {
+                            ForEach(task.evidences.sorted { $0.submittedAt < $1.submittedAt }) { evidence in
+                                libraryEvidenceThumbnail(evidence)
+                            }
+                        }
+                    }
+                    .scrollIndicators(.hidden)
+                }
+            }
+            .padding(16)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        }
+        .buttonStyle(.plain)
+        .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+    }
+
+    private func libraryEvidenceThumbnail(_ evidence: Evidence) -> some View {
+        Group {
+            if let imageData = evidence.imageData, let image = NSImage(data: imageData) {
+                Image(nsImage: image)
+                    .resizable()
+                    .scaledToFill()
+            } else {
+                Image(systemName: "photo")
+                    .font(.title2)
+                    .foregroundStyle(.secondary)
+            }
+        }
+        .frame(width: 88, height: 66)
+        .background(.white.opacity(0.4))
+        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+    }
+
+    #if DEBUG
+    /// Debug-only quick actions to add or remove XP for a badge with a tap,
+    /// so level-up thresholds and the Library UI can be tested without
+    /// completing real tasks. Never shown in release builds.
+    private func debugXPControls(for badge: String) -> some View {
+        HStack(spacing: 10) {
+            Label("调试", systemImage: "ladybug.fill")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+
+            ForEach([25, 100, 500, 1000], id: \.self) { amount in
+                Button("+\(amount)") {
+                    debugAddXP(amount, toBadge: badge)
+                }
+                .buttonStyle(.plain)
+                .font(.caption.weight(.semibold))
+                .padding(.horizontal, 10)
+                .padding(.vertical, 6)
+                .glassEffect(.regular.tint(Color.purple.opacity(0.12)).interactive(), in: Capsule())
+            }
+
+            Button("重置") {
+                debugAddXP(nil, toBadge: badge)
+            }
+            .buttonStyle(.plain)
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(.red)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .glassEffect(.regular.tint(Color.red.opacity(0.10)).interactive(), in: Capsule())
+
+            Spacer()
+        }
+    }
+
+    /// Adds `amount` XP to `badge`'s category (creating the category/badge if
+    /// needed), or resets it to 0 XP when `amount` is `nil`.
+    private func debugAddXP(_ amount: Int?, toBadge badge: String) {
+        let category: BadgeCategory
+        if let existingCategory = badgeCategories.first(where: { $0.name == badge }) {
+            category = existingCategory
+        } else {
+            category = BadgeCategory(name: badge, iconName: badgeIconName(badge))
+            modelContext.insert(category)
+        }
+
+        if let amount {
+            XPService.debugAddXP(amount, to: category, in: modelContext)
+        } else if let existingBadge = category.userBadge {
+            existingBadge.currentXP = 0
+            existingBadge.level = BadgeRank.bronze.rawValue
+        }
+
+        try? modelContext.save()
+    }
+    #endif
 
     // MARK: - Actions
 
@@ -1078,6 +1346,7 @@ struct ContentView: View {
                 draftBadge = Self.badgeOptions.contains(contract.suggestedBadge)
                     ? contract.suggestedBadge
                     : Self.badgeOptions[0]
+                draftEstimatedHours = contract.estimatedHours
                 draftXP = contract.suggestedXP
 
                 withAnimation(.smooth(duration: 0.46)) {
@@ -1218,6 +1487,10 @@ struct ContentView: View {
     private var canSaveDraft: Bool {
         !draftTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
             !draftEvidenceRequirement.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
+    private var formattedEstimatedHours: String {
+        draftEstimatedHours.formatted(.number.precision(.fractionLength(0...2)))
     }
 
     private var pendingTasks: [TaskContract] {

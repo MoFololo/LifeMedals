@@ -14,6 +14,10 @@ struct GeneratedTaskContract: Decodable, Sendable {
     let evidenceImageCount: Int
     let evidenceImageDescriptions: [String]
     let suggestedBadge: String
+    /// Hours the AI estimates the task will take. The app — not the AI —
+    /// converts this into `suggestedXP` at a fixed 100 XP per hour (see
+    /// `XPRules`), so task rewards follow one consistent, product-owned rule.
+    let estimatedHours: Double
     let suggestedXP: Int
 
     enum CodingKeys: String, CodingKey {
@@ -23,6 +27,7 @@ struct GeneratedTaskContract: Decodable, Sendable {
         case evidenceImageCount = "evidence_image_count"
         case evidenceImageDescriptions = "evidence_image_descriptions"
         case suggestedBadge = "suggested_badge"
+        case estimatedHours = "estimated_hours"
         case suggestedXP = "suggested_xp"
     }
 
@@ -32,7 +37,17 @@ struct GeneratedTaskContract: Decodable, Sendable {
         deadline = try container.decode(String.self, forKey: .deadline)
         evidenceRequirement = try container.decode(String.self, forKey: .evidenceRequirement)
         suggestedBadge = try container.decode(String.self, forKey: .suggestedBadge)
-        suggestedXP = try container.decode(Int.self, forKey: .suggestedXP)
+
+        // Tolerate the previously deployed Worker (which returned a direct
+        // suggested_xp) while it is being upgraded to estimate hours instead.
+        if let hours = try container.decodeIfPresent(Double.self, forKey: .estimatedHours) {
+            estimatedHours = hours
+            suggestedXP = XPRules.xp(forEstimatedHours: hours)
+        } else {
+            let legacyXP = try container.decode(Int.self, forKey: .suggestedXP)
+            estimatedHours = Double(legacyXP) / Double(XPRules.xpPerHour)
+            suggestedXP = legacyXP
+        }
 
         // Tolerate the previously deployed Worker while it is being upgraded.
         let decodedCount = try container.decodeIfPresent(Int.self, forKey: .evidenceImageCount) ?? 1
