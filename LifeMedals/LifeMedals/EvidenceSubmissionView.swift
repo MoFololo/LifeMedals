@@ -923,16 +923,20 @@ struct EvidenceSubmissionView: View {
                 }
             }
 
+            var awardEvent: XPAwardEvent?
             switch result.verdict {
             case .verified:
                 task.status = .verified
-                XPService.awardXP(for: task, in: modelContext)
+                awardEvent = XPService.awardXP(for: task, in: modelContext)
             case .needMoreProof:
                 task.status = .needMoreProof
             case .notVerified:
                 task.status = .notVerified
             }
             try modelContext.save()
+            if let awardEvent {
+                XPService.publishAward(awardEvent)
+            }
             feedbackMessage = "核验结果已写入本机。"
             feedbackIsError = false
         } catch {

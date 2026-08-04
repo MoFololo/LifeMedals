@@ -227,6 +227,7 @@ struct ContentView: View {
     @State private var selectedTaskTab = TaskListTab.unfinished
     @State private var isShowingArchivedTasks = false
     @State private var selectedLibraryBadge: String?
+    @State private var medalAnimationPresentation: XPAwardEvent?
     @FocusState private var isTaskInputFocused: Bool
 
     @State private var draftTitle = ""
@@ -271,6 +272,16 @@ struct ContentView: View {
                     .transition(.move(edge: .top).combined(with: .opacity))
                     .zIndex(10)
             }
+
+            if let medalAnimationPresentation {
+                MedalAwardAnimationOverlay(event: medalAnimationPresentation) {
+                    withAnimation(.smooth(duration: 0.28)) {
+                        self.medalAnimationPresentation = nil
+                    }
+                }
+                .transition(.opacity.combined(with: .scale(scale: 0.97)))
+                .zIndex(20)
+            }
         }
         .frame(minWidth: 920, minHeight: 680)
         .preferredColorScheme(.light)
@@ -290,6 +301,16 @@ struct ContentView: View {
         }
         .task {
             await restoreTaskReminders()
+        }
+        .onReceive(NotificationCenter.default.publisher(for: .xpAwarded)) { notification in
+            guard let event = notification.object as? XPAwardEvent else { return }
+            guard event.categoryName == "Problem Solver" else { return }
+            guard event.currentXP > event.previousXP else { return }
+            guard event.previousXP < BadgeRank.silver.cumulativeXPThreshold else { return }
+
+            withAnimation(.smooth(duration: 0.3)) {
+                medalAnimationPresentation = event
+            }
         }
     }
 
@@ -1046,11 +1067,20 @@ struct ContentView: View {
 
         return VStack(alignment: .leading, spacing: 16) {
             HStack {
-                Image(systemName: badgeIconName(badge))
-                    .font(.system(size: 24, weight: .semibold))
-                    .foregroundStyle(.orange)
-                    .frame(width: 50, height: 50)
-                    .glassEffect(.regular.tint(.orange.opacity(0.13)), in: Circle())
+                Group {
+                    if badge == "Problem Solver" {
+                        Image(rank >= .silver ? "Medal_ProblemSolver_Silver" : "Medal_ProblemSolver_Bronze")
+                            .resizable()
+                            .scaledToFit()
+                            .padding(3)
+                    } else {
+                        Image(systemName: badgeIconName(badge))
+                            .font(.system(size: 24, weight: .semibold))
+                            .foregroundStyle(.orange)
+                    }
+                }
+                .frame(width: 50, height: 50)
+                .glassEffect(.regular.tint(.orange.opacity(0.13)), in: Circle())
                 Spacer()
                 Text("Lv. \(rank.rawValue) · \(rank.displayName)")
                     .font(.headline)
@@ -1143,6 +1173,10 @@ struct ContentView: View {
                         .foregroundStyle(.orange)
                         .frame(width: 56, height: 56)
                         .glassEffect(.regular.tint(.orange.opacity(0.13)), in: Circle())
+                }
+
+                if badge == "Problem Solver" {
+                    ProblemSolverMedalDetailView(currentXP: currentXP, rank: rank)
                 }
 
                 rankProgressView(rank: rank, currentXP: currentXP)
@@ -1289,14 +1323,25 @@ struct ContentView: View {
             modelContext.insert(category)
         }
 
+        let awardEvent: XPAwardEvent?
         if let amount {
-            XPService.debugAddXP(amount, to: category, in: modelContext)
+            awardEvent = XPService.debugAddXP(amount, to: category, in: modelContext)
         } else if let existingBadge = category.userBadge {
             existingBadge.currentXP = 0
             existingBadge.level = BadgeRank.bronze.rawValue
+            awardEvent = nil
+        } else {
+            awardEvent = nil
         }
 
-        try? modelContext.save()
+        do {
+            try modelContext.save()
+            if let awardEvent {
+                XPService.publishAward(awardEvent)
+            }
+        } catch {
+            modelContext.rollback()
+        }
     }
     #endif
 
