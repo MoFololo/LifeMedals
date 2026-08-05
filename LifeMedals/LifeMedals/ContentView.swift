@@ -494,18 +494,20 @@ struct ContentView: View {
 
                         VStack(alignment: .leading, spacing: 18) {
                             contractField("所属勋章") {
-                                Picker("所属勋章", selection: $draftBadge) {
-                                    ForEach(Self.badgeOptions, id: \.self) { badge in
-                                        HStack(spacing: 8) {
-                                            MedalArtworkView(categoryName: badge, rank: badgeRank(for: badge))
-                                                .frame(width: 22, height: 22)
+                                HStack(spacing: 10) {
+                                    MedalArtworkView(categoryName: draftBadge, rank: badgeRank(for: draftBadge))
+                                        .frame(width: 28, height: 28)
+
+                                    Picker("所属勋章", selection: $draftBadge) {
+                                        ForEach(Self.badgeOptions, id: \.self) { badge in
                                             Text(badgeDisplayName(badge))
+                                                .tag(badge)
                                         }
-                                        .tag(badge)
                                     }
+                                    .labelsHidden()
+                                    .pickerStyle(.menu)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
                                 }
-                                .labelsHidden()
-                                .pickerStyle(.menu)
                                 .frame(maxWidth: .infinity, alignment: .leading)
                             }
 
