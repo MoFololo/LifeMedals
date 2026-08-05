@@ -203,12 +203,7 @@ struct ContentView: View {
         }
     }
 
-    private static let badgeOptions = [
-        "Problem Solver",
-        "Builder",
-        "Career",
-        "Athlete"
-    ]
+    private static let badgeOptions = BadgeKind.allCases.map(\.rawValue)
 
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \TaskContract.createdAt, order: .reverse) private var taskContracts: [TaskContract]
@@ -501,8 +496,12 @@ struct ContentView: View {
                             contractField("所属勋章") {
                                 Picker("所属勋章", selection: $draftBadge) {
                                     ForEach(Self.badgeOptions, id: \.self) { badge in
-                                        Label(badgeDisplayName(badge), systemImage: badgeIconName(badge))
-                                            .tag(badge)
+                                        HStack(spacing: 8) {
+                                            MedalArtworkView(categoryName: badge, rank: badgeRank(for: badge))
+                                                .frame(width: 22, height: 22)
+                                            Text(badgeDisplayName(badge))
+                                        }
+                                        .tag(badge)
                                     }
                                 }
                                 .labelsHidden()
@@ -841,11 +840,11 @@ struct ContentView: View {
 
     private func taskRow(_ task: TaskContract, now: Date) -> some View {
         HStack(spacing: 16) {
-            Image(systemName: task.badgeCategory?.iconName ?? "medal.fill")
-                .font(.system(size: 20, weight: .semibold))
-                .foregroundStyle(.orange)
-                .frame(width: 44, height: 44)
-                .glassEffect(.regular.tint(.orange.opacity(0.12)), in: Circle())
+            MedalArtworkView(
+                categoryName: task.badgeCategory?.name,
+                rank: task.badgeCategory?.userBadge?.rank ?? .bronze
+            )
+            .frame(width: 52, height: 52)
 
             VStack(alignment: .leading, spacing: 6) {
                 Text(task.title)
@@ -936,10 +935,14 @@ struct ContentView: View {
                     )
                     detailCard(
                         title: "所属勋章",
-                        value: task.badgeCategory.map { badgeDisplayName($0.name) } ?? "未分类",
-                        icon: task.badgeCategory?.iconName ?? "medal.fill",
-                        tint: .orange
-                    )
+                        value: task.badgeCategory.map { badgeDisplayName($0.name) } ?? "未分类"
+                    ) {
+                        MedalArtworkView(
+                            categoryName: task.badgeCategory?.name,
+                            rank: task.badgeCategory?.userBadge?.rank ?? .bronze
+                        )
+                        .frame(width: 48, height: 48)
+                    }
                     detailCard(
                         title: "完成奖励",
                         value: "+\(task.xpReward) EXP",
@@ -1036,9 +1039,15 @@ struct ContentView: View {
     private var medalsGridPage: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                pageHeader(title: "勋章", subtitle: "每个领域独立积累经验与等级，点开一枚勋章可回顾历史任务和证据。")
+                pageHeader(title: "勋章", subtitle: "收集碎片，铸造属于每个领域的勋章。点开后可回顾历史任务和证据。")
 
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 230), spacing: 16)], spacing: 16) {
+                LazyVGrid(
+                    columns: [
+                        GridItem(.flexible(), spacing: 16),
+                        GridItem(.flexible(), spacing: 16)
+                    ],
+                    spacing: 16
+                ) {
                     ForEach(Self.badgeOptions, id: \.self) { badge in
                         Button {
                             withAnimation(.smooth(duration: 0.38)) {
@@ -1063,73 +1072,25 @@ struct ContentView: View {
         let userBadge = category?.userBadge
         let rank = userBadge?.rank ?? .bronze
         let currentXP = userBadge?.currentXP ?? 0
-        let taskCount = category?.taskContracts.count ?? 0
 
-        return VStack(alignment: .leading, spacing: 16) {
-            HStack {
-                Group {
-                    if badge == "Problem Solver" {
-                        Image(rank >= .silver ? "Medal_ProblemSolver_Silver" : "Medal_ProblemSolver_Bronze")
-                            .resizable()
-                            .scaledToFit()
-                            .padding(3)
-                    } else {
-                        Image(systemName: badgeIconName(badge))
-                            .font(.system(size: 24, weight: .semibold))
-                            .foregroundStyle(.orange)
-                    }
-                }
-                .frame(width: 50, height: 50)
-                .glassEffect(.regular.tint(.orange.opacity(0.13)), in: Circle())
-                Spacer()
-                Text("Lv. \(rank.rawValue) · \(rank.displayName)")
-                    .font(.headline)
-            }
+        return VStack(spacing: 10) {
+            MedalArtworkView(categoryName: badge, rank: rank)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .layoutPriority(1)
 
-            VStack(alignment: .leading, spacing: 4) {
-                Text(badgeDisplayName(badge))
-                    .font(.headline)
-                Text("\(currentXP) EXP · \(taskCount) 个任务")
-                    .font(.caption)
-                    .foregroundStyle(.secondary)
-            }
+            Text(badgeDisplayName(badge))
+                .font(.title3.bold())
+                .lineLimit(1)
 
-            rankProgressView(rank: rank, currentXP: currentXP)
+            MedalFragmentStatusLabel(currentXP: currentXP, wording: .earned)
         }
-        .padding(20)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(18)
+        .frame(maxWidth: .infinity)
+        .aspectRatio(1, contentMode: .fit)
+        .contentShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
         .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
-    }
-
-    /// A thin progress bar plus caption showing how close the badge is to
-    /// its next rank. Shared by the medal grid card and the library header.
-    private func rankProgressView(rank: BadgeRank, currentXP: Int) -> some View {
-        let progress = rankProgress(rank: rank, currentXP: currentXP)
-        return VStack(alignment: .leading, spacing: 6) {
-            GeometryReader { proxy in
-                ZStack(alignment: .leading) {
-                    Capsule().fill(Color.secondary.opacity(0.16))
-                    Capsule()
-                        .fill(Color.orange)
-                        .frame(width: proxy.size.width * progress.fraction)
-                }
-            }
-            .frame(height: 7)
-
-            Text(progress.caption)
-                .font(.caption2)
-                .foregroundStyle(.secondary)
-        }
-    }
-
-    private func rankProgress(rank: BadgeRank, currentXP: Int) -> (fraction: Double, caption: String) {
-        guard let next = rank.next, let neededXP = rank.xpNeededForNextRank else {
-            return (1, "已到达最高段位 · 王者")
-        }
-        let earnedInRank = max(currentXP - rank.cumulativeXPThreshold, 0)
-        let fraction = neededXP > 0 ? min(Double(earnedInRank) / Double(neededXP), 1) : 1
-        let remaining = max(neededXP - earnedInRank, 0)
-        return (fraction, "距 \(next.displayName) 还需 \(remaining) EXP")
+        .accessibilityElement(children: .combine)
+        .accessibilityHint("查看历史任务和证据")
     }
 
     // MARK: - Library (per-badge history)
@@ -1145,7 +1106,7 @@ struct ContentView: View {
 
         return ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                HStack(alignment: .top, spacing: 18) {
+                HStack(spacing: 18) {
                     Button {
                         withAnimation(.smooth(duration: 0.38)) {
                             selectedLibraryBadge = nil
@@ -1158,30 +1119,13 @@ struct ContentView: View {
                     .buttonStyle(.plain)
                     .glassEffect(.regular.interactive(), in: Capsule())
 
-                    VStack(alignment: .leading, spacing: 5) {
-                        Text(badgeDisplayName(badge))
-                            .font(.largeTitle.bold())
-                        Text("Lv. \(rank.rawValue) · \(rank.displayName) · \(currentXP) EXP · \(historyTasks.count) 个任务")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
-                    }
+                    Text(badgeDisplayName(badge))
+                        .font(.largeTitle.bold())
 
                     Spacer()
-
-                    Image(systemName: badgeIconName(badge))
-                        .font(.system(size: 24, weight: .semibold))
-                        .foregroundStyle(.orange)
-                        .frame(width: 56, height: 56)
-                        .glassEffect(.regular.tint(.orange.opacity(0.13)), in: Circle())
                 }
 
-                if badge == "Problem Solver" {
-                    ProblemSolverMedalDetailView(currentXP: currentXP, rank: rank)
-                }
-
-                rankProgressView(rank: rank, currentXP: currentXP)
-                    .padding(18)
-                    .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+                MedalDetailHeroView(categoryName: badge, currentXP: currentXP, rank: rank)
 
                 #if DEBUG
                 debugXPControls(for: badge)
@@ -1319,7 +1263,7 @@ struct ContentView: View {
         if let existingCategory = badgeCategories.first(where: { $0.name == badge }) {
             category = existingCategory
         } else {
-            category = BadgeCategory(name: badge, iconName: badgeIconName(badge))
+            category = BadgeCategory(name: badge)
             modelContext.insert(category)
         }
 
@@ -1414,7 +1358,7 @@ struct ContentView: View {
             if let existingCategory = badgeCategories.first(where: { $0.name == draftBadge }) {
                 category = existingCategory
             } else {
-                category = BadgeCategory(name: draftBadge, iconName: badgeIconName(draftBadge))
+                category = BadgeCategory(name: draftBadge)
                 let userBadge = UserBadge(category: category)
                 category.userBadge = userBadge
                 modelContext.insert(category)
@@ -1667,12 +1611,22 @@ struct ContentView: View {
     }
 
     private func detailCard(title: String, value: String, icon: String, tint: Color) -> some View {
-        HStack(spacing: 14) {
+        detailCard(title: title, value: value) {
             Image(systemName: icon)
                 .font(.system(size: 18, weight: .semibold))
                 .foregroundStyle(tint)
                 .frame(width: 40, height: 40)
                 .glassEffect(.regular.tint(tint.opacity(0.10)), in: Circle())
+        }
+    }
+
+    private func detailCard<Leading: View>(
+        title: String,
+        value: String,
+        @ViewBuilder leading: () -> Leading
+    ) -> some View {
+        HStack(spacing: 14) {
+            leading()
 
             VStack(alignment: .leading, spacing: 4) {
                 Text(title)
@@ -1771,23 +1725,11 @@ struct ContentView: View {
     }
 
     private func badgeDisplayName(_ badge: String) -> String {
-        switch badge {
-        case "Problem Solver": "解题者"
-        case "Builder": "创造者"
-        case "Career": "职业成长"
-        case "Athlete": "运动者"
-        default: badge
-        }
+        BadgeKind.displayName(for: badge)
     }
 
-    private func badgeIconName(_ badge: String) -> String {
-        switch badge {
-        case "Problem Solver": "brain.head.profile"
-        case "Builder": "hammer.fill"
-        case "Career": "briefcase.fill"
-        case "Athlete": "figure.run"
-        default: "medal.fill"
-        }
+    private func badgeRank(for badge: String) -> BadgeRank {
+        badgeCategories.first { $0.name == badge }?.userBadge?.rank ?? .bronze
     }
 
     private func contractField<Content: View>(

@@ -24,6 +24,7 @@ struct MedalAnimationCommand: Equatable {
 /// Commands are intentionally small: Swift owns EXP and rank state, while
 /// JavaScript owns only rendering and animation timing.
 struct MedalTransmutationView: NSViewRepresentable {
+    var categoryName: String? = nil
     let command: MedalAnimationCommand
     var onFinished: () -> Void = {}
     var onProgress: (Double) -> Void = { _ in }
@@ -45,10 +46,17 @@ struct MedalTransmutationView: NSViewRepresentable {
             return webView
         }
 
-        webView.loadFileURL(
-            indexURL,
-            allowingReadAccessTo: indexURL.deletingLastPathComponent()
-        )
+        if let preparedURL = Self.preparedAnimationURL(using: indexURL, categoryName: categoryName) {
+            webView.loadFileURL(
+                preparedURL,
+                allowingReadAccessTo: preparedURL.deletingLastPathComponent()
+            )
+        } else {
+            webView.loadFileURL(
+                indexURL,
+                allowingReadAccessTo: indexURL.deletingLastPathComponent()
+            )
+        }
         return webView
     }
 
@@ -64,6 +72,50 @@ struct MedalTransmutationView: NSViewRepresentable {
 
     private static var animationIndexURL: URL? {
         Bundle.main.url(forResource: "MedalAnimation", withExtension: "html")
+    }
+
+    /// Replaces the HTML file's historical embedded image copies with the
+    /// current Asset Catalog artwork. The Canvas animation and every SwiftUI
+    /// screen therefore update together when either shared PNG is replaced.
+    private static func animationHTML(using indexURL: URL, categoryName: String?) -> String? {
+        guard
+            var html = try? String(contentsOf: indexURL, encoding: .utf8),
+            let bronze = MedalArtworkCatalog.dataURL(for: categoryName, rank: .bronze),
+            let silver = MedalArtworkCatalog.dataURL(for: categoryName, rank: .silver),
+            let assetScriptStart = html.range(of: "<script>window.__medalAssets="),
+            let assetScriptEnd = html.range(
+                of: "</script>",
+                range: assetScriptStart.lowerBound..<html.endIndex
+            )
+        else { return nil }
+
+        let replacement = "<script>window.__medalAssets={bronze:\"\(bronze)\",silver:\"\(silver)\"};</script>"
+        html.replaceSubrange(assetScriptStart.lowerBound..<assetScriptEnd.upperBound, with: replacement)
+        return html
+    }
+
+    /// WKWebView is more reliable with this large animation document when it
+    /// is loaded as a local file. `loadHTMLString` could leave only the dark
+    /// page background visible before the Canvas script initialized.
+    private static func preparedAnimationURL(using indexURL: URL, categoryName: String?) -> URL? {
+        guard let html = animationHTML(using: indexURL, categoryName: categoryName) else { return nil }
+
+        let directory = FileManager.default.temporaryDirectory
+            .appendingPathComponent("LifeMedals-MedalAnimation", isDirectory: true)
+        let suffix = categoryName?.hashValue ?? 0
+        let preparedURL = directory.appendingPathComponent("medal-\(suffix).html")
+
+        do {
+            try FileManager.default.createDirectory(
+                at: directory,
+                withIntermediateDirectories: true
+            )
+            try html.write(to: preparedURL, atomically: true, encoding: .utf8)
+            return preparedURL
+        } catch {
+            assertionFailure("Unable to prepare medal animation HTML: \(error)")
+            return nil
+        }
     }
 
     @MainActor
@@ -194,6 +246,7 @@ struct MedalAwardAnimationOverlay: View {
                 .padding(.top, 22)
 
                 MedalTransmutationView(
+                    categoryName: event.categoryName,
                     command: MedalAnimationCommand(
                         action: .award(
                             from: fromProgress,
@@ -237,76 +290,31 @@ struct MedalAwardAnimationOverlay: View {
     }
 }
 
-struct ProblemSolverMedalDetailView: View {
+struct MedalDetailHeroView: View {
+    let categoryName: String
     let currentXP: Int
     let rank: BadgeRank
 
-    @State private var replayToken = 0
-
-    private var isSilver: Bool {
-        rank >= .silver
-    }
-
-    private var bronzeProgress: Double {
-        min(max(Double(currentXP) / Double(BadgeRank.silver.cumulativeXPThreshold), 0), 1)
-    }
-
-    private var fragmentCount: Int {
-        min(73, Int(ceil(bronzeProgress * 73)))
-    }
-
-    private var command: MedalAnimationCommand {
-        if isSilver {
-            return MedalAnimationCommand(action: .seek(progress: 1), token: replayToken)
-        }
-        if replayToken > 0 {
-            return MedalAnimationCommand(action: .replayFragments(to: bronzeProgress), token: replayToken)
-        }
-        return MedalAnimationCommand(action: .seek(progress: 0), token: 0)
-    }
-
     var body: some View {
-        HStack(spacing: 22) {
-            MedalTransmutationView(command: command)
-                .frame(width: 340, height: 300)
-                .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        VStack(spacing: 12) {
+            ZStack {
+                Color(red: 0.02, green: 0.035, blue: 0.07)
 
-            VStack(alignment: .leading, spacing: 12) {
-                Text(isSilver ? "100%" : "0%")
-                    .font(.system(size: 40, weight: .bold, design: .rounded))
-                    .monospacedDigit()
-
-                Text(isSilver ? "白银勋章" : "青铜勋章")
-                    .font(.title3.bold())
-
-                Text(isSilver
-                     ? "青铜甲片已经全部淬炼并四散，白银真身永久解锁。"
-                     : "当前已积累 \(currentXP) EXP，对应 \(fragmentCount) / 73 块甲片。平时保持青铜原貌，需要时可回放已有甲片的附着过程。")
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
-                    .fixedSize(horizontal: false, vertical: true)
-
-                if !isSilver, bronzeProgress > 0 {
-                    Button {
-                        replayToken += 1
-                    } label: {
-                        Label("回放当前碎片", systemImage: "play.fill")
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .tint(.orange)
-                }
+                MedalArtworkView(categoryName: categoryName, rank: rank)
+                    .padding(22)
             }
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .padding(.trailing, 20)
-        }
-        .background(Color.black.opacity(0.03))
-        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: 22, style: .continuous)
-                .stroke(Color.black.opacity(0.06), lineWidth: 1)
-        }
-        .onChange(of: currentXP) { _, _ in
-            replayToken = 0
+            .frame(maxWidth: .infinity)
+            .aspectRatio(1, contentMode: .fit)
+            .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+            .overlay {
+                RoundedRectangle(cornerRadius: 28, style: .continuous)
+                    .stroke(.white.opacity(0.12), lineWidth: 1)
+            }
+
+            MedalFragmentStatusLabel(currentXP: currentXP, wording: .collected)
+                .padding(.horizontal, 16)
+                .padding(.vertical, 10)
+                .glassEffect(.regular, in: Capsule())
         }
     }
 }

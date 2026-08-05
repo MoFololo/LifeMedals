@@ -132,16 +132,16 @@ private struct ErodingMedalView: View {
                     .frame(width: side * 1.18, height: side * 1.18)
                     .blur(radius: 12)
 
-                medalImage("Medal_ProblemSolver_Silver")
+                medalImage(rank: .silver)
 
-                medalImage("Medal_ProblemSolver_Bronze")
+                medalImage(rank: .bronze)
                     .mask {
                         ErosionMask(progress: progress, seed: seed)
                     }
 
                 ErosionEdgeOverlay(progress: progress, seed: seed)
                     .mask {
-                        medalImage("Medal_ProblemSolver_Silver")
+                        medalImage(rank: .silver)
                     }
 
                 MedalParticleCanvas(
@@ -158,11 +158,8 @@ private struct ErodingMedalView: View {
         .accessibilityValue("已剥落 \(Int((progress * 100).rounded()))%")
     }
 
-    private func medalImage(_ name: String) -> some View {
-        Image(name)
-            .resizable()
-            .interpolation(.high)
-            .scaledToFit()
+    private func medalImage(rank: BadgeRank) -> some View {
+        MedalArtworkView(categoryName: BadgeKind.problemSolver.rawValue, rank: rank)
     }
 }
 

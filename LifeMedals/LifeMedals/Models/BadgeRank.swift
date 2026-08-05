@@ -76,17 +76,6 @@ enum BadgeRank: Int, CaseIterable, Comparable, Codable, Sendable {
     static func rank(forCumulativeXP cumulativeXP: Int) -> BadgeRank {
         allCases.reversed().first { cumulativeXP >= $0.cumulativeXPThreshold } ?? .bronze
     }
-
-    // MARK: - Appearance (reserved for future per-rank medal art)
-
-    /// Placeholder SF Symbol shared by every rank today (no visual change on
-    /// rank-up yet). Once distinct medal artwork/icons exist per rank,
-    /// replace this switch's cases with the per-rank asset or symbol name —
-    /// call sites already read appearance only through this property, so no
-    /// other code needs to change.
-    var iconName: String {
-        "medal.fill"
-    }
 }
 
 /// Fixed rule for converting an AI-estimated task duration into XP: every

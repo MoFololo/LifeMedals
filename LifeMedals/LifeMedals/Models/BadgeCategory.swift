@@ -13,6 +13,8 @@ import SwiftData
 final class BadgeCategory {
     @Attribute(.unique) var id: UUID
     var name: String
+    /// Kept for compatibility with existing SwiftData stores. Medal UI no
+    /// longer reads this legacy SF Symbol value; it uses MedalVisualSystem.
     var iconName: String
     var isCustom: Bool
     var createdAt: Date
