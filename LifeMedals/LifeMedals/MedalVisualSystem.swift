@@ -29,16 +29,15 @@ enum MedalArtworkCatalog {
 
     /// Supplies the exact same Asset Catalog image to the HTML animation.
     /// This prevents the animation from drifting to an old embedded copy.
-    static func dataURL(for categoryName: String?, rank: BadgeRank) -> String? {
+    static func pngData(for categoryName: String?, rank: BadgeRank) -> Data? {
         let name = assetName(for: categoryName, rank: rank)
         guard
             let image = NSImage(named: NSImage.Name(name)),
             let tiffData = image.tiffRepresentation,
-            let bitmap = NSBitmapImageRep(data: tiffData),
-            let pngData = bitmap.representation(using: .png, properties: [:])
+            let bitmap = NSBitmapImageRep(data: tiffData)
         else { return nil }
 
-        return "data:image/png;base64,\(pngData.base64EncodedString())"
+        return bitmap.representation(using: .png, properties: [:])
     }
 }
 

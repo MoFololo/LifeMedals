@@ -32,6 +32,18 @@ struct ContentView: View {
         case reviewing
     }
 
+    private enum TaskDetailOrigin {
+        case taskList
+        case badgeHistory(String)
+
+        var backTitle: String {
+            switch self {
+            case .taskList: "返回任务"
+            case .badgeHistory: "返回历史记录"
+            }
+        }
+    }
+
     private enum TaskListTab: String, CaseIterable, Identifiable {
         case unfinished
         case completed
@@ -216,6 +228,7 @@ struct ContentView: View {
     @State private var errorMessage: String?
     @State private var savedMessage: String?
     @State private var selectedTask: TaskContract?
+    @State private var taskDetailOrigin = TaskDetailOrigin.taskList
     @State private var reminderAuthorization = ReminderAuthorizationState.notDetermined
     @State private var reminderFeedback: String?
     @State private var reminderFeedbackIsError = false
@@ -902,11 +915,9 @@ struct ContentView: View {
             VStack(alignment: .leading, spacing: 20) {
                 HStack(alignment: .top, spacing: 18) {
                     Button {
-                        withAnimation(.smooth(duration: 0.4)) {
-                            selectedTask = nil
-                        }
+                        closeTaskDetail()
                     } label: {
-                        Label("返回任务", systemImage: "chevron.left")
+                        Label(taskDetailOrigin.backTitle, systemImage: "chevron.left")
                             .padding(.horizontal, 14)
                             .padding(.vertical, 9)
                     }
@@ -1102,7 +1113,7 @@ struct ContentView: View {
         let rank = userBadge?.rank ?? .bronze
         let currentXP = userBadge?.currentXP ?? 0
         let historyTasks = taskContracts
-            .filter { $0.badgeCategory?.name == badge }
+            .filter { $0.badgeCategory?.name == badge && $0.status == .verified }
             .sorted { $0.createdAt > $1.createdAt }
 
         return ScrollView {
@@ -1144,7 +1155,7 @@ struct ContentView: View {
                 } else {
                     LazyVStack(spacing: 14) {
                         ForEach(historyTasks) { task in
-                            libraryTaskRow(task)
+                            libraryTaskRow(task, badge: badge)
                         }
                     }
                 }
@@ -1156,10 +1167,10 @@ struct ContentView: View {
         }
     }
 
-    private func libraryTaskRow(_ task: TaskContract) -> some View {
+    private func libraryTaskRow(_ task: TaskContract, badge: String) -> some View {
         Button {
             withAnimation(.smooth(duration: 0.4)) {
-                selectedLibraryBadge = nil
+                taskDetailOrigin = .badgeHistory(badge)
                 selectedPage = .tasks
                 selectedTask = task
             }
@@ -1297,6 +1308,7 @@ struct ContentView: View {
             if page == .tasks {
                 withAnimation(.smooth(duration: 0.38)) {
                     selectedTask = nil
+                    taskDetailOrigin = .taskList
                 }
             }
             return
@@ -1307,6 +1319,7 @@ struct ContentView: View {
             transaction.disablesAnimations = true
             withTransaction(transaction) {
                 selectedTask = nil
+                taskDetailOrigin = .taskList
             }
         }
 
@@ -1413,7 +1426,24 @@ struct ContentView: View {
 
     private func openTask(_ task: TaskContract) {
         withAnimation(.smooth(duration: 0.4)) {
+            taskDetailOrigin = .taskList
             selectedTask = task
+        }
+    }
+
+    private func closeTaskDetail() {
+        withAnimation(.smooth(duration: 0.4)) {
+            selectedTask = nil
+
+            switch taskDetailOrigin {
+            case .taskList:
+                break
+            case let .badgeHistory(badge):
+                selectedLibraryBadge = badge
+                selectedPage = .medals
+            }
+
+            taskDetailOrigin = .taskList
         }
     }
 

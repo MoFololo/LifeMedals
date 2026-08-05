@@ -74,41 +74,65 @@ struct MedalTransmutationView: NSViewRepresentable {
         Bundle.main.url(forResource: "MedalAnimation", withExtension: "html")
     }
 
-    /// Replaces the HTML file's historical embedded image copies with the
-    /// current Asset Catalog artwork. The Canvas animation and every SwiftUI
-    /// screen therefore update together when either shared PNG is replaced.
-    private static func animationHTML(using indexURL: URL, categoryName: String?) -> String? {
+    /// Replaces the HTML file's historical embedded image copies with local
+    /// file references. Keeping multi-megabyte base64 images out of the inline
+    /// script avoids WebKit occasionally abandoning the Canvas initialization
+    /// and leaving only the dark page background visible.
+    private static func animationHTML(
+        using indexURL: URL,
+        bronzeFileName: String,
+        silverFileName: String
+    ) -> String? {
         guard
             var html = try? String(contentsOf: indexURL, encoding: .utf8),
-            let bronze = MedalArtworkCatalog.dataURL(for: categoryName, rank: .bronze),
-            let silver = MedalArtworkCatalog.dataURL(for: categoryName, rank: .silver),
-            let assetScriptStart = html.range(of: "<script>window.__medalAssets="),
-            let assetScriptEnd = html.range(
-                of: "</script>",
-                range: assetScriptStart.lowerBound..<html.endIndex
+            let assetDeclarationStart = html.range(of: "window.__medalAssets="),
+            let animationScriptStart = html.range(
+                of: "\n(function(){",
+                range: assetDeclarationStart.upperBound..<html.endIndex
             )
         else { return nil }
 
-        let replacement = "<script>window.__medalAssets={bronze:\"\(bronze)\",silver:\"\(silver)\"};</script>"
-        html.replaceSubrange(assetScriptStart.lowerBound..<assetScriptEnd.upperBound, with: replacement)
+        let replacement = "window.__medalAssets={bronze:\"\(bronzeFileName)\",silver:\"\(silverFileName)\"};"
+        html.replaceSubrange(
+            assetDeclarationStart.lowerBound..<animationScriptStart.lowerBound,
+            with: replacement
+        )
         return html
     }
 
-    /// WKWebView is more reliable with this large animation document when it
-    /// is loaded as a local file. `loadHTMLString` could leave only the dark
-    /// page background visible before the Canvas script initialized.
+    /// Writes a compact animation document and its two images beside each
+    /// other so `loadFileURL` can decode the artwork as ordinary resources.
     private static func preparedAnimationURL(using indexURL: URL, categoryName: String?) -> URL? {
-        guard let html = animationHTML(using: indexURL, categoryName: categoryName) else { return nil }
+        let bronzeFileName = "medal-bronze.png"
+        let silverFileName = "medal-silver.png"
+        guard
+            let bronzeData = MedalArtworkCatalog.pngData(for: categoryName, rank: .bronze),
+            let silverData = MedalArtworkCatalog.pngData(for: categoryName, rank: .silver),
+            let html = animationHTML(
+                using: indexURL,
+                bronzeFileName: bronzeFileName,
+                silverFileName: silverFileName
+            )
+        else { return nil }
 
+        let suffix = categoryName?.hashValue ?? 0
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("LifeMedals-MedalAnimation", isDirectory: true)
-        let suffix = categoryName?.hashValue ?? 0
-        let preparedURL = directory.appendingPathComponent("medal-\(suffix).html")
+            .appendingPathComponent("medal-\(suffix)", isDirectory: true)
+        let preparedURL = directory.appendingPathComponent("index.html")
 
         do {
             try FileManager.default.createDirectory(
                 at: directory,
                 withIntermediateDirectories: true
+            )
+            try bronzeData.write(
+                to: directory.appendingPathComponent(bronzeFileName),
+                options: .atomic
+            )
+            try silverData.write(
+                to: directory.appendingPathComponent(silverFileName),
+                options: .atomic
             )
             try html.write(to: preparedURL, atomically: true, encoding: .utf8)
             return preparedURL
