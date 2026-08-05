@@ -226,7 +226,7 @@ struct ContentView: View {
     @FocusState private var isTaskInputFocused: Bool
 
     @State private var draftTitle = ""
-    @State private var draftDeadline = Date.now.addingTimeInterval(24 * 60 * 60)
+    @State private var draftDeadlinePreset: TaskDeadlinePreset? = .tomorrow
     @State private var draftEvidenceRequirement = ""
     @State private var draftEvidenceImageCount = 1
     @State private var draftEvidenceImageDescriptions: [String] = []
@@ -450,7 +450,13 @@ struct ContentView: View {
     }
 
     private var contractReview: some View {
-        ScrollView {
+        TimelineView(.periodic(from: .now, by: 30)) { context in
+            contractReview(now: context.date)
+        }
+    }
+
+    private func contractReview(now: Date) -> some View {
+        return ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 HStack(alignment: .top) {
                     VStack(alignment: .leading, spacing: 5) {
@@ -486,52 +492,45 @@ struct ContentView: View {
                     }
 
                     HStack(alignment: .top, spacing: 22) {
-                        contractField("截止时间") {
-                            PlatformWheelDatePicker(selection: $draftDeadline)
-                                .frame(maxWidth: .infinity)
+                        contractField("所属勋章") {
+                            VStack(spacing: 8) {
+                                Text(badgeDisplayName(draftBadge))
+                                    .font(.headline)
+
+                                MedalArtworkView(categoryName: draftBadge, rank: badgeRank(for: draftBadge))
+                                    .frame(maxWidth: .infinity, maxHeight: 106)
+                            }
+                            .padding(10)
+                            .frame(maxWidth: .infinity, minHeight: 144, maxHeight: 144)
+                            .background(.white.opacity(0.46), in: RoundedRectangle(cornerRadius: 14))
                         }
-                        .frame(maxWidth: .infinity)
+                        .frame(width: 220)
 
-                        VStack(alignment: .leading, spacing: 18) {
-                            contractField("所属勋章") {
-                                HStack(spacing: 10) {
-                                    MedalArtworkView(categoryName: draftBadge, rank: badgeRank(for: draftBadge))
-                                        .frame(width: 28, height: 28)
-
-                                    Picker("所属勋章", selection: $draftBadge) {
-                                        ForEach(Self.badgeOptions, id: \.self) { badge in
-                                            Text(badgeDisplayName(badge))
-                                                .tag(badge)
-                                        }
-                                    }
-                                    .labelsHidden()
-                                    .pickerStyle(.menu)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                }
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                            }
-
-                            contractField("完成奖励") {
-                                VStack(alignment: .leading, spacing: 4) {
-                                    Label("+\(draftXP) EXP", systemImage: "sparkles")
-                                        .font(.title3.bold())
-                                        .foregroundStyle(.orange)
-                                    Text("预计用时约 \(formattedEstimatedHours) 小时 · 1 小时 = 100 EXP")
-                                        .font(.caption)
-                                        .foregroundStyle(.secondary)
-                                }
-                                .padding(.vertical, 7)
-                            }
+                        contractField("截止日期") {
+                            DeadlinePresetWheelPicker(selection: $draftDeadlinePreset)
                         }
                         .frame(maxWidth: .infinity)
                     }
 
+                    contractField("完成奖励") {
+                        VStack(alignment: .leading, spacing: 4) {
+                            Label("+\(draftXP) EXP", systemImage: "sparkles")
+                                .font(.title3.bold())
+                                .foregroundStyle(.orange)
+                            Text("预计用时约 \(formattedEstimatedHours) 小时 · 1 小时 = 100 EXP")
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                        }
+                        .padding(.vertical, 7)
+                    }
+
                     contractField("验收标准") {
-                        TextEditor(text: $draftEvidenceRequirement)
+                        Text(draftEvidenceRequirement)
                             .font(.body)
-                            .scrollContentBackground(.hidden)
-                            .padding(10)
-                            .frame(minHeight: 105)
+                            .lineSpacing(4)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .padding(14)
+                            .frame(maxWidth: .infinity, minHeight: 105, alignment: .topLeading)
                             .background(.white.opacity(0.46), in: RoundedRectangle(cornerRadius: 14))
                     }
 
@@ -1330,7 +1329,7 @@ struct ContentView: View {
                 }
 
                 draftTitle = contract.title
-                draftDeadline = deadline
+                draftDeadlinePreset = deadlinePreset(for: deadline, relativeTo: .now)
                 draftEvidenceRequirement = contract.evidenceRequirement
                 draftEvidenceImageCount = contract.evidenceImageCount
                 draftEvidenceImageDescriptions = contract.evidenceImageDescriptions
@@ -1353,7 +1352,18 @@ struct ContentView: View {
     private func saveTask() {
         let title = draftTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         let requirement = draftEvidenceRequirement.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !title.isEmpty, !requirement.isEmpty else { return }
+        guard
+            !title.isEmpty,
+            !requirement.isEmpty,
+            let draftDeadlinePreset
+        else { return }
+
+        let deadline = taskDeadline(for: draftDeadlinePreset, relativeTo: .now)
+        guard deadline > Date.now else {
+            errorMessage = "截止时间必须晚于当前时间，请重新选择。"
+            self.draftDeadlinePreset = .tomorrow
+            return
+        }
 
         do {
             let category: BadgeCategory
@@ -1369,7 +1379,7 @@ struct ContentView: View {
 
             let task = TaskContract(
                 title: title,
-                deadline: draftDeadline,
+                deadline: deadline,
                 evidenceRequirement: requirement,
                 evidenceImageCount: draftEvidenceImageCount,
                 evidenceImageDescriptions: draftEvidenceImageDescriptions,
@@ -1477,7 +1487,25 @@ struct ContentView: View {
 
     private var canSaveDraft: Bool {
         !draftTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-            !draftEvidenceRequirement.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            !draftEvidenceRequirement.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+            draftDeadlinePreset.map { taskDeadline(for: $0, relativeTo: .now) > Date.now } == true
+    }
+
+    private func taskDeadline(for preset: TaskDeadlinePreset, relativeTo date: Date) -> Date {
+        let calendar = Calendar.current
+        let targetDay = calendar.date(byAdding: .day, value: preset.dayOffset, to: date) ?? date
+        return calendar.date(bySettingHour: 23, minute: 59, second: 0, of: targetDay) ?? targetDay
+    }
+
+    private func deadlinePreset(for deadline: Date, relativeTo date: Date) -> TaskDeadlinePreset {
+        let calendar = Calendar.current
+        let startOfToday = calendar.startOfDay(for: date)
+        let startOfDeadline = calendar.startOfDay(for: deadline)
+        let days = calendar.dateComponents([.day], from: startOfToday, to: startOfDeadline).day ?? 0
+
+        if days <= 0 { return .today }
+        if days == 1 { return .tomorrow }
+        return .nextWeek
     }
 
     private var formattedEstimatedHours: String {
