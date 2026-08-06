@@ -495,12 +495,25 @@ struct ContentView: View {
                 }
 
                 VStack(alignment: .leading, spacing: 18) {
-                    contractField("任务标题") {
-                        TextField("任务标题", text: $draftTitle)
-                            .textFieldStyle(.plain)
-                            .font(.title3.weight(.medium))
-                            .padding(14)
-                            .background(.white.opacity(0.46), in: RoundedRectangle(cornerRadius: 14))
+                    HStack(alignment: .top, spacing: 22) {
+                        contractField("任务标题") {
+                            TextField("任务标题", text: $draftTitle)
+                                .textFieldStyle(.plain)
+                                .font(.title3.weight(.medium))
+                                .padding(14)
+                                .background(.white.opacity(0.46), in: RoundedRectangle(cornerRadius: 14))
+                        }
+                        .frame(maxWidth: .infinity)
+
+                        contractField("完成奖励") {
+                            Label("+\(draftXP) EXP", systemImage: "sparkles")
+                                .font(.title3.bold())
+                                .foregroundStyle(.orange)
+                                .padding(14)
+                                .frame(maxWidth: .infinity, alignment: .leading)
+                                .background(.white.opacity(0.46), in: RoundedRectangle(cornerRadius: 14))
+                        }
+                        .frame(width: 180)
                     }
 
                     HStack(alignment: .top, spacing: 22) {
@@ -517,13 +530,6 @@ struct ContentView: View {
                             DeadlinePresetWheelPicker(selection: $draftDeadlinePreset)
                         }
                         .frame(maxWidth: .infinity)
-                    }
-
-                    contractField("完成奖励") {
-                        Label("+\(draftXP) EXP", systemImage: "sparkles")
-                            .font(.title3.bold())
-                            .foregroundStyle(.orange)
-                            .padding(.vertical, 7)
                     }
 
                     contractField("证据照片") {
