@@ -6,25 +6,72 @@
 import AppKit
 import SwiftUI
 
-/// The single source of truth for medal artwork used across SwiftUI and the
-/// web-based transmutation animation.
+/// Everything the UI and animation renderer need for one medal family.
 ///
-/// To replace every bronze or silver medal in the app, replace the PNG inside
-/// the corresponding imageset below while keeping its asset name unchanged.
-enum MedalArtworkCatalog {
-    static let bronzeAssetName = "Medal_Bronze"
-    static let silverAssetName = "Medal_Silver"
+/// Adding or replacing artwork only requires updating the two asset names and
+/// the fragment count in `MedalArtworkCatalog.builtIn` below. Feature views
+/// deliberately do not know filenames or fragment totals.
+struct MedalArtworkConfiguration: Equatable, Sendable {
+    let bronzeAssetName: String
+    let silverAssetName: String
+    let fragmentCount: Int
+    let cacheKey: String
 
-    /// Category and rank stay separate even though all categories currently
-    /// share the same placeholder art. This is the only selector that needs
-    /// expanding when category-specific or higher-rank artwork is introduced.
-    static func assetName(for categoryName: String?, rank: BadgeRank) -> String {
+    func assetName(for rank: BadgeRank) -> String {
         switch rank {
         case .bronze:
             bronzeAssetName
         case .silver, .gold, .platinum, .emerald, .diamond, .master, .grandmaster, .champion:
             silverAssetName
         }
+    }
+}
+
+/// The single source of truth for medal artwork and fragment totals used by
+/// both SwiftUI and the web-based transmutation animation.
+enum MedalArtworkCatalog {
+    private static let builtIn: [BadgeKind: MedalArtworkConfiguration] = [
+        .problemSolver: MedalArtworkConfiguration(
+            bronzeAssetName: "ProblemSolver_Bronze",
+            silverAssetName: "ProblemSolver_Silver",
+            fragmentCount: 73,
+            cacheKey: "problem-solver"
+        ),
+        .builder: MedalArtworkConfiguration(
+            bronzeAssetName: "Create_Bronze",
+            silverAssetName: "Create_Silver",
+            fragmentCount: 73,
+            cacheKey: "create"
+        ),
+        .career: MedalArtworkConfiguration(
+            bronzeAssetName: "Work_Bronze",
+            silverAssetName: "Work_Silver",
+            fragmentCount: 73,
+            cacheKey: "work"
+        ),
+        .athlete: MedalArtworkConfiguration(
+            bronzeAssetName: "Sport_Bronze",
+            silverAssetName: "Sport_Silver",
+            fragmentCount: 73,
+            cacheKey: "sport"
+        )
+    ]
+
+    /// Custom or legacy categories use the problem-solving family until they
+    /// receive an explicit entry in `builtIn`.
+    static func configuration(for categoryName: String?) -> MedalArtworkConfiguration {
+        guard
+            let categoryName,
+            let kind = BadgeKind(rawValue: categoryName),
+            let configuration = builtIn[kind]
+        else {
+            return builtIn[.problemSolver]!
+        }
+        return configuration
+    }
+
+    static func assetName(for categoryName: String?, rank: BadgeRank) -> String {
+        configuration(for: categoryName).assetName(for: rank)
     }
 
     /// Supplies the exact same Asset Catalog image to the HTML animation.
@@ -52,19 +99,23 @@ struct MedalArtworkView: View {
         Image(MedalArtworkCatalog.assetName(for: categoryName, rank: rank))
             .resizable()
             .interpolation(.high)
-            .scaledToFit()
+            .scaledToFill()
+            .clipped()
             .accessibilityHidden(true)
     }
 }
 
 enum MedalFragmentRules {
-    static let total = 73
-
     /// The bronze-to-silver animation assembles all fragments across the
     /// first 42% of its timeline before the silver medal is revealed.
     static let assemblyTimelineEnd = 0.42
 
-    static func collected(for currentXP: Int) -> Int {
+    static func total(for categoryName: String?) -> Int {
+        MedalArtworkCatalog.configuration(for: categoryName).fragmentCount
+    }
+
+    static func collected(for currentXP: Int, categoryName: String?) -> Int {
+        let total = total(for: categoryName)
         let progress = min(
             max(Double(currentXP) / Double(BadgeRank.silver.cumulativeXPThreshold), 0),
             1
@@ -142,16 +193,21 @@ struct MedalFragmentStatusLabel: View {
     }
 
     let currentXP: Int
+    let categoryName: String?
     let wording: Wording
     var targetRank: BadgeRank = .silver
 
+    private var total: Int {
+        MedalFragmentRules.total(for: categoryName)
+    }
+
     private var fragmentCount: Int {
-        MedalFragmentRules.collected(for: currentXP)
+        MedalFragmentRules.collected(for: currentXP, categoryName: categoryName)
     }
 
     var body: some View {
         HStack(spacing: 7) {
-            Text("\(wording.prefix) \(fragmentCount)/\(MedalFragmentRules.total) \(wording.suffix)")
+            Text("\(wording.prefix) \(fragmentCount)/\(total) \(wording.suffix)")
                 .font(.subheadline.weight(.semibold).monospacedDigit())
                 .foregroundStyle(.secondary)
 
@@ -159,7 +215,7 @@ struct MedalFragmentStatusLabel: View {
                 .frame(width: 17, height: 19)
         }
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(wording.prefix) \(fragmentCount) / \(MedalFragmentRules.total) \(wording.suffix)")
+        .accessibilityLabel("\(wording.prefix) \(fragmentCount) / \(total) \(wording.suffix)")
     }
 }
 

@@ -311,7 +311,6 @@ struct ContentView: View {
         }
         .onReceive(NotificationCenter.default.publisher(for: .xpAwarded)) { notification in
             guard let event = notification.object as? XPAwardEvent else { return }
-            guard event.categoryName == "Problem Solver" else { return }
             guard event.currentXP > event.previousXP else { return }
             guard event.previousXP < BadgeRank.silver.cumulativeXPThreshold else { return }
 
@@ -1079,7 +1078,11 @@ struct ContentView: View {
                 .font(.title3.bold())
                 .lineLimit(1)
 
-            MedalFragmentStatusLabel(currentXP: currentXP, wording: .earned)
+            MedalFragmentStatusLabel(
+                currentXP: currentXP,
+                categoryName: badge,
+                wording: .earned
+            )
         }
         .padding(18)
         .frame(maxWidth: .infinity)

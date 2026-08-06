@@ -41,27 +41,16 @@ struct MedalTransmutationView: NSViewRepresentable {
         webView.navigationDelegate = context.coordinator
         context.coordinator.webView = webView
 
-        guard let indexURL = Self.animationIndexURL else {
-            assertionFailure("MedalAnimation.html is missing from the app bundle")
-            return webView
-        }
-
-        if let preparedURL = Self.preparedAnimationURL(using: indexURL, categoryName: categoryName) {
-            webView.loadFileURL(
-                preparedURL,
-                allowingReadAccessTo: preparedURL.deletingLastPathComponent()
-            )
-        } else {
-            webView.loadFileURL(
-                indexURL,
-                allowingReadAccessTo: indexURL.deletingLastPathComponent()
-            )
-        }
+        context.coordinator.loadAnimation(for: categoryName)
         return webView
     }
 
     func updateNSView(_ webView: WKWebView, context: Context) {
         context.coordinator.parent = self
+        let configuration = MedalArtworkCatalog.configuration(for: categoryName)
+        if context.coordinator.loadedConfiguration != configuration {
+            context.coordinator.loadAnimation(for: categoryName)
+        }
         context.coordinator.sendCommandIfNeeded()
     }
 
@@ -81,7 +70,8 @@ struct MedalTransmutationView: NSViewRepresentable {
     private static func animationHTML(
         using indexURL: URL,
         bronzeFileName: String,
-        silverFileName: String
+        silverFileName: String,
+        fragmentCount: Int
     ) -> String? {
         guard
             var html = try? String(contentsOf: indexURL, encoding: .utf8),
@@ -92,17 +82,41 @@ struct MedalTransmutationView: NSViewRepresentable {
             )
         else { return nil }
 
-        let replacement = "window.__medalAssets={bronze:\"\(bronzeFileName)\",silver:\"\(silverFileName)\"};"
+        let replacement = "window.__medalAssets={bronze:\"\(bronzeFileName)\",silver:\"\(silverFileName)\"};window.__medalConfig={fragmentCount:\(fragmentCount)};"
         html.replaceSubrange(
             assetDeclarationStart.lowerBound..<animationScriptStart.lowerBound,
             with: replacement
         )
+        // The supplied PNGs may use either square or widescreen transparent
+        // canvases. Always draw their centered square so the medal is neither
+        // shrunk in SwiftUI nor stretched in Canvas.
+        html = html.replacingOccurrences(
+            of: "function bt(t,e,o,r,c=1){n.save(),n.globalAlpha=c,n.drawImage(t,e,o,r,r),n.restore()}",
+            with: "function bt(t,e,o,r,c=1){const a=Math.min(t.naturalWidth,t.naturalHeight),l=(t.naturalWidth-a)/2,s=(t.naturalHeight-a)/2;n.save(),n.globalAlpha=c,n.drawImage(t,l,s,a,a,e,o,r,r),n.restore()}"
+        )
+
+        // Fragment geometry is a renderer detail; the configured total owns
+        // award discretisation and timeline stepping. This keeps the effect
+        // smooth for any business fragment count without coupling that count
+        // to the current 73-cell visual mesh.
+        html = html.replacingOccurrences(
+            of: "const B=.42",
+            with: "const B=.42,fragmentTarget=Math.max(1,Math.round(st.__medalConfig?.fragmentCount??73))"
+        )
+        html = html.replacingOccurrences(
+            of: "let a=Math.ceil(r*M.length-1e-9);const l=Math.ceil(c*M.length-1e-9)",
+            with: "let a=Math.ceil(r*fragmentTarget-1e-9);const l=Math.ceil(c*fragmentTarget-1e-9)"
+        )
+        html = html.replacingOccurrences(of: "J(B*a/M.length)", with: "J(B*a/fragmentTarget)")
+        html = html.replacingOccurrences(of: "m=B*l/M.length", with: "m=B*l/fragmentTarget")
+        html = html.replacingOccurrences(of: "l===M.length", with: "l===fragmentTarget")
         return html
     }
 
     /// Writes a compact animation document and its two images beside each
     /// other so `loadFileURL` can decode the artwork as ordinary resources.
     private static func preparedAnimationURL(using indexURL: URL, categoryName: String?) -> URL? {
+        let artwork = MedalArtworkCatalog.configuration(for: categoryName)
         let bronzeFileName = "medal-bronze.png"
         let silverFileName = "medal-silver.png"
         guard
@@ -111,14 +125,14 @@ struct MedalTransmutationView: NSViewRepresentable {
             let html = animationHTML(
                 using: indexURL,
                 bronzeFileName: bronzeFileName,
-                silverFileName: silverFileName
+                silverFileName: silverFileName,
+                fragmentCount: artwork.fragmentCount
             )
         else { return nil }
 
-        let suffix = categoryName?.hashValue ?? 0
         let directory = FileManager.default.temporaryDirectory
             .appendingPathComponent("LifeMedals-MedalAnimation", isDirectory: true)
-            .appendingPathComponent("medal-\(suffix)", isDirectory: true)
+            .appendingPathComponent(artwork.cacheKey, isDirectory: true)
         let preparedURL = directory.appendingPathComponent("index.html")
 
         do {
@@ -146,12 +160,31 @@ struct MedalTransmutationView: NSViewRepresentable {
     final class Coordinator: NSObject, WKNavigationDelegate, WKScriptMessageHandler {
         var parent: MedalTransmutationView
         weak var webView: WKWebView?
+        var loadedConfiguration: MedalArtworkConfiguration?
 
         private var isReady = false
         private var lastCommand: MedalAnimationCommand?
 
         init(parent: MedalTransmutationView) {
             self.parent = parent
+        }
+
+        func loadAnimation(for categoryName: String?) {
+            guard let webView else { return }
+            isReady = false
+            lastCommand = nil
+            loadedConfiguration = MedalArtworkCatalog.configuration(for: categoryName)
+
+            guard let indexURL = MedalTransmutationView.animationIndexURL else {
+                assertionFailure("MedalAnimation.html is missing from the app bundle")
+                return
+            }
+
+            let url = MedalTransmutationView.preparedAnimationURL(
+                using: indexURL,
+                categoryName: categoryName
+            ) ?? indexURL
+            webView.loadFileURL(url, allowingReadAccessTo: url.deletingLastPathComponent())
         }
 
         func userContentController(
@@ -229,7 +262,14 @@ struct MedalAwardAnimationOverlay: View {
     }
 
     private var fragmentCount: Int {
-        min(73, Int(ceil(toProgress * 73)))
+        MedalFragmentRules.collected(
+            for: event.currentXP,
+            categoryName: event.categoryName
+        )
+    }
+
+    private var totalFragmentCount: Int {
+        MedalFragmentRules.total(for: event.categoryName)
     }
 
     var body: some View {
@@ -240,7 +280,11 @@ struct MedalAwardAnimationOverlay: View {
             VStack(spacing: 0) {
                 HStack(alignment: .top, spacing: 16) {
                     VStack(alignment: .leading, spacing: 5) {
-                        Text(toProgress >= 1 ? "白银觉醒" : "解题勋章正在铸造")
+                        Text(
+                            toProgress >= 1
+                                ? "白银觉醒"
+                                : "\(BadgeKind.displayName(for: event.categoryName))正在铸造"
+                        )
                             .font(.title2.bold())
                             .foregroundStyle(.white)
                         Text("+\(event.amount) EXP · \(event.currentXP) / \(BadgeRank.silver.cumulativeXPThreshold)")
@@ -291,7 +335,7 @@ struct MedalAwardAnimationOverlay: View {
                         Text(toProgress >= 1 ? "100% · 白银勋章" : "\(Int((toProgress * 100).rounded()))% · 青铜勋章")
                             .font(.headline.monospacedDigit())
                             .foregroundStyle(.white)
-                        Text(toProgress >= 1 ? "淬炼完成，白银真身已经显露" : "已拥有 \(fragmentCount) / 73 块甲片")
+                        Text(toProgress >= 1 ? "淬炼完成，白银真身已经显露" : "已拥有 \(fragmentCount) / \(totalFragmentCount) 块甲片")
                             .font(.caption)
                             .foregroundStyle(.white.opacity(0.6))
                     }
@@ -335,7 +379,11 @@ struct MedalDetailHeroView: View {
                     .stroke(.white.opacity(0.12), lineWidth: 1)
             }
 
-            MedalFragmentStatusLabel(currentXP: currentXP, wording: .collected)
+            MedalFragmentStatusLabel(
+                currentXP: currentXP,
+                categoryName: categoryName,
+                wording: .collected
+            )
                 .padding(.horizontal, 16)
                 .padding(.vertical, 10)
                 .glassEffect(.regular, in: Capsule())
