@@ -23,6 +23,12 @@ const TASK_CONTRACT_SCHEMA = {
       format: "date-time",
       description: "An ISO 8601 deadline including a timezone offset.",
     },
+    deadline_preset: {
+      type: "string",
+      enum: ["today", "tomorrow", "this_weekend"],
+      description:
+        "The deadline choice inferred from the user's words: today, tomorrow, or this weekend.",
+    },
     evidence_requirement: {
       type: "string",
       minLength: 1,
@@ -64,6 +70,7 @@ const TASK_CONTRACT_SCHEMA = {
   required: [
     "title",
     "deadline",
+    "deadline_preset",
     "evidence_requirement",
     "evidence_image_count",
     "evidence_image_descriptions",
@@ -231,8 +238,9 @@ export default {
         "Convert the user's natural-language commitment into an editable LifeMedals task contract.",
         `The current UTC time is ${now}. The user's timezone is ${timezone} and locale is ${locale}.`,
         "Preserve the user's intent and write the title and evidence requirement in the user's language.",
-        "Interpret relative dates using the supplied current time and timezone. Return the deadline as ISO 8601 with an explicit timezone offset.",
-        "If the user gives no deadline, choose a reasonable deadline within the next seven days.",
+        "Infer exactly one deadline_preset from the user's words: today for 今天/today, tomorrow for 明天/tomorrow, or this_weekend for 这周末/本周末/周末/this weekend. Never interpret this_weekend as next weekend.",
+        "Interpret relative dates using the supplied current time and timezone. Set deadline to 23:59 local time on the selected day: today, tomorrow, or the coming Sunday (including the current day when today is Sunday) for this_weekend. Return it as ISO 8601 with an explicit timezone offset.",
+        "If the user gives no deadline, choose the most reasonable of tomorrow or this_weekend; do not invent a date outside these three presets.",
         "Evidence must be objective, lightweight, privacy-conscious, and preferably something the task naturally produces.",
         "Choose the exact evidence_image_count from 1 to 5 before writing the evidence plan.",
         "For one or two photos, return one concrete evidence_image_descriptions entry per photo, in upload order.",
@@ -891,6 +899,7 @@ export function isTaskContract(value) {
     typeof value.deadline === "string" &&
     Number.isFinite(Date.parse(value.deadline)) &&
     /(?:[zZ]|[+-]\d{2}:\d{2})$/.test(value.deadline) &&
+    new Set(["today", "tomorrow", "this_weekend"]).has(value.deadline_preset) &&
     typeof value.evidence_requirement === "string" &&
     value.evidence_requirement.length > 0 &&
     value.evidence_requirement.length <= 500 &&

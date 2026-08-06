@@ -245,7 +245,6 @@ struct ContentView: View {
     @State private var draftEvidenceImageDescriptions: [String] = []
     @State private var draftBadge = "Problem Solver"
     @State private var draftXP = 10
-    @State private var draftEstimatedHours = 0.25
 
     private let generationService = TaskGenerationService()
     private let notificationService = TaskNotificationService()
@@ -475,7 +474,7 @@ struct ContentView: View {
                     VStack(alignment: .leading, spacing: 5) {
                         Text("确认任务契约")
                             .font(.largeTitle.bold())
-                        Text("保存后，验收标准将作为这项任务的约定。")
+                        Text("确认截止日期和证据照片后，即可开始执行。")
                             .foregroundStyle(.secondary)
                     }
 
@@ -506,16 +505,11 @@ struct ContentView: View {
 
                     HStack(alignment: .top, spacing: 22) {
                         contractField("所属勋章") {
-                            VStack(spacing: 8) {
-                                Text(badgeDisplayName(draftBadge))
-                                    .font(.headline)
-
-                                MedalArtworkView(categoryName: draftBadge, rank: badgeRank(for: draftBadge))
-                                    .frame(maxWidth: .infinity, maxHeight: 106)
-                            }
-                            .padding(10)
-                            .frame(maxWidth: .infinity, minHeight: 144, maxHeight: 144)
-                            .background(.white.opacity(0.46), in: RoundedRectangle(cornerRadius: 14))
+                            MedalArtworkView(categoryName: draftBadge, rank: badgeRank(for: draftBadge))
+                                .frame(maxWidth: .infinity, maxHeight: 132)
+                                .padding(4)
+                                .frame(maxWidth: .infinity, minHeight: 144, maxHeight: 144)
+                                .background(.white.opacity(0.46), in: RoundedRectangle(cornerRadius: 14))
                         }
                         .frame(width: 220)
 
@@ -526,25 +520,10 @@ struct ContentView: View {
                     }
 
                     contractField("完成奖励") {
-                        VStack(alignment: .leading, spacing: 4) {
-                            Label("+\(draftXP) EXP", systemImage: "sparkles")
-                                .font(.title3.bold())
-                                .foregroundStyle(.orange)
-                            Text("预计用时约 \(formattedEstimatedHours) 小时 · 1 小时 = 100 EXP")
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                        }
-                        .padding(.vertical, 7)
-                    }
-
-                    contractField("验收标准") {
-                        Text(draftEvidenceRequirement)
-                            .font(.body)
-                            .lineSpacing(4)
-                            .fixedSize(horizontal: false, vertical: true)
-                            .padding(14)
-                            .frame(maxWidth: .infinity, minHeight: 105, alignment: .topLeading)
-                            .background(.white.opacity(0.46), in: RoundedRectangle(cornerRadius: 14))
+                        Label("+\(draftXP) EXP", systemImage: "sparkles")
+                            .font(.title3.bold())
+                            .foregroundStyle(.orange)
+                            .padding(.vertical, 7)
                     }
 
                     contractField("证据照片") {
@@ -1342,14 +1321,14 @@ struct ContentView: View {
                 }
 
                 draftTitle = contract.title
-                draftDeadlinePreset = deadlinePreset(for: deadline, relativeTo: .now)
+                draftDeadlinePreset = contract.deadlinePreset
+                    ?? deadlinePreset(for: deadline, relativeTo: .now)
                 draftEvidenceRequirement = contract.evidenceRequirement
                 draftEvidenceImageCount = contract.evidenceImageCount
                 draftEvidenceImageDescriptions = contract.evidenceImageDescriptions
                 draftBadge = Self.badgeOptions.contains(contract.suggestedBadge)
                     ? contract.suggestedBadge
                     : Self.badgeOptions[0]
-                draftEstimatedHours = contract.estimatedHours
                 draftXP = contract.suggestedXP
 
                 withAnimation(.smooth(duration: 0.46)) {
@@ -1523,7 +1502,17 @@ struct ContentView: View {
 
     private func taskDeadline(for preset: TaskDeadlinePreset, relativeTo date: Date) -> Date {
         let calendar = Calendar.current
-        let targetDay = calendar.date(byAdding: .day, value: preset.dayOffset, to: date) ?? date
+        let dayOffset: Int
+        switch preset {
+        case .today:
+            dayOffset = 0
+        case .tomorrow:
+            dayOffset = 1
+        case .thisWeekend:
+            let weekday = calendar.component(.weekday, from: date)
+            dayOffset = (8 - weekday) % 7
+        }
+        let targetDay = calendar.date(byAdding: .day, value: dayOffset, to: date) ?? date
         return calendar.date(bySettingHour: 23, minute: 59, second: 0, of: targetDay) ?? targetDay
     }
 
@@ -1535,11 +1524,7 @@ struct ContentView: View {
 
         if days <= 0 { return .today }
         if days == 1 { return .tomorrow }
-        return .nextWeek
-    }
-
-    private var formattedEstimatedHours: String {
-        draftEstimatedHours.formatted(.number.precision(.fractionLength(0...2)))
+        return .thisWeekend
     }
 
     private var pendingTasks: [TaskContract] {

@@ -10,6 +10,7 @@ import Foundation
 struct GeneratedTaskContract: Decodable, Sendable {
     let title: String
     let deadline: String
+    let deadlinePreset: TaskDeadlinePreset?
     let evidenceRequirement: String
     let evidenceImageCount: Int
     let evidenceImageDescriptions: [String]
@@ -23,6 +24,7 @@ struct GeneratedTaskContract: Decodable, Sendable {
     enum CodingKeys: String, CodingKey {
         case title
         case deadline
+        case deadlinePreset = "deadline_preset"
         case evidenceRequirement = "evidence_requirement"
         case evidenceImageCount = "evidence_image_count"
         case evidenceImageDescriptions = "evidence_image_descriptions"
@@ -35,6 +37,7 @@ struct GeneratedTaskContract: Decodable, Sendable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         title = try container.decode(String.self, forKey: .title)
         deadline = try container.decode(String.self, forKey: .deadline)
+        deadlinePreset = try container.decodeIfPresent(TaskDeadlinePreset.self, forKey: .deadlinePreset)
         evidenceRequirement = try container.decode(String.self, forKey: .evidenceRequirement)
         suggestedBadge = try container.decode(String.self, forKey: .suggestedBadge)
 

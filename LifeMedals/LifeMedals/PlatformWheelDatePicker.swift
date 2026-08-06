@@ -1,23 +1,15 @@
 import SwiftUI
 
-enum TaskDeadlinePreset: String, CaseIterable, Hashable {
+enum TaskDeadlinePreset: String, CaseIterable, Hashable, Codable, Sendable {
     case today
     case tomorrow
-    case nextWeek
+    case thisWeekend = "this_weekend"
 
     var title: String {
         switch self {
         case .today: "今天"
         case .tomorrow: "明天"
-        case .nextWeek: "下周"
-        }
-    }
-
-    var dayOffset: Int {
-        switch self {
-        case .today: 0
-        case .tomorrow: 1
-        case .nextWeek: 7
+        case .thisWeekend: "这周末"
         }
     }
 }

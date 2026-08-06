@@ -104,6 +104,7 @@ test("validates task contracts with count-aware evidence descriptions", () => {
   const baseContract = {
     title: "完成两道 LeetCode",
     deadline: "2026-08-01T22:00:00+08:00",
+    deadline_preset: "this_weekend",
     evidence_requirement: "提交两道题均为 Accepted 的截图。",
     evidence_image_count: 2,
     evidence_image_descriptions: [
@@ -125,6 +126,10 @@ test("validates task contracts with count-aware evidence descriptions", () => {
   );
   assert.equal(
     isTaskContract({ ...baseContract, evidence_image_descriptions: ["只有一条"] }),
+    false,
+  );
+  assert.equal(
+    isTaskContract({ ...baseContract, deadline_preset: "next_weekend" }),
     false,
   );
   assert.equal(
