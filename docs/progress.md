@@ -6,15 +6,15 @@
 
 ## 当前状态
 
-**阶段**：Step 4 - 证据提交与 AI 核验（已完成）
-**已完成**：AI 预先规划 1–5 张证据照片及描述；macOS 按 1 / 2 / 3–5 张切换提交布局并支持 PhotosPicker、本地文件、拖放和剪贴板；同批照片合并展示；压缩后 SwiftData 外部存储、三态核验、补交与失败重试；Worker 核验端点共用全局限流和月度硬预算且不持久化图片
-**下一步该做什么**：进入 Step 5，实现 Verified 后的 EXP 入账、等级计算和 Library；同时保留 Step 1 的断网增删改查和重启持久化手动验证
+**阶段**：Step 9/10 - iOS 迁移与 Mac/iPhone CloudKit 验收
+**已完成**：现有 target 已升级为 macOS+iOS 多平台应用；完成图片、相机、WebKit 与首轮小屏/触控适配，macOS 和 iOS Simulator Debug 均编译通过；SwiftData schema、Apple 登录、同步状态 UI 与 CloudKit 私有容器保持共享
+**下一步该做什么**：使用付费 Apple Developer Team 激活 `iCloud.noorg.LifeMedals`，在 iPhone 真机验证相机/通知/登录并完成 Mac↔iPhone 同步、断网恢复和冲突验收；详细清单见 `docs/ios-migration-plan.md`
 
 > 2026-07-30 架构已调整为本地优先。下方 2026-07-29 的 Supabase 条目保留为历史记录，不代表当前技术方向；迁移完成后不再依赖 Supabase Postgres、Auth、Storage 或 Edge Functions。
 >
-> **v1 范围强调：CloudKit 不进入当前开发阶段。v1 不配置 CloudKit、不实现跨设备同步或同步状态 UI，也不做 CloudKit、跨设备、同步冲突、离线恢复等相关测试。v1 只验收单台 Mac 上的 SwiftData 本地持久化。**
+> **2026-08-08 最新范围覆盖**：v1 已扩展为 macOS+iOS 多平台客户端；CloudKit 和 Sign in with Apple 在两个平台共享。此前“不得提前接入”的条目作为历史决策保留，不再约束当前实现。
 >
-> **v1 登录与付费边界：v1 只做一个可跳过、没有实际权限作用的登录页面，不接 Sign in with Apple，不创建真实账户。会员、StoreKit 订阅、entitlement、个人 AI 配额和账户删除全部推迟到 v2。登录或跳过不能影响 v1 的本地与 AI 功能。**
+> **当前登录与付费边界**：v1 接入 Sign in with Apple，但仍允许离线进入；会员、StoreKit 订阅、entitlement、个人 AI 配额、服务端账户和账户删除继续推迟到 v2。
 
 ---
 
@@ -22,7 +22,7 @@
 
 1. 开始写代码前先读 `README.md`（尤其是"关键设计原则"部分），必要时也读 `docs/product-plan.md`。
 2. 每完成一个子任务，把对应的 `[ ]` 改成 `[x]`。
-3. 不要跳着做——先完成 SwiftData 本地迁移，再继续 AI 功能；不要提前接入或测试 CloudKit。
+3. SwiftData/CloudKit schema 变更必须保持向后兼容；Production schema 发布后只能增量演进。
 4. 每次会话结束前，在"更新日志"里追加一条：日期 + 做了什么 + 涉及哪些文件/commit。
 5. 如果发现某个子任务需要拆得更细，可以直接在对应 Step 下面加新的 `[ ]` 行。
 
@@ -34,7 +34,7 @@
 - [x] 创建 GitHub 仓库
 - [x] 编写 README.md
 - [x] 编写 docs/product-plan.md
-- [x] 建 Xcode 项目（macOS App target）
+- [x] 建 Xcode 项目，并升级为 macOS+iOS 多平台 App target
 - [x] 明确采用 SwiftData 本地优先架构，CloudKit 推迟到 v1 之后
 - [x] 明确 v1 后端只做最小 OpenAI Responses API 代理；账户、订阅和按用户用量网关推迟到 v2
 - [x] 申请/确认 OpenAI API Key
@@ -53,9 +53,9 @@
 - [x] 移除 Supabase 客户端依赖、Secrets 配置与废弃代码
 - [x] 确认迁移完成后再移除 `supabase/` 旧方案目录
 
-### Step 2：登录占位页 + AI 代理 + 任务契约生成
-- [x] 制作登录页面和跳过入口（只做 UI 占位，不接真实认证）
-- [x] 确认登录或跳过后的功能完全相同，登录状态不参与任何权限判断
+### Step 2：Apple 登录 + AI 代理 + 任务契约生成
+- [x] 接入系统 Sign in with Apple 按钮、钥匙串会话和凭证撤销状态检查
+- [x] 保留离线入口，登录状态不阻塞本地或 AI 主链路
 - [x] 选择 Cloudflare Workers，创建不保存业务数据的最小代理工程
 - [x] 实现带输入与请求大小校验的 `generate-task` 端点
 - [x] 设计 prompt 和 JSON Schema，使用 OpenAI Structured Outputs 返回 title / deadline / evidence_requirement / evidence_image_count / evidence_image_descriptions / suggested_badge / suggested_xp
@@ -106,23 +106,32 @@
 - [ ] Mac App Store 上架素材（截图、描述等，如决定上架）
 
 ### Step 9：迁移到 iOS
-- [ ] 加 iOS target
-- [ ] 适配触屏交互（拍照直接上传等）
-- [ ] 适配小屏布局
+- [x] 将现有 target 配置为 macOS+iOS 多平台 target
+- [x] 适配 AppKit/UIKit 图片、相机预览、ImageIO 压缩与 WKWebView
+- [x] 增加 iOS 底部导航、紧凑顶部栏和首轮小屏布局
+- [x] iOS 接入拍照、PhotosPicker 和文件证据入口
+- [x] macOS 与 iOS Simulator Debug 编译通过
+- [ ] iPhone 真机逐页验收并修复相机方向、键盘、动态字体和窄屏边界
+- [ ] 制作 iOS App Icon、截图、隐私资料并完成 TestFlight
 
-### v1 之后：CloudKit 同步（不属于当前 roadmap）
+### Step 10：CloudKit 同步
 
-- [ ] 配置 iCloud / CloudKit capability 和 container
-- [ ] 实现并展示同步状态与错误状态
+- [x] 配置 iCloud / CloudKit capability 和 `iCloud.noorg.LifeMedals` container 标识
+- [x] 将 SwiftData 模型调整为 CloudKit 兼容 schema
+- [x] 实现并展示 iCloud 账户、同步进行中、成功与错误状态
+- [x] Debug 增加本地开发模式，移除云端 entitlements 并关闭 Apple 登录/CloudKit UI
+- [ ] 使用付费 Apple Developer Team 创建描述文件并激活容器（当前 Personal Team 不支持）
 - [ ] 验证 CloudKit 恢复联网后的自动同步
 - [ ] 验证 Mac 与 iPhone 之间的跨设备同步
 - [ ] 测试同步冲突、离线恢复和证据图片同步
+- [ ] 在 CloudKit Console 验证开发 schema，并在分发前发布到 Production
 
-> 上述任务在 v1 完成前不得开始，也不计入 v1 的开发进度或验收标准。
+> iOS 基础 target 已完成；下一步必须在付费团队签名的 iPhone 真机上完成专项验收。
 
 ### v2：真实账户、会员与订阅（不属于当前 roadmap）
 
-- [ ] 接入 Sign in with Apple capability、真实登录和安全会话
+- [x] 客户端接入 Sign in with Apple capability、真实登录和钥匙串会话
+- [ ] 服务端验证 Sign in with Apple token 并建立 LifeMedals 账户
 - [ ] 建立 `UserAccount` / `SubscriptionEntitlement` / `UsageLedger` 服务端模型
 - [ ] 在 App Store Connect 配置 StoreKit 2 自动续期订阅产品
 - [ ] 实现购买、恢复购买、交易更新监听和服务端 entitlement 验证
@@ -139,6 +148,14 @@
 ## 更新日志
 
 <!-- 每条记录格式：YYYY-MM-DD | 做了什么 | 涉及文件/commit -->
+
+- 2026-08-08 | 完成现有页面的 iPhone UI/动画专项审计：每个底部 Tab 使用独立导航栈并恢复账户入口；取消移动端启动自动聚焦，避免键盘遮挡 Tab Bar；任务行在 iOS 仅保留原生 swipeActions；统一约束竖向 ScrollView 的可视宽度，修复任务、契约、详情与勋章页采用 790pt 桌面理想宽度导致的横向裁切；缩小移动端列表边距与任务行信息密度；双图证据槽、证据历史卡、账户弹窗、相机页改为紧凑响应式布局；奖励动画改为 iOS 全屏模态、深色加载背景并支持 Reduce Motion。新增仅 Debug 的页面截图路由，标准 iPhone 模拟器逐页截图通过；iOS/macOS Debug 构建及 Worker 8 项测试通过 | ContentView.swift, PlatformSupport.swift, EvidenceSubmissionView.swift, EvidenceCameraView.swift, AccountSyncView.swift, MedalVisualSystem.swift, MedalTransmutationView.swift, docs/ios-migration-plan.md, docs/progress.md
+
+- 2026-08-08 | 启动并完成 iOS 迁移第一阶段：现有 SwiftUI target 升级为 macOS+iOS 多平台 target；图片压缩改为跨平台 ImageIO，实现 AppKit/UIKit 图片、相机预览和 WKWebView 适配；iPhone 新增底部导航、紧凑顶部栏、响应式契约/证据布局以及拍照、图库、文件入口；macOS 与 iOS Simulator Debug 无签名构建均通过；补充真机、CloudKit、TestFlight 和上架清单 | project.pbxproj, PlatformSupport.swift, ContentView.swift, LoginView.swift, AccountSyncView.swift, EvidenceCameraView.swift, EvidenceImageProcessor.swift, EvidenceSubmissionView.swift, MedalVisualSystem.swift, MedalTransmutationView.swift, README.md, docs/ios-migration-plan.md, docs/progress.md
+
+- 2026-08-07 | 增加免费 Personal Team 可用的本地开发模式：Debug 定义 `LIFEMEDALS_LOCAL_DEVELOPMENT`、不附加云端 entitlements，SwiftData 显式使用 `.none`；登录页、主界面和账户面板显示“本地开发模式”并关闭 Apple 登录/CloudKit 操作。Release 继续保留完整 Sign in with Apple、CloudKit 和 Push Notifications 配置 | project.pbxproj, LifeMedalsApp.swift, AccountAndSyncServices.swift, LoginView.swift, AccountSyncView.swift, README.md, docs/product-plan.md, docs/progress.md
+
+- 2026-08-07 | 接入 macOS Sign in with Apple 与 SwiftData/CloudKit：官方 Apple 登录按钮、钥匙串用户标识、启动凭证校验和退出应用会话；配置 `iCloud.noorg.LifeMedals` 私有容器，移除 SwiftData 唯一约束并将关系调整为 CloudKit 可选关系；新增 iCloud 账户检查、Core Data CloudKit 同步事件状态与主界面账户面板。无签名 Debug 构建无警告通过，本机运行时成功建立 CloudKit-backed store；真实签名被当前免费 Personal Team 阻塞，需切换到付费 Apple Developer Team 后完成容器激活与跨设备测试 | AccountAndSyncServices.swift, AccountSyncView.swift, LoginView.swift, LifeMedalsApp.swift, ContentView.swift, Models/*.swift, XPService.swift, EvidenceSubmissionView.swift, LifeMedals.entitlements, project.pbxproj, README.md, docs/product-plan.md, docs/progress.md
 
 - 2026-08-04 | 优化嵌入式勋章动画：WKWebView 改为不透明合成，Canvas Retina backing scale 从最高 2x 降至 1.35x，静止甲片不再逐片计算模糊阴影，金属拉丝线数量适度减少；单片最短附着时间调整为 1.1 秒、多片按每片 520ms 展开（最长 8 秒），最终淬炼延长至 6 秒，完整时间线默认 14 秒。EXP 动画浮层删除重复关闭/跳过操作，仅保留一个可见的“跳过动画/关闭”按钮。TypeScript 构建、macOS Debug 构建及真实 WKWebView 运行探针通过 | LifeMedals-Animation/medal-transmutation/src/main.ts, style.css, LifeMedals/LifeMedals/MedalTransmutationView.swift, MedalAnimation.html, docs/progress.md
 

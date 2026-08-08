@@ -3,9 +3,9 @@
 //  LifeMedals
 //
 
-import AppKit
 import Foundation
 import ImageIO
+import UniformTypeIdentifiers
 
 enum EvidenceImageProcessor {
     // Five Base64-encoded copies stay below the Worker's 8 MiB request cap.
@@ -33,19 +33,28 @@ enum EvidenceImageProcessor {
                 continue
             }
 
-            let representation = NSBitmapImageRep(cgImage: image)
             for quality in qualities {
-                guard let data = representation.representation(
-                    using: .jpeg,
-                    properties: [.compressionFactor: quality]
+                let data = NSMutableData()
+                guard let destination = CGImageDestinationCreateWithData(
+                    data,
+                    UTType.jpeg.identifier as CFString,
+                    1,
+                    nil
                 ) else {
                     continue
                 }
-                if smallestData == nil || data.count < smallestData!.count {
-                    smallestData = data
+                CGImageDestinationAddImage(
+                    destination,
+                    image,
+                    [kCGImageDestinationLossyCompressionQuality: quality] as CFDictionary
+                )
+                guard CGImageDestinationFinalize(destination) else { continue }
+                let encodedData = data as Data
+                if smallestData == nil || encodedData.count < smallestData!.count {
+                    smallestData = encodedData
                 }
-                if data.count <= maximumStoredBytes {
-                    return data
+                if encodedData.count <= maximumStoredBytes {
+                    return encodedData
                 }
             }
         }

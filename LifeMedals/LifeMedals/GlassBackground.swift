@@ -28,6 +28,8 @@ struct GlassBackground: View {
                 .fill(.white.opacity(0.18))
                 .background(.ultraThinMaterial)
         }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .clipped()
         .ignoresSafeArea()
     }
 }

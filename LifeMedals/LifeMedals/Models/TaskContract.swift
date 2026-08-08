@@ -23,27 +23,27 @@ enum TaskStatus: String, Codable {
 ///   AI 核验阶段不能再修改或重新解释它。
 @Model
 final class TaskContract {
-    @Attribute(.unique) var id: UUID
-    var title: String
-    var deadline: Date
-    var evidenceRequirement: String
+    var id: UUID = UUID()
+    var title: String = ""
+    var deadline: Date = Date.now
+    var evidenceRequirement: String = ""
     /// Optional backing values keep existing local stores lightweight-migration compatible.
     /// Tasks created before evidence planning default to one photo.
     var evidenceImageCount: Int?
     var evidenceImageDescriptionsJSON: String?
-    var xpReward: Int
-    var statusRawValue: String
-    var createdAt: Date
+    var xpReward: Int = 0
+    var statusRawValue: String = TaskStatus.pending.rawValue
+    var createdAt: Date = Date.now
     /// Nil means the task is active. Optional storage keeps existing local stores migration-compatible.
     var archivedAt: Date?
 
     var badgeCategory: BadgeCategory?
 
     @Relationship(deleteRule: .cascade, inverse: \Evidence.taskContract)
-    var evidences: [Evidence] = []
+    var evidences: [Evidence]?
 
     @Relationship(deleteRule: .cascade, inverse: \XPLog.taskContract)
-    var xpLogs: [XPLog] = []
+    var xpLogs: [XPLog]?
 
     var status: TaskStatus {
         get { TaskStatus(rawValue: statusRawValue) ?? .pending }

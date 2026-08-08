@@ -14,9 +14,9 @@ import SwiftData
 /// 9 = 王者) and is kept in sync with `currentXP` by `XPService`.
 @Model
 final class UserBadge {
-    @Attribute(.unique) var id: UUID
-    var currentXP: Int
-    var level: Int
+    var id: UUID = UUID()
+    var currentXP: Int = 0
+    var level: Int = 1
 
     var category: BadgeCategory?
 

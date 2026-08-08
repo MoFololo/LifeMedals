@@ -35,7 +35,7 @@ enum XPService {
         // A task is only ever rewarded once; this also guards against
         // accidentally double-awarding if verification is ever retried after
         // a task already reached `.verified`.
-        guard task.xpLogs.isEmpty else { return nil }
+        guard task.xpLogs?.isEmpty != false else { return nil }
         guard let category = task.badgeCategory else { return nil }
 
         let badge: UserBadge

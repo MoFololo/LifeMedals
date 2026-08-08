@@ -1,8 +1,18 @@
-import AppKit
 import SwiftUI
 import SwiftData
 
 struct ContentView: View {
+    @EnvironmentObject private var accountManager: AppleAccountManager
+    @EnvironmentObject private var syncMonitor: CloudSyncMonitor
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private let onSignOut: () -> Void
+
+    init(onSignOut: @escaping () -> Void = {}) {
+        self.onSignOut = onSignOut
+    }
+
     private enum AppPage: String, CaseIterable, Identifiable {
         case create
         case tasks
@@ -236,6 +246,7 @@ struct ContentView: View {
     @State private var isShowingArchivedTasks = false
     @State private var selectedLibraryBadge: String?
     @State private var medalAnimationPresentation: XPAwardEvent?
+    @State private var isShowingAccountAndSync = false
     @FocusState private var isTaskInputFocused: Bool
 
     @State private var draftTitle = ""
@@ -250,29 +261,70 @@ struct ContentView: View {
     private let notificationService = TaskNotificationService()
 
     var body: some View {
+        platformRoot
+            .macOSMinimumWindowSize(width: 920, height: 680)
+            .preferredColorScheme(.light)
+            .animation(reduceMotion ? nil : .smooth(duration: 0.42), value: selectedPage)
+            .animation(reduceMotion ? nil : .smooth(duration: 0.42), value: creationPhase)
+            .animation(reduceMotion ? nil : .smooth(duration: 0.32), value: savedMessage)
+            .onAppear {
+                notificationService.configureForegroundPresentation()
+#if DEBUG
+                applyDebugLaunchScenario()
+#endif
+                focusTaskInput()
+            }
+            .onChange(of: selectedPage) { _, page in
+                if page == .create, creationPhase == .composing {
+                    focusTaskInput()
+                } else {
+                    isTaskInputFocused = false
+                }
+            }
+            .task {
+                await restoreTaskReminders()
+            }
+            .onReceive(NotificationCenter.default.publisher(for: .xpAwarded)) { notification in
+                guard let event = notification.object as? XPAwardEvent else { return }
+                guard event.currentXP > event.previousXP else { return }
+                guard event.previousXP < BadgeRank.silver.cumulativeXPThreshold else { return }
+
+                withAnimation(.smooth(duration: 0.3)) {
+                    medalAnimationPresentation = event
+                }
+            }
+            .sheet(isPresented: $isShowingAccountAndSync) {
+                AccountSyncView(onSignOut: onSignOut)
+                    .environmentObject(accountManager)
+                    .environmentObject(syncMonitor)
+            }
+            .iOSFullScreenCover(item: $medalAnimationPresentation) { event in
+                MedalAwardAnimationOverlay(event: event) {
+                    withAnimation(.smooth(duration: 0.28)) {
+                        medalAnimationPresentation = nil
+                    }
+                }
+                .presentationBackground(.clear)
+            }
+    }
+
+    @ViewBuilder
+    private var platformRoot: some View {
+#if os(iOS)
+        GeometryReader { proxy in
+            rootContent(containerSize: proxy.size)
+                .frame(width: proxy.size.width, height: proxy.size.height)
+        }
+#else
+        rootContent(containerSize: nil)
+#endif
+    }
+
+    private func rootContent(containerSize: CGSize?) -> some View {
         ZStack {
             GlassBackground()
 
-            VStack(spacing: 0) {
-                topNavigation
-                    .padding(.top, 22)
-                    .padding(.horizontal, 28)
-
-                ZStack {
-                    topLevelPage(.create) {
-                        creationPage
-                    }
-
-                    topLevelPage(.tasks) {
-                        taskListPage
-                    }
-
-                    topLevelPage(.medals) {
-                        medalsPage
-                    }
-                }
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-            }
+            navigationLayout(containerSize: containerSize)
 
             if let savedMessage {
                 saveConfirmation(message: savedMessage)
@@ -280,8 +332,9 @@ struct ContentView: View {
                     .zIndex(10)
             }
 
+#if os(macOS)
             if let medalAnimationPresentation {
-                MedalAwardAnimationOverlay(event: medalAnimationPresentation) {
+                MedalAwardAnimationOverlay(event: medalAnimationPresentation, containerSize: containerSize) {
                     withAnimation(.smooth(duration: 0.28)) {
                         self.medalAnimationPresentation = nil
                     }
@@ -289,38 +342,92 @@ struct ContentView: View {
                 .transition(.opacity.combined(with: .scale(scale: 0.97)))
                 .zIndex(20)
             }
-        }
-        .frame(minWidth: 920, minHeight: 680)
-        .preferredColorScheme(.light)
-        .animation(.smooth(duration: 0.42), value: selectedPage)
-        .animation(.smooth(duration: 0.42), value: creationPhase)
-        .animation(.smooth(duration: 0.32), value: savedMessage)
-        .onAppear {
-            notificationService.configureForegroundPresentation()
-            focusTaskInput()
-        }
-        .onChange(of: selectedPage) { _, page in
-            if page == .create, creationPhase == .composing {
-                focusTaskInput()
-            } else {
-                isTaskInputFocused = false
-            }
-        }
-        .task {
-            await restoreTaskReminders()
-        }
-        .onReceive(NotificationCenter.default.publisher(for: .xpAwarded)) { notification in
-            guard let event = notification.object as? XPAwardEvent else { return }
-            guard event.currentXP > event.previousXP else { return }
-            guard event.previousXP < BadgeRank.silver.cumulativeXPThreshold else { return }
-
-            withAnimation(.smooth(duration: 0.3)) {
-                medalAnimationPresentation = event
-            }
+#endif
         }
     }
 
     // MARK: - Navigation
+
+    @ViewBuilder
+    private func navigationLayout(containerSize: CGSize?) -> some View {
+#if os(iOS)
+        let resolvedSize = containerSize ?? .zero
+        TabView(selection: $selectedPage) {
+            mobileTab(.create, containerSize: resolvedSize) {
+                creationPage
+            }
+            .tag(AppPage.create)
+            .tabItem { Label(AppPage.create.title, systemImage: AppPage.create.icon) }
+
+            mobileTab(.tasks, containerSize: resolvedSize) {
+                taskListPage
+            }
+            .tag(AppPage.tasks)
+            .tabItem { Label(AppPage.tasks.title, systemImage: AppPage.tasks.icon) }
+
+            mobileTab(.medals, containerSize: resolvedSize) {
+                medalsPage
+            }
+            .tag(AppPage.medals)
+            .tabItem { Label(AppPage.medals.title, systemImage: AppPage.medals.icon) }
+        }
+        .frame(width: resolvedSize.width, height: resolvedSize.height)
+#else
+        VStack(spacing: 0) {
+            topNavigation
+                .padding(.top, 22)
+                .padding(.horizontal, 28)
+            pageStack
+        }
+#endif
+    }
+
+#if os(iOS)
+    private func mobileTab<Content: View>(
+        _ page: AppPage,
+        containerSize: CGSize,
+        @ViewBuilder content: @escaping () -> Content
+    ) -> some View {
+        NavigationStack {
+            content()
+                .frame(width: containerSize.width)
+                .navigationTitle(page == .create ? "人生勋章" : page.title)
+                .navigationBarTitleDisplayMode(.inline)
+                .toolbar {
+                    ToolbarItem(placement: .primaryAction) {
+                        Button {
+                            isShowingAccountAndSync = true
+                        } label: {
+                            Label("账户", systemImage: "person.crop.circle")
+                                .labelStyle(.iconOnly)
+                                .font(.body.weight(.medium))
+                                .foregroundStyle(.primary)
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("查看账户与 iCloud 同步状态")
+                    }
+                }
+        }
+        .frame(width: containerSize.width)
+    }
+#endif
+
+    private var pageStack: some View {
+        ZStack {
+            topLevelPage(.create) {
+                creationPage
+            }
+
+            topLevelPage(.tasks) {
+                taskListPage
+            }
+
+            topLevelPage(.medals) {
+                medalsPage
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
 
     private var topNavigation: some View {
         ZStack {
@@ -338,12 +445,18 @@ struct ContentView: View {
 
                 Spacer()
 
-                Text("本机保存")
-                    .font(.caption.weight(.medium))
-                    .foregroundStyle(.secondary)
+                Button {
+                    isShowingAccountAndSync = true
+                } label: {
+                    Label(syncMonitor.shortTitle, systemImage: syncMonitor.iconName)
+                        .font(.caption.weight(.medium))
+                        .foregroundStyle(syncMonitor.isAvailable ? Color.blue : Color.secondary)
+                }
+                .buttonStyle(.plain)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 10)
-                    .glassEffect(.regular, in: Capsule())
+                    .glassEffect(.regular.interactive(), in: Capsule())
+                    .help("查看账户与 iCloud 同步状态")
             }
 
             GlassEffectContainer(spacing: 10) {
@@ -455,7 +568,7 @@ struct ContentView: View {
                 .opacity(taskInput.isEmpty && !isTaskInputFocused ? 1 : 0)
                 .padding(.bottom, 24)
         }
-        .padding(.horizontal, 40)
+        .padding(.horizontal, compactPageInset)
         .contentShape(Rectangle())
         .onTapGesture { isTaskInputFocused = true }
     }
@@ -469,66 +582,46 @@ struct ContentView: View {
     private func contractReview(now: Date) -> some View {
         return ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                HStack(alignment: .top) {
-                    VStack(alignment: .leading, spacing: 5) {
-                        Text("确认任务契约")
-                            .font(.largeTitle.bold())
-                        Text("确认截止日期和证据照片后，即可开始执行。")
-                            .foregroundStyle(.secondary)
+                if isCompactLayout {
+                    VStack(alignment: .leading, spacing: 14) {
+                        contractReviewBackButton
+                        contractReviewTitle
                     }
-
-                    Spacer()
-
-                    Button {
-                        withAnimation(.smooth(duration: 0.38)) {
-                            creationPhase = .composing
-                        }
-                        focusTaskInput()
-                    } label: {
-                        Label("返回修改想法", systemImage: "chevron.left")
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 9)
+                } else {
+                    HStack(alignment: .top) {
+                        contractReviewTitle
+                        Spacer()
+                        contractReviewBackButton
                     }
-                    .buttonStyle(.plain)
-                    .glassEffect(.regular.interactive(), in: Capsule())
                 }
 
                 VStack(alignment: .leading, spacing: 18) {
-                    HStack(alignment: .top, spacing: 22) {
-                        contractField("任务标题") {
-                            TextField("任务标题", text: $draftTitle)
-                                .textFieldStyle(.plain)
-                                .font(.title3.weight(.medium))
-                                .padding(14)
-                                .background(.white.opacity(0.46), in: RoundedRectangle(cornerRadius: 14))
+                    if isCompactLayout {
+                        VStack(alignment: .leading, spacing: 18) {
+                            taskTitleContractField
+                            xpContractField
                         }
-                        .frame(maxWidth: .infinity)
-
-                        contractField("完成奖励") {
-                            Label("+\(draftXP) EXP", systemImage: "sparkles")
-                                .font(.title3.bold())
-                                .foregroundStyle(.orange)
-                                .padding(14)
-                                .frame(maxWidth: .infinity, alignment: .leading)
-                                .background(.white.opacity(0.46), in: RoundedRectangle(cornerRadius: 14))
+                    } else {
+                        HStack(alignment: .top, spacing: 22) {
+                            taskTitleContractField
+                                .frame(maxWidth: .infinity)
+                            xpContractField
+                                .frame(width: 180)
                         }
-                        .frame(width: 180)
                     }
 
-                    HStack(alignment: .top, spacing: 22) {
-                        contractField("所属勋章") {
-                            MedalArtworkView(categoryName: draftBadge, rank: badgeRank(for: draftBadge))
-                                .frame(maxWidth: .infinity, maxHeight: 132)
-                                .padding(4)
-                                .frame(maxWidth: .infinity, minHeight: 144, maxHeight: 144)
-                                .background(.white.opacity(0.46), in: RoundedRectangle(cornerRadius: 14))
+                    if isCompactLayout {
+                        VStack(alignment: .leading, spacing: 18) {
+                            badgeContractField
+                            deadlineContractField
                         }
-                        .frame(width: 220)
-
-                        contractField("截止日期") {
-                            DeadlinePresetWheelPicker(selection: $draftDeadlinePreset)
+                    } else {
+                        HStack(alignment: .top, spacing: 22) {
+                            badgeContractField
+                                .frame(width: 220)
+                            deadlineContractField
+                                .frame(maxWidth: .infinity)
                         }
-                        .frame(maxWidth: .infinity)
                     }
 
                     contractField("证据照片") {
@@ -558,7 +651,7 @@ struct ContentView: View {
                     }
 
                     Button(action: saveTask) {
-                        Label("确认并保存到本机", systemImage: "checkmark")
+                        Label("确认并保存", systemImage: "checkmark")
                             .fontWeight(.semibold)
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 13)
@@ -576,13 +669,77 @@ struct ContentView: View {
                         statusBanner(icon: "exclamationmark.triangle.fill", message: errorMessage, color: .orange)
                     }
                 }
-                .padding(24)
+                .padding(isCompactLayout ? 18 : 24)
                 .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
             }
-            .frame(maxWidth: 790)
-            .padding(.horizontal, 36)
-            .padding(.vertical, 38)
+            .padding(.horizontal, 20)
+            .padding(.vertical, 28)
+            .platformScrollableContentWidth(790)
             .frame(maxWidth: .infinity)
+        }
+    }
+
+    private var contractReviewTitle: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text("确认任务契约")
+                .font(.largeTitle.bold())
+            Text("确认截止日期和证据照片后，即可开始执行。")
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private var contractReviewBackButton: some View {
+        Button {
+            withAnimation(.smooth(duration: 0.38)) {
+                creationPhase = .composing
+            }
+            focusTaskInput()
+        } label: {
+            Label("返回修改想法", systemImage: "chevron.left")
+                .padding(.horizontal, 14)
+                .padding(.vertical, 9)
+        }
+        .buttonStyle(.plain)
+        .glassEffect(.regular.interactive(), in: Capsule())
+    }
+
+    private var taskTitleContractField: some View {
+        contractField("任务标题") {
+            TextField("任务标题", text: $draftTitle)
+                .textFieldStyle(.plain)
+                .font(.title3.weight(.medium))
+                .frame(maxWidth: .infinity)
+                .padding(14)
+                .background(.white.opacity(0.46), in: RoundedRectangle(cornerRadius: 14))
+        }
+    }
+
+    private var xpContractField: some View {
+        contractField("完成奖励") {
+            Label("+\(draftXP) EXP", systemImage: "sparkles")
+                .font(.title3.bold())
+                .foregroundStyle(.orange)
+                .padding(14)
+                .frame(maxWidth: .infinity, alignment: .leading)
+                .background(.white.opacity(0.46), in: RoundedRectangle(cornerRadius: 14))
+        }
+    }
+
+    private var badgeContractField: some View {
+        contractField("所属勋章") {
+            MedalArtworkView(categoryName: draftBadge, rank: badgeRank(for: draftBadge))
+                .frame(width: 132, height: 132)
+                .frame(maxWidth: .infinity)
+                .clipped()
+                .padding(4)
+                .frame(maxWidth: .infinity, minHeight: 144, maxHeight: 144)
+                .background(.white.opacity(0.46), in: RoundedRectangle(cornerRadius: 14))
+        }
+    }
+
+    private var deadlineContractField: some View {
+        contractField("截止日期") {
+            DeadlinePresetWheelPicker(selection: $draftDeadlinePreset)
         }
     }
 
@@ -637,29 +794,26 @@ struct ContentView: View {
             )
             .listRowBackground(Color.clear)
             .listRowSeparator(.hidden)
-            .listRowInsets(EdgeInsets(top: 38, leading: 36, bottom: 12, trailing: 36))
+            .listRowInsets(EdgeInsets(top: 24, leading: pageHorizontalInset, bottom: 12, trailing: pageHorizontalInset))
 
             if selectedTasks.isEmpty {
                 taskListEmptyState(for: selectedTaskTab)
                     .listRowBackground(Color.clear)
                     .listRowSeparator(.hidden)
-                    .listRowInsets(EdgeInsets(top: 8, leading: 36, bottom: 36, trailing: 36))
+                    .listRowInsets(EdgeInsets(top: 8, leading: pageHorizontalInset, bottom: 28, trailing: pageHorizontalInset))
             } else {
                 ForEach(selectedTasks) { task in
                     let actions = taskRowActions(for: task, isArchived: false)
-                    MouseDragSwipeRow(
+                    adaptiveTaskRow(
+                        task: task,
+                        now: now,
                         actions: actions,
                         onSelect: { openTask(task) }
-                    ) {
-                        taskRow(task, now: now)
-                    }
-                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                            taskSwipeActions(actions)
-                        }
+                    )
                         .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
                         .listRowBackground(Color.clear)
                         .listRowSeparator(.hidden)
-                        .listRowInsets(EdgeInsets(top: 7, leading: 36, bottom: 7, trailing: 36))
+                        .listRowInsets(EdgeInsets(top: 7, leading: pageHorizontalInset, bottom: 7, trailing: pageHorizontalInset))
                 }
             }
         }
@@ -738,29 +892,26 @@ struct ContentView: View {
             .frame(maxWidth: .infinity, alignment: .leading)
             .listRowBackground(Color.clear)
             .listRowSeparator(.hidden)
-            .listRowInsets(EdgeInsets(top: 38, leading: 36, bottom: 12, trailing: 36))
+            .listRowInsets(EdgeInsets(top: 24, leading: pageHorizontalInset, bottom: 12, trailing: pageHorizontalInset))
 
             if archivedTasks.isEmpty {
                 emptyState(icon: "archivebox", title: "还没有已归档任务", message: "向左滑动任何任务，即可将它归档。")
                     .listRowBackground(Color.clear)
                     .listRowSeparator(.hidden)
-                    .listRowInsets(EdgeInsets(top: 8, leading: 36, bottom: 36, trailing: 36))
+                    .listRowInsets(EdgeInsets(top: 8, leading: pageHorizontalInset, bottom: 28, trailing: pageHorizontalInset))
             } else {
                 ForEach(archivedTasks) { task in
                     let actions = taskRowActions(for: task, isArchived: true)
-                    MouseDragSwipeRow(
+                    adaptiveTaskRow(
+                        task: task,
+                        now: now,
                         actions: actions,
                         onSelect: { openTask(task) }
-                    ) {
-                        taskRow(task, now: now)
-                    }
-                        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-                            taskSwipeActions(actions)
-                        }
+                    )
                         .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
                         .listRowBackground(Color.clear)
                         .listRowSeparator(.hidden)
-                        .listRowInsets(EdgeInsets(top: 7, leading: 36, bottom: 7, trailing: 36))
+                        .listRowInsets(EdgeInsets(top: 7, leading: pageHorizontalInset, bottom: 7, trailing: pageHorizontalInset))
                 }
             }
         }
@@ -787,20 +938,37 @@ struct ContentView: View {
                             selectedTaskTab = tab
                         }
                     } label: {
-                        HStack(spacing: 8) {
-                            Image(systemName: tab.icon)
-                            Text(tab.title)
-                            Text("\(count)")
-                                .font(.caption.bold())
-                                .monospacedDigit()
-                                .padding(.horizontal, 7)
-                                .padding(.vertical, 3)
-                                .background(
-                                    (selectedTaskTab == tab ? tab.tint : Color.secondary).opacity(0.12),
-                                    in: Capsule()
-                                )
+                        Group {
+                            if isCompactLayout {
+                                HStack(spacing: 5) {
+                                    Text(tab.title)
+                                    Text("\(count)")
+                                        .font(.caption2.bold())
+                                        .monospacedDigit()
+                                        .padding(.horizontal, 5)
+                                        .padding(.vertical, 2)
+                                        .background(
+                                            (selectedTaskTab == tab ? tab.tint : Color.secondary).opacity(0.12),
+                                            in: Capsule()
+                                        )
+                                }
+                            } else {
+                                HStack(spacing: 8) {
+                                    Image(systemName: tab.icon)
+                                    Text(tab.title)
+                                    Text("\(count)")
+                                        .font(.caption.bold())
+                                        .monospacedDigit()
+                                        .padding(.horizontal, 7)
+                                        .padding(.vertical, 3)
+                                        .background(
+                                            (selectedTaskTab == tab ? tab.tint : Color.secondary).opacity(0.12),
+                                            in: Capsule()
+                                        )
+                                }
+                            }
                         }
-                        .font(.subheadline.weight(selectedTaskTab == tab ? .semibold : .medium))
+                        .font((isCompactLayout ? Font.caption : .subheadline).weight(selectedTaskTab == tab ? .semibold : .medium))
                         .foregroundStyle(selectedTaskTab == tab ? tab.tint : .secondary)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 11)
@@ -837,29 +1005,37 @@ struct ContentView: View {
     }
 
     private func taskRow(_ task: TaskContract, now: Date) -> some View {
-        HStack(spacing: 16) {
+        HStack(spacing: isCompactLayout ? 12 : 16) {
             MedalArtworkView(
                 categoryName: task.badgeCategory?.name,
                 rank: task.badgeCategory?.userBadge?.rank ?? .bronze
             )
-            .frame(width: 52, height: 52)
+            .frame(width: isCompactLayout ? 44 : 52, height: isCompactLayout ? 44 : 52)
 
             VStack(alignment: .leading, spacing: 6) {
                 Text(task.title)
                     .font(.headline)
                     .foregroundStyle(.primary)
                     .lineLimit(2)
-                HStack(spacing: 7) {
+                if isCompactLayout {
                     Label(
-                        task.deadline.formatted(date: .abbreviated, time: .shortened),
+                        task.deadline.formatted(date: .numeric, time: .shortened),
                         systemImage: task.deadline <= now ? "clock.badge.exclamationmark" : "clock"
                     )
-                    Text("·")
-                    Text(task.badgeCategory.map { badgeDisplayName($0.name) } ?? "未分类")
+                    .lineLimit(1)
+                } else {
+                    HStack(spacing: 7) {
+                        Label(
+                            task.deadline.formatted(date: .abbreviated, time: .shortened),
+                            systemImage: task.deadline <= now ? "clock.badge.exclamationmark" : "clock"
+                        )
+                        Text("·")
+                        Text(task.badgeCategory.map { badgeDisplayName($0.name) } ?? "未分类")
+                    }
                 }
-                .font(.caption)
-                .foregroundStyle(task.deadline <= now && task.status != .verified ? .red : .secondary)
             }
+            .font(.caption)
+            .foregroundStyle(task.deadline <= now && task.status != .verified ? .red : .secondary)
 
             Spacer()
 
@@ -871,15 +1047,39 @@ struct ContentView: View {
                 Text("+\(task.xpReward) EXP")
                     .font(.subheadline.bold())
                     .foregroundStyle(.orange)
-                Image(systemName: "chevron.right")
-                    .font(.caption.weight(.semibold))
-                    .foregroundStyle(.tertiary)
+                if !isCompactLayout {
+                    Image(systemName: "chevron.right")
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.tertiary)
+                }
             }
         }
-        .padding(18)
+        .padding(isCompactLayout ? 14 : 18)
         .contentShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
         .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
         .accessibilityHint("查看任务契约详情")
+    }
+
+    @ViewBuilder
+    private func adaptiveTaskRow(
+        task: TaskContract,
+        now: Date,
+        actions: [TaskRowAction],
+        onSelect: @escaping () -> Void
+    ) -> some View {
+#if os(macOS)
+        MouseDragSwipeRow(actions: actions, onSelect: onSelect) {
+            taskRow(task, now: now)
+        }
+#else
+        Button(action: onSelect) {
+            taskRow(task, now: now)
+        }
+        .buttonStyle(.plain)
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            taskSwipeActions(actions)
+        }
+#endif
     }
 
     @ViewBuilder
@@ -897,29 +1097,22 @@ struct ContentView: View {
     private func taskDetailPage(_ task: TaskContract) -> some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                HStack(alignment: .top, spacing: 18) {
-                    Button {
-                        closeTaskDetail()
-                    } label: {
-                        Label(taskDetailOrigin.backTitle, systemImage: "chevron.left")
-                            .padding(.horizontal, 14)
-                            .padding(.vertical, 9)
+                if isCompactLayout {
+                    VStack(alignment: .leading, spacing: 16) {
+                        HStack {
+                            taskDetailBackButton
+                            Spacer()
+                            statusPill(for: task)
+                        }
+                        taskDetailTitle(task)
                     }
-                    .buttonStyle(.plain)
-                    .glassEffect(.regular.interactive(), in: Capsule())
-
-                    VStack(alignment: .leading, spacing: 7) {
-                        Text(task.title)
-                            .font(.largeTitle.bold())
-                            .fixedSize(horizontal: false, vertical: true)
-                        Text("任务契约")
-                            .font(.subheadline)
-                            .foregroundStyle(.secondary)
+                } else {
+                    HStack(alignment: .top, spacing: 18) {
+                        taskDetailBackButton
+                        taskDetailTitle(task)
+                        Spacer()
+                        statusPill(for: task)
                     }
-
-                    Spacer()
-
-                    statusPill(for: task)
                 }
 
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 16)], spacing: 16) {
@@ -1002,10 +1195,33 @@ struct ContentView: View {
                     taskReminderDetail(for: task)
                 }
             }
-            .frame(maxWidth: 790)
-            .padding(.horizontal, 36)
+            .padding(.horizontal, pageHorizontalInset)
             .padding(.vertical, 38)
+            .platformScrollableContentWidth(790)
             .frame(maxWidth: .infinity)
+        }
+    }
+
+    private var taskDetailBackButton: some View {
+        Button {
+            closeTaskDetail()
+        } label: {
+            Label(taskDetailOrigin.backTitle, systemImage: "chevron.left")
+                .padding(.horizontal, 14)
+                .padding(.vertical, 9)
+        }
+        .buttonStyle(.plain)
+        .glassEffect(.regular.interactive(), in: Capsule())
+    }
+
+    private func taskDetailTitle(_ task: TaskContract) -> some View {
+        VStack(alignment: .leading, spacing: 7) {
+            Text(task.title)
+                .font(isCompactLayout ? .title.bold() : .largeTitle.bold())
+                .fixedSize(horizontal: false, vertical: true)
+            Text("任务契约")
+                .font(.subheadline)
+                .foregroundStyle(.secondary)
         }
     }
 
@@ -1039,8 +1255,8 @@ struct ContentView: View {
 
                 LazyVGrid(
                     columns: [
-                        GridItem(.flexible(), spacing: 16),
-                        GridItem(.flexible(), spacing: 16)
+                        GridItem(.flexible(minimum: 0), spacing: 16),
+                        GridItem(.flexible(minimum: 0), spacing: 16)
                     ],
                     spacing: 16
                 ) {
@@ -1056,9 +1272,9 @@ struct ContentView: View {
                     }
                 }
             }
-            .frame(maxWidth: 790)
-            .padding(.horizontal, 36)
+            .padding(.horizontal, pageHorizontalInset)
             .padding(.vertical, 38)
+            .platformScrollableContentWidth(790)
             .frame(maxWidth: .infinity)
         }
     }
@@ -1087,6 +1303,7 @@ struct ContentView: View {
         .padding(18)
         .frame(maxWidth: .infinity)
         .aspectRatio(1, contentMode: .fit)
+        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
         .contentShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
         .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
         .accessibilityElement(children: .combine)
@@ -1148,9 +1365,9 @@ struct ContentView: View {
                     }
                 }
             }
-            .frame(maxWidth: 790)
-            .padding(.horizontal, 36)
+            .padding(.horizontal, pageHorizontalInset)
             .padding(.vertical, 38)
+            .platformScrollableContentWidth(790)
             .frame(maxWidth: .infinity)
         }
     }
@@ -1185,10 +1402,10 @@ struct ContentView: View {
                     }
                 }
 
-                if !task.evidences.isEmpty {
+                if task.evidences?.isEmpty == false {
                     ScrollView(.horizontal) {
                         HStack(spacing: 8) {
-                            ForEach(task.evidences.sorted { $0.submittedAt < $1.submittedAt }) { evidence in
+                            ForEach((task.evidences ?? []).sorted { $0.submittedAt < $1.submittedAt }) { evidence in
                                 libraryEvidenceThumbnail(evidence)
                             }
                         }
@@ -1206,9 +1423,8 @@ struct ContentView: View {
 
     private func libraryEvidenceThumbnail(_ evidence: Evidence) -> some View {
         Group {
-            if let imageData = evidence.imageData, let image = NSImage(data: imageData) {
-                Image(nsImage: image)
-                    .resizable()
+            if let imageData = evidence.imageData {
+                PlatformImageView(data: imageData)
                     .scaledToFill()
             } else {
                 Image(systemName: "photo")
@@ -1397,7 +1613,9 @@ struct ContentView: View {
             errorMessage = nil
             withAnimation(.smooth(duration: 0.44)) {
                 creationPhase = .composing
-                savedMessage = "“\(title)”已保存到本机"
+                savedMessage = syncMonitor.isAvailable
+                    ? "“\(title)”已保存，正在等待 iCloud 同步"
+                    : "“\(title)”已保存到本机"
             }
             focusTaskInput()
 
@@ -1498,6 +1716,75 @@ struct ContentView: View {
         taskInput.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
+    private var isCompactLayout: Bool {
+        horizontalSizeClass == .compact
+    }
+
+    private var pageHorizontalInset: CGFloat {
+        isCompactLayout ? 16 : 36
+    }
+
+    private var compactPageInset: CGFloat {
+        isCompactLayout ? 20 : 40
+    }
+
+#if DEBUG
+    /// Opt-in simulator routes used by screenshot regression checks. Normal
+    /// Debug and all Release launches are unchanged unless the environment
+    /// variable is explicitly supplied.
+    private func applyDebugLaunchScenario() {
+        guard let scenario = ProcessInfo.processInfo.environment["LIFEMEDALS_DEBUG_PAGE"] else { return }
+
+        switch scenario {
+        case "tasks":
+            selectedPage = .tasks
+        case "medals":
+            selectedPage = .medals
+        case "account":
+            isShowingAccountAndSync = true
+        case "review":
+            draftTitle = "完成一次 30 分钟专注阅读"
+            draftEvidenceRequirement = "提交计时结束页面，并确保阅读时长和书名清晰可见。"
+            draftEvidenceImageCount = 2
+            draftEvidenceImageDescriptions = ["计时结束页面", "本次阅读的书籍页面"]
+            draftXP = 20
+            creationPhase = .reviewing
+        case "task-detail":
+            let category = badgeCategories.first ?? BadgeCategory(name: BadgeKind.problemSolver.rawValue)
+            if badgeCategories.isEmpty {
+                let userBadge = UserBadge(category: category)
+                category.userBadge = userBadge
+                modelContext.insert(category)
+                modelContext.insert(userBadge)
+            }
+            let task = TaskContract(
+                title: "完成一次 30 分钟专注阅读并记录关键收获",
+                deadline: .now.addingTimeInterval(86_400),
+                evidenceRequirement: "提交两张照片，分别证明专注时长和本次阅读内容。",
+                evidenceImageCount: 2,
+                evidenceImageDescriptions: ["计时结束页面", "书籍页面与阅读笔记"],
+                xpReward: 20,
+                badgeCategory: category
+            )
+            modelContext.insert(task)
+            try? modelContext.save()
+            selectedTask = task
+            selectedPage = .tasks
+        case "award":
+            medalAnimationPresentation = XPAwardEvent(
+                categoryName: BadgeKind.problemSolver.rawValue,
+                amount: 80,
+                previousXP: 420,
+                currentXP: 500,
+                previousRank: .bronze,
+                currentRank: .bronze
+            )
+        default:
+            break
+        }
+    }
+#endif
+
     private var buttonTitle: String {
         if isGenerating { return "正在整理契约" }
         return errorMessage == nil ? "提交" : "保留输入并重试"
@@ -1570,11 +1857,11 @@ struct ContentView: View {
                         return lhs.deadline < rhs.deadline
                     }
                 case .completed:
-                    let lhsCompletedAt = lhs.evidences
+                    let lhsCompletedAt = (lhs.evidences ?? [])
                         .filter { $0.verdict == .verified }
                         .map(\.submittedAt)
                         .max() ?? lhs.createdAt
-                    let rhsCompletedAt = rhs.evidences
+                    let rhsCompletedAt = (rhs.evidences ?? [])
                         .filter { $0.verdict == .verified }
                         .map(\.submittedAt)
                         .max() ?? rhs.createdAt
@@ -1759,9 +2046,11 @@ struct ContentView: View {
     }
 
     private func focusTaskInput() {
+#if os(macOS)
         Task { @MainActor in
             isTaskInputFocused = true
         }
+#endif
     }
 
     private func friendlyMessage(for error: Error) -> String {
@@ -1796,14 +2085,16 @@ struct ContentView: View {
                 .foregroundStyle(.secondary)
             content()
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func pageHeader(title: String, subtitle: String) -> some View {
         VStack(alignment: .leading, spacing: 5) {
             Text(title)
-                .font(.largeTitle.bold())
+                .font(isCompactLayout ? .title.bold() : .largeTitle.bold())
             Text(subtitle)
                 .foregroundStyle(.secondary)
+                .fixedSize(horizontal: false, vertical: true)
         }
     }
 

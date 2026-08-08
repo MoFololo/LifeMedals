@@ -11,22 +11,24 @@ import SwiftData
 /// 勋章类别（如 Problem Solver / Builder / Athlete...），支持用户自定义新增。
 @Model
 final class BadgeCategory {
-    @Attribute(.unique) var id: UUID
-    var name: String
+    /// CloudKit doesn't support database-enforced uniqueness. UUIDs remain the
+    /// stable application identifier and duplicate protection happens in app logic.
+    var id: UUID = UUID()
+    var name: String = ""
     /// Kept for compatibility with existing SwiftData stores. Medal UI no
     /// longer reads this legacy SF Symbol value; it uses MedalVisualSystem.
-    var iconName: String
-    var isCustom: Bool
-    var createdAt: Date
+    var iconName: String = "medal.fill"
+    var isCustom: Bool = false
+    var createdAt: Date = Date.now
 
     @Relationship(deleteRule: .cascade, inverse: \UserBadge.category)
     var userBadge: UserBadge?
 
     @Relationship(deleteRule: .nullify, inverse: \TaskContract.badgeCategory)
-    var taskContracts: [TaskContract] = []
+    var taskContracts: [TaskContract]?
 
     @Relationship(deleteRule: .nullify, inverse: \XPLog.badgeCategory)
-    var xpLogs: [XPLog] = []
+    var xpLogs: [XPLog]?
 
     init(
         id: UUID = UUID(),

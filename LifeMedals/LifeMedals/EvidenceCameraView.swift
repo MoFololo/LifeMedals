@@ -7,8 +7,15 @@ import AVFoundation
 import Combine
 import SwiftUI
 
+#if os(macOS)
+import AppKit
+#elseif os(iOS)
+import UIKit
+#endif
+
 struct EvidenceCameraView: View {
     @Environment(\.dismiss) private var dismiss
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @StateObject private var controller: EvidenceCameraController
 
     init(onCapture: @escaping (Data) -> Void) {
@@ -83,7 +90,11 @@ struct EvidenceCameraView: View {
                         .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
                     }
                 }
-                .frame(minHeight: 390)
+                .frame(
+                    maxWidth: .infinity,
+                    minHeight: horizontalSizeClass == .compact ? 0 : 390,
+                    maxHeight: .infinity
+                )
 
                 if let errorMessage = controller.errorMessage {
                     Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
@@ -91,9 +102,9 @@ struct EvidenceCameraView: View {
                         .foregroundStyle(.orange)
                 }
             }
-            .padding(24)
+            .padding(horizontalSizeClass == .compact ? 16 : 24)
         }
-        .frame(minWidth: 680, minHeight: 540)
+        .macOSMinimumWindowSize(width: 680, height: 540)
         .preferredColorScheme(.light)
         .onAppear { controller.start() }
         .onDisappear { controller.stop() }
@@ -204,6 +215,7 @@ private final class EvidenceCameraController: NSObject, ObservableObject, AVCapt
     }
 }
 
+#if os(macOS)
 private struct CameraPreview: NSViewRepresentable {
     let session: AVCaptureSession
 
@@ -238,3 +250,36 @@ private final class CameraPreviewNSView: NSView {
         previewLayer.frame = bounds
     }
 }
+#elseif os(iOS)
+private struct CameraPreview: UIViewRepresentable {
+    let session: AVCaptureSession
+
+    func makeUIView(context: Context) -> CameraPreviewUIView {
+        let view = CameraPreviewUIView()
+        view.previewLayer.session = session
+        return view
+    }
+
+    func updateUIView(_ uiView: CameraPreviewUIView, context: Context) {
+        uiView.previewLayer.session = session
+    }
+}
+
+private final class CameraPreviewUIView: UIView {
+    override class var layerClass: AnyClass { AVCaptureVideoPreviewLayer.self }
+
+    var previewLayer: AVCaptureVideoPreviewLayer {
+        layer as! AVCaptureVideoPreviewLayer
+    }
+
+    override init(frame: CGRect) {
+        super.init(frame: frame)
+        previewLayer.videoGravity = .resizeAspectFill
+    }
+
+    @available(*, unavailable)
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+}
+#endif

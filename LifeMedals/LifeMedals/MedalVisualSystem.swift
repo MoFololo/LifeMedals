@@ -3,8 +3,13 @@
 //  LifeMedals
 //
 
-import AppKit
 import SwiftUI
+
+#if os(macOS)
+import AppKit
+#elseif os(iOS)
+import UIKit
+#endif
 
 /// Everything the UI and animation renderer need for one medal family.
 ///
@@ -78,6 +83,7 @@ enum MedalArtworkCatalog {
     /// This prevents the animation from drifting to an old embedded copy.
     static func pngData(for categoryName: String?, rank: BadgeRank) -> Data? {
         let name = assetName(for: categoryName, rank: rank)
+#if os(macOS)
         guard
             let image = NSImage(named: NSImage.Name(name)),
             let tiffData = image.tiffRepresentation,
@@ -85,6 +91,9 @@ enum MedalArtworkCatalog {
         else { return nil }
 
         return bitmap.representation(using: .png, properties: [:])
+#elseif os(iOS)
+        return UIImage(named: name)?.pngData()
+#endif
     }
 }
 
@@ -210,10 +219,13 @@ struct MedalFragmentStatusLabel: View {
             Text("\(wording.prefix) \(fragmentCount)/\(total) \(wording.suffix)")
                 .font(.subheadline.weight(.semibold).monospacedDigit())
                 .foregroundStyle(.secondary)
+                .lineLimit(1)
+                .minimumScaleFactor(0.68)
 
             MedalFragmentIcon(targetRank: targetRank)
                 .frame(width: 17, height: 19)
         }
+        .frame(maxWidth: .infinity)
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("\(wording.prefix) \(fragmentCount) / \(total) \(wording.suffix)")
     }

@@ -2,6 +2,12 @@ import Foundation
 import SwiftUI
 import WebKit
 
+#if os(macOS)
+import AppKit
+#else
+import UIKit
+#endif
+
 struct MedalAnimationCommand: Equatable {
     enum Action: Equatable {
         /// Immediately seek the complete bronze-to-silver timeline (0...1).
@@ -23,7 +29,13 @@ struct MedalAnimationCommand: Equatable {
 /// Hosts the original Canvas/JavaScript medal animation inside SwiftUI.
 /// Commands are intentionally small: Swift owns EXP and rank state, while
 /// JavaScript owns only rendering and animation timing.
-struct MedalTransmutationView: NSViewRepresentable {
+#if os(macOS)
+private typealias MedalTransmutationRepresentable = NSViewRepresentable
+#else
+private typealias MedalTransmutationRepresentable = UIViewRepresentable
+#endif
+
+struct MedalTransmutationView: MedalTransmutationRepresentable {
     var categoryName: String? = nil
     let command: MedalAnimationCommand
     var onFinished: () -> Void = {}
@@ -33,19 +45,27 @@ struct MedalTransmutationView: NSViewRepresentable {
         Coordinator(parent: self)
     }
 
-    func makeNSView(context: Context) -> WKWebView {
+    private func makeWebView(context: Context) -> WKWebView {
         let configuration = WKWebViewConfiguration()
         configuration.userContentController.add(context.coordinator, name: "medalAnimation")
 
         let webView = WKWebView(frame: .zero, configuration: configuration)
         webView.navigationDelegate = context.coordinator
         context.coordinator.webView = webView
+#if os(macOS)
+        webView.setValue(false, forKey: "drawsBackground")
+        webView.layer?.backgroundColor = NSColor(red: 0.02, green: 0.035, blue: 0.07, alpha: 1).cgColor
+#else
+        webView.isOpaque = false
+        webView.backgroundColor = UIColor(red: 0.02, green: 0.035, blue: 0.07, alpha: 1)
+        webView.scrollView.backgroundColor = webView.backgroundColor
+#endif
 
         context.coordinator.loadAnimation(for: categoryName)
         return webView
     }
 
-    func updateNSView(_ webView: WKWebView, context: Context) {
+    private func updateWebView(_ webView: WKWebView, context: Context) {
         context.coordinator.parent = self
         let configuration = MedalArtworkCatalog.configuration(for: categoryName)
         if context.coordinator.loadedConfiguration != configuration {
@@ -54,10 +74,33 @@ struct MedalTransmutationView: NSViewRepresentable {
         context.coordinator.sendCommandIfNeeded()
     }
 
+#if os(macOS)
+    func makeNSView(context: Context) -> WKWebView {
+        makeWebView(context: context)
+    }
+
+    func updateNSView(_ webView: WKWebView, context: Context) {
+        updateWebView(webView, context: context)
+    }
+
     static func dismantleNSView(_ webView: WKWebView, coordinator: Coordinator) {
         webView.configuration.userContentController.removeScriptMessageHandler(forName: "medalAnimation")
         webView.navigationDelegate = nil
     }
+#else
+    func makeUIView(context: Context) -> WKWebView {
+        makeWebView(context: context)
+    }
+
+    func updateUIView(_ webView: WKWebView, context: Context) {
+        updateWebView(webView, context: context)
+    }
+
+    static func dismantleUIView(_ webView: WKWebView, coordinator: Coordinator) {
+        webView.configuration.userContentController.removeScriptMessageHandler(forName: "medalAnimation")
+        webView.navigationDelegate = nil
+    }
+#endif
 
     private static var animationIndexURL: URL? {
         Bundle.main.url(forResource: "MedalAnimation", withExtension: "html")
@@ -248,7 +291,11 @@ struct MedalTransmutationView: NSViewRepresentable {
 }
 
 struct MedalAwardAnimationOverlay: View {
+    @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     let event: XPAwardEvent
+    var containerSize: CGSize? = nil
     let onDismiss: () -> Void
 
     @State private var isFinished = false
@@ -273,42 +320,31 @@ struct MedalAwardAnimationOverlay: View {
     }
 
     var body: some View {
-        ZStack {
-            Color.black.opacity(0.52)
-                .ignoresSafeArea()
+        GeometryReader { proxy in
+            let availableSize = containerSize ?? proxy.size
+            let inset: CGFloat = horizontalSizeClass == .compact ? 12 : 28
+            let panelWidth = min(max(availableSize.width - inset * 2, 1), 780)
+            let panelHeight = min(max(availableSize.height - inset * 2, 1), 640)
 
-            VStack(spacing: 0) {
-                HStack(alignment: .top, spacing: 16) {
-                    VStack(alignment: .leading, spacing: 5) {
-                        Text(
-                            toProgress >= 1
-                                ? "白银觉醒"
-                                : "\(BadgeKind.displayName(for: event.categoryName))正在铸造"
-                        )
-                            .font(.title2.bold())
-                            .foregroundStyle(.white)
-                        Text("+\(event.amount) EXP · \(event.currentXP) / \(BadgeRank.silver.cumulativeXPThreshold)")
-                            .font(.subheadline.monospacedDigit())
-                            .foregroundStyle(.white.opacity(0.64))
+            ZStack {
+                Color.black.opacity(0.52)
+                    .ignoresSafeArea()
+
+                VStack(spacing: 0) {
+                ViewThatFits(in: .horizontal) {
+                    HStack(alignment: .top, spacing: 16) {
+                        awardTitle
+                        Spacer()
+                        dismissButton
                     }
 
-                    Spacer()
-
-                    Button {
-                        onDismiss()
-                    } label: {
-                        Label(
-                            isFinished ? "关闭" : "跳过动画",
-                            systemImage: isFinished ? "xmark" : "forward.end.fill"
-                        )
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(.white.opacity(0.82))
-                            .padding(.horizontal, 13)
-                            .frame(height: 34)
-                            .background(.white.opacity(0.1), in: Capsule())
+                    VStack(alignment: .leading, spacing: 12) {
+                        awardTitle
+                        HStack {
+                            Spacer()
+                            dismissButton
+                        }
                     }
-                    .buttonStyle(.plain)
-                    .help(isFinished ? "关闭" : "跳过动画")
                 }
                 .padding(.horizontal, 24)
                 .padding(.top, 22)
@@ -316,11 +352,13 @@ struct MedalAwardAnimationOverlay: View {
                 MedalTransmutationView(
                     categoryName: event.categoryName,
                     command: MedalAnimationCommand(
-                        action: .award(
-                            from: fromProgress,
-                            to: toProgress,
-                            transmuteWhenFull: true
-                        ),
+                        action: reduceMotion
+                            ? .seek(progress: toProgress)
+                            : .award(
+                                from: fromProgress,
+                                to: toProgress,
+                                transmuteWhenFull: true
+                            ),
                         token: event.id.hashValue
                     )
                 ) {
@@ -344,17 +382,55 @@ struct MedalAwardAnimationOverlay: View {
                 }
                 .padding(.horizontal, 24)
                 .padding(.bottom, 22)
+                }
+                .frame(width: panelWidth, height: panelHeight)
+                .background(Color(red: 0.02, green: 0.035, blue: 0.07))
+                .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+                .overlay {
+                    RoundedRectangle(cornerRadius: 28, style: .continuous)
+                        .stroke(.white.opacity(0.13), lineWidth: 1)
+                }
+                .shadow(color: .black.opacity(0.4), radius: 48, y: 20)
             }
-            .frame(maxWidth: 780, maxHeight: 640)
-            .background(Color(red: 0.02, green: 0.035, blue: 0.07))
-            .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
-            .overlay {
-                RoundedRectangle(cornerRadius: 28, style: .continuous)
-                    .stroke(.white.opacity(0.13), lineWidth: 1)
-            }
-            .shadow(color: .black.opacity(0.4), radius: 48, y: 20)
-            .padding(28)
+            .frame(width: availableSize.width, height: availableSize.height)
         }
+        .onAppear {
+            if reduceMotion { isFinished = true }
+        }
+    }
+
+    private var awardTitle: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            Text(
+                toProgress >= 1
+                    ? "白银觉醒"
+                    : "\(BadgeKind.displayName(for: event.categoryName))正在铸造"
+            )
+                .font(.title2.bold())
+                .foregroundStyle(.white)
+                .lineLimit(2)
+            Text("+\(event.amount) EXP · \(event.currentXP) / \(BadgeRank.silver.cumulativeXPThreshold)")
+                .font(.subheadline.monospacedDigit())
+                .foregroundStyle(.white.opacity(0.64))
+        }
+    }
+
+    private var dismissButton: some View {
+        Button {
+            onDismiss()
+        } label: {
+            Label(
+                isFinished ? "关闭" : "跳过动画",
+                systemImage: isFinished ? "xmark" : "forward.end.fill"
+            )
+                .font(.subheadline.weight(.semibold))
+                .foregroundStyle(.white.opacity(0.82))
+                .padding(.horizontal, 13)
+                .frame(height: 34)
+                .background(.white.opacity(0.1), in: Capsule())
+        }
+        .buttonStyle(.plain)
+        .help(isFinished ? "关闭" : "跳过动画")
     }
 }
 
