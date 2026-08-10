@@ -7,6 +7,21 @@
 
 import Foundation
 
+enum LifeMedalsAPIConfiguration {
+    static let defaultBaseURL = "https://lifemedals-api.david-lian0809.workers.dev/"
+
+    static var baseURL: URL? {
+        let environmentValue = ProcessInfo.processInfo.environment["LIFEMEDALS_API_BASE_URL"]
+        let bundleValue = Bundle.main.object(forInfoDictionaryKey: "LifeMedalsAPIBaseURL") as? String
+
+        return [environmentValue, bundleValue, defaultBaseURL]
+            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+            .compactMap(URL.init(string:))
+            .first { $0.scheme != nil }
+    }
+}
+
 struct GeneratedTaskContract: Decodable, Sendable {
     let title: String
     let deadline: String
@@ -127,13 +142,7 @@ struct TaskGenerationService: Sendable {
     }
 
     private static func generateTaskEndpoint() throws -> URL {
-        let environmentValue = ProcessInfo.processInfo.environment["LIFEMEDALS_API_BASE_URL"]
-        let bundleValue = Bundle.main.object(forInfoDictionaryKey: "LifeMedalsAPIBaseURL") as? String
-        let rawValue = [environmentValue, bundleValue]
-            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .first { !$0.isEmpty }
-
-        guard let rawValue, let baseURL = URL(string: rawValue), baseURL.scheme != nil else {
+        guard let baseURL = LifeMedalsAPIConfiguration.baseURL else {
             throw TaskGenerationError.missingConfiguration
         }
 
@@ -152,7 +161,7 @@ enum TaskGenerationError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .missingConfiguration:
-            return "尚未配置代理地址。请在 Xcode Scheme 中设置 LIFEMEDALS_API_BASE_URL。"
+            return "尚未配置代理地址。请在 Xcode 构建配置中设置 LIFEMEDALS_API_BASE_URL。"
         case .invalidResponse:
             return "代理返回了无法读取的数据，请稍后重试。"
         case let .server(statusCode, message):

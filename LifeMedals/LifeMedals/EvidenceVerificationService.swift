@@ -108,13 +108,7 @@ struct EvidenceVerificationService: Sendable {
     }
 
     private static func endpoint() throws -> URL {
-        let environmentValue = ProcessInfo.processInfo.environment["LIFEMEDALS_API_BASE_URL"]
-        let bundleValue = Bundle.main.object(forInfoDictionaryKey: "LifeMedalsAPIBaseURL") as? String
-        let rawValue = [environmentValue, bundleValue]
-            .compactMap { $0?.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .first { !$0.isEmpty }
-
-        guard let rawValue, let baseURL = URL(string: rawValue), baseURL.scheme != nil else {
+        guard let baseURL = LifeMedalsAPIConfiguration.baseURL else {
             throw EvidenceVerificationError.missingConfiguration
         }
 
