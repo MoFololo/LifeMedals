@@ -24,16 +24,17 @@ struct EvidenceCameraView: View {
 
     var body: some View {
         ZStack {
-            GlassBackground()
+            PixelBackground()
 
             VStack(spacing: 18) {
                 HStack {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("拍摄证据")
-                            .font(.title2.bold())
+                            .font(PixelTheme.displayFont(size: 26))
+                            .foregroundStyle(PixelTheme.paperRaised)
                         Text("照片会先压缩并仅保存到这台设备。")
                             .font(.subheadline)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(PixelTheme.paper.opacity(0.72))
                     }
 
                     Spacer()
@@ -42,27 +43,30 @@ struct EvidenceCameraView: View {
                         dismiss()
                     } label: {
                         Image(systemName: "xmark")
+                            .font(.system(size: 14, weight: .bold))
+                            .foregroundStyle(PixelTheme.ink)
                             .frame(width: 34, height: 34)
                     }
                     .buttonStyle(.plain)
-                    .glassEffect(.regular.interactive(), in: Circle())
+                    .pixelSurface(fill: PixelTheme.paperRaised, border: PixelTheme.gold, step: 3, hasShadow: true)
                     .accessibilityLabel("关闭相机")
                 }
 
                 Group {
                     if controller.isReady {
                         CameraPreview(session: controller.session)
-                            .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
+                            .clipShape(PixelCornerShape())
+                            .overlay { PixelCornerShape().stroke(PixelTheme.gold, lineWidth: 2) }
                             .overlay(alignment: .bottom) {
                                 Button {
                                     controller.capture()
                                 } label: {
                                     ZStack {
-                                        Circle()
-                                            .fill(.white)
+                                        PixelCornerShape(step: 4)
+                                            .fill(PixelTheme.paperRaised)
                                             .frame(width: 62, height: 62)
-                                        Circle()
-                                            .stroke(.primary.opacity(0.28), lineWidth: 2)
+                                        PixelCornerShape(step: 4)
+                                            .stroke(PixelTheme.gold, lineWidth: 2)
                                             .frame(width: 70, height: 70)
                                     }
                                     .padding(22)
@@ -78,16 +82,17 @@ struct EvidenceCameraView: View {
                                 ProgressView()
                             } else {
                                 Image(systemName: "camera.fill")
-                                    .font(.system(size: 38, weight: .light))
-                                    .foregroundStyle(.secondary)
+                                    .font(.system(size: 38, weight: .bold))
+                                    .foregroundStyle(PixelTheme.gold)
                             }
                             Text(controller.message)
                                 .multilineTextAlignment(.center)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(PixelTheme.inkMuted)
                                 .frame(maxWidth: 420)
                         }
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
-                        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+                        .padding(PixelTheme.space24)
+                        .pixelSurface(fill: PixelTheme.paper, border: PixelTheme.gold, step: 4, hasShadow: true)
                     }
                 }
                 .frame(
@@ -99,7 +104,7 @@ struct EvidenceCameraView: View {
                 if let errorMessage = controller.errorMessage {
                     Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
                         .font(.subheadline)
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(PixelTheme.goldBright)
                 }
             }
             .padding(horizontalSizeClass == .compact ? 16 : 24)

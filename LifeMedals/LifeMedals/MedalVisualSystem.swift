@@ -217,8 +217,8 @@ struct MedalFragmentStatusLabel: View {
     var body: some View {
         HStack(spacing: 7) {
             Text("\(wording.prefix) \(fragmentCount)/\(total) \(wording.suffix)")
-                .font(.subheadline.weight(.semibold).monospacedDigit())
-                .foregroundStyle(.secondary)
+                .font(PixelTheme.statFont(size: 13))
+                .foregroundStyle(PixelTheme.inkMuted)
                 .lineLimit(1)
                 .minimumScaleFactor(0.68)
 

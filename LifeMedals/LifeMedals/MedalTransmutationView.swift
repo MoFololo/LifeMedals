@@ -385,12 +385,12 @@ struct MedalAwardAnimationOverlay: View {
                 }
                 .frame(width: panelWidth, height: panelHeight)
                 .background(Color(red: 0.02, green: 0.035, blue: 0.07))
-                .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+                .clipShape(PixelCornerShape(step: 6))
                 .overlay {
-                    RoundedRectangle(cornerRadius: 28, style: .continuous)
-                        .stroke(.white.opacity(0.13), lineWidth: 1)
+                    PixelCornerShape(step: 6)
+                        .stroke(PixelTheme.gold, lineWidth: 2)
                 }
-                .shadow(color: .black.opacity(0.4), radius: 48, y: 20)
+                .shadow(color: .black.opacity(0.4), radius: 0, x: 6, y: 6)
             }
             .frame(width: availableSize.width, height: availableSize.height)
         }
@@ -424,10 +424,10 @@ struct MedalAwardAnimationOverlay: View {
                 systemImage: isFinished ? "xmark" : "forward.end.fill"
             )
                 .font(.subheadline.weight(.semibold))
-                .foregroundStyle(.white.opacity(0.82))
+                .foregroundStyle(PixelTheme.ink)
                 .padding(.horizontal, 13)
                 .frame(height: 34)
-                .background(.white.opacity(0.1), in: Capsule())
+                .pixelSurface(fill: PixelTheme.paperRaised, border: PixelTheme.gold, step: 3)
         }
         .buttonStyle(.plain)
         .help(isFinished ? "关闭" : "跳过动画")
@@ -449,10 +449,10 @@ struct MedalDetailHeroView: View {
             }
             .frame(maxWidth: .infinity)
             .aspectRatio(1, contentMode: .fit)
-            .clipShape(RoundedRectangle(cornerRadius: 28, style: .continuous))
+            .clipShape(PixelCornerShape(step: 6))
             .overlay {
-                RoundedRectangle(cornerRadius: 28, style: .continuous)
-                    .stroke(.white.opacity(0.12), lineWidth: 1)
+                PixelCornerShape(step: 6)
+                    .stroke(PixelTheme.gold, lineWidth: 2)
             }
 
             MedalFragmentStatusLabel(
@@ -462,7 +462,7 @@ struct MedalDetailHeroView: View {
             )
                 .padding(.horizontal, 16)
                 .padding(.vertical, 10)
-                .glassEffect(.regular, in: Capsule())
+                .pixelSurface(fill: PixelTheme.paper, border: PixelTheme.gold, step: 3, hasShadow: true)
         }
     }
 }

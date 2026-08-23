@@ -10,23 +10,32 @@ struct AccountSyncView: View {
     var onSignOut: () -> Void
 
     var body: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 22) {
+        ZStack {
+            PixelBackground()
+
+            ScrollView {
+                VStack(alignment: .leading, spacing: PixelTheme.space24) {
             HStack(alignment: .top) {
                 VStack(alignment: .leading, spacing: 5) {
+                    Text("PLAYER DATA")
+                        .font(PixelTheme.statFont(size: 11))
+                        .foregroundStyle(PixelTheme.goldBright)
                     Text("账户与同步")
-                        .font(.title2.bold())
+                        .font(PixelTheme.displayFont(size: 26))
+                        .foregroundStyle(PixelTheme.paperRaised)
                     Text(accountAndSyncSubtitle)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(PixelTheme.paper.opacity(0.72))
                 }
 
                 Spacer()
 
                 Button("完成") { dismiss() }
                     .buttonStyle(.plain)
+                    .font(.subheadline.weight(.bold))
+                    .foregroundStyle(PixelTheme.ink)
                     .padding(.horizontal, 13)
                     .padding(.vertical, 8)
-                    .glassEffect(.regular.interactive(), in: Capsule())
+                    .pixelSurface(fill: PixelTheme.paperRaised, border: PixelTheme.gold, step: 3, hasShadow: true)
             }
 
             VStack(spacing: 0) {
@@ -34,7 +43,7 @@ struct AccountSyncView: View {
                     icon: accountManager.isSignedIn ? "person.crop.circle.badge.checkmark" : "person.crop.circle",
                     title: "Apple 登录",
                     detail: appleAccountDetail,
-                    color: accountManager.isSignedIn ? .green : .secondary
+                    color: accountManager.isSignedIn ? PixelTheme.success : PixelTheme.inkMuted
                 )
 
                 Divider().padding(.leading, 54)
@@ -47,19 +56,19 @@ struct AccountSyncView: View {
                 )
             }
             .padding(.horizontal, 18)
-            .background(.white.opacity(0.42), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .pixelSurface(fill: PixelTheme.paper, border: PixelTheme.gold, step: 4, hasShadow: true)
 
             if let message = syncMonitor.errorMessage {
                 Label(message, systemImage: "exclamationmark.triangle.fill")
                     .font(.subheadline)
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(PixelTheme.goldBright)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
             if let message = accountManager.errorMessage {
                 Label(message, systemImage: "person.crop.circle.badge.exclamationmark")
                     .font(.subheadline)
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(PixelTheme.goldBright)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
@@ -78,11 +87,12 @@ struct AccountSyncView: View {
 
             Text(accountFooter)
                 .font(.caption)
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(PixelTheme.paper.opacity(0.62))
                 .fixedSize(horizontal: false, vertical: true)
             }
             .padding(horizontalSizeClass == .compact ? 20 : 28)
             .frame(maxWidth: .infinity, alignment: .leading)
+            }
         }
         .platformSheetWidth(510)
         .presentationDetents([.medium, .large])
@@ -102,13 +112,14 @@ struct AccountSyncView: View {
                     }
                     .buttonStyle(.plain)
                     .disabled(syncMonitor.isCheckingAccount)
+                    .foregroundStyle(PixelTheme.ink)
                     .padding(.horizontal, 14)
                     .padding(.vertical, 9)
-                    .glassEffect(.regular.interactive(), in: Capsule())
+                    .pixelSurface(fill: PixelTheme.paperRaised, border: PixelTheme.gold, step: 3, hasShadow: true)
                 } else {
                     Label("本机存储已启用", systemImage: "checkmark.circle.fill")
                         .font(.subheadline.weight(.medium))
-                        .foregroundStyle(.green)
+                        .foregroundStyle(PixelTheme.success)
                 }
     }
 
@@ -121,7 +132,10 @@ struct AccountSyncView: View {
                         dismiss()
                     }
                     .buttonStyle(.plain)
-                    .foregroundStyle(.red)
+                    .foregroundStyle(PixelTheme.danger)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 9)
+                    .pixelSurface(fill: PixelTheme.paperRaised, border: PixelTheme.danger, step: 3)
                 } else if LifeMedalsCloud.isEnabledForCurrentBuild {
                     SignInWithAppleButton(.signIn) { request in
                         accountManager.prepare(request)
@@ -130,11 +144,11 @@ struct AccountSyncView: View {
                     }
                     .signInWithAppleButtonStyle(.black)
                     .frame(width: 210, height: 40)
-                    .clipShape(RoundedRectangle(cornerRadius: 10, style: .continuous))
+                    .clipShape(PixelCornerShape(step: 3))
                 } else {
                     Text("Debug 仅本机")
                         .font(.subheadline.weight(.medium))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(PixelTheme.paper.opacity(0.72))
                 }
     }
 
@@ -168,8 +182,8 @@ struct AccountSyncView: View {
     }
 
     private var syncStatusColor: Color {
-        if !LifeMedalsCloud.isEnabledForCurrentBuild { return .secondary }
-        return syncMonitor.isAvailable ? .blue : .orange
+        if !LifeMedalsCloud.isEnabledForCurrentBuild { return PixelTheme.inkMuted }
+        return syncMonitor.isAvailable ? PixelTheme.selection : PixelTheme.gold
     }
 
     private var accountFooter: String {
@@ -189,7 +203,7 @@ struct AccountSyncView: View {
                 Text(title).font(.headline)
                 Text(detail)
                     .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(PixelTheme.inkMuted)
             }
 
             Spacer()

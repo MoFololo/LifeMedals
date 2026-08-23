@@ -9,23 +9,24 @@ struct LoginView: View {
 
     var body: some View {
         ZStack {
-            GlassBackground()
+            PixelBackground()
 
-            GlassEffectContainer(spacing: 18) {
-                VStack(spacing: 28) {
+            PixelPanel(fill: PixelTheme.paper, padding: 0) {
+                VStack(spacing: PixelTheme.space24) {
                     VStack(spacing: 12) {
                         Image(systemName: "medal.fill")
-                            .font(.system(size: 34, weight: .semibold))
-                            .foregroundStyle(.orange)
+                            .font(.system(size: 34, weight: .bold))
+                            .foregroundStyle(PixelTheme.gold)
                             .frame(width: 72, height: 72)
-                            .glassEffect(.regular.tint(.orange.opacity(0.12)), in: Circle())
+                            .pixelSurface(fill: PixelTheme.paperRaised, border: PixelTheme.gold, step: 4, hasShadow: true)
 
                         VStack(spacing: 7) {
                             Text("人生勋章")
-                                .font(.largeTitle.bold())
+                                .font(PixelTheme.displayFont(size: 32))
+                                .foregroundStyle(PixelTheme.ink)
                             Text("把想做的事，变成一份值得完成的契约。")
                                 .font(.subheadline)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(PixelTheme.inkMuted)
                         }
                     }
 
@@ -40,14 +41,14 @@ struct LoginView: View {
                             }
                             .signInWithAppleButtonStyle(.black)
                             .frame(height: 48)
-                            .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+                            .clipShape(PixelCornerShape(step: 3))
                         } else {
                             Label("本地开发模式", systemImage: "hammer.fill")
                                 .font(.headline)
                                 .frame(maxWidth: .infinity)
                                 .frame(height: 48)
-                                .foregroundStyle(.primary)
-                                .background(.white.opacity(0.54), in: RoundedRectangle(cornerRadius: 12))
+                                .foregroundStyle(PixelTheme.ink)
+                                .pixelSurface(fill: PixelTheme.paperRaised, border: PixelTheme.gold, step: 3)
                         }
 
                         HStack(spacing: 9) {
@@ -63,7 +64,7 @@ struct LoginView: View {
                                     .font(.subheadline.weight(.semibold))
                                 Text(syncStatusDetail)
                                     .font(.caption)
-                                    .foregroundStyle(.secondary)
+                                    .foregroundStyle(PixelTheme.inkMuted)
                             }
 
                             Spacer()
@@ -78,30 +79,29 @@ struct LoginView: View {
                             }
                         }
                         .padding(13)
-                        .background(.white.opacity(0.42), in: RoundedRectangle(cornerRadius: 15, style: .continuous))
+                        .pixelSurface(fill: PixelTheme.paperRaised, border: syncStatusColor.opacity(0.72), step: 3)
 
                         Button("离线使用", action: onContinue)
                             .buttonStyle(.plain)
                             .font(.subheadline)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(PixelTheme.inkMuted)
                             .padding(.vertical, 6)
                     }
 
                     if let errorMessage = accountManager.errorMessage {
                         Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
                             .font(.caption)
-                            .foregroundStyle(.orange)
+                            .foregroundStyle(PixelTheme.danger)
                             .fixedSize(horizontal: false, vertical: true)
                     }
 
                     Text(loginFooter)
                         .font(.caption)
-                        .foregroundStyle(.tertiary)
+                        .foregroundStyle(PixelTheme.inkMuted.opacity(0.72))
                         .fixedSize(horizontal: false, vertical: true)
                 }
                 .padding(34)
                 .frame(maxWidth: 420)
-                .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 34, style: .continuous))
             }
             .padding(.horizontal, 20)
         }
@@ -127,8 +127,8 @@ struct LoginView: View {
     }
 
     private var syncStatusColor: Color {
-        if !LifeMedalsCloud.isEnabledForCurrentBuild { return .secondary }
-        return syncMonitor.isAvailable ? .blue : .orange
+        if !LifeMedalsCloud.isEnabledForCurrentBuild { return PixelTheme.inkMuted }
+        return syncMonitor.isAvailable ? PixelTheme.selection : PixelTheme.gold
     }
 
     private var loginFooter: String {

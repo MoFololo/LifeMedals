@@ -79,9 +79,9 @@ struct ContentView: View {
 
         var tint: Color {
             switch self {
-            case .unfinished: .accentColor
-            case .completed: .green
-            case .overdue: .red
+            case .unfinished: PixelTheme.selection
+            case .completed: PixelTheme.success
+            case .overdue: PixelTheme.danger
             }
         }
     }
@@ -110,9 +110,9 @@ struct ContentView: View {
 
             var tint: Color {
                 switch self {
-                case .archive: .orange
-                case .restore: .accentColor
-                case .delete: .red
+                case .archive: PixelTheme.gold
+                case .restore: PixelTheme.selection
+                case .delete: PixelTheme.danger
                 }
             }
         }
@@ -147,7 +147,7 @@ struct ContentView: View {
 
         var body: some View {
             ZStack(alignment: .trailing) {
-                HStack(spacing: 16) {
+                HStack(spacing: PixelTheme.space16) {
                     ForEach(actions) { action in
                         mouseActionButton(action)
                     }
@@ -170,7 +170,7 @@ struct ContentView: View {
                     .simultaneousGesture(mouseDragGesture)
                     .zIndex(0)
             }
-            .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+            .clipShape(PixelCornerShape())
             .accessibilityAddTraits(.isButton)
         }
 
@@ -203,16 +203,17 @@ struct ContentView: View {
                         .font(.system(size: 13, weight: .semibold))
                         .foregroundStyle(.white)
                         .frame(width: 56, height: 30)
-                        .contentShape(Capsule())
+                        .contentShape(PixelCornerShape(step: 2))
                 }
                 .buttonStyle(.borderless)
-                .background(action.tint, in: Capsule())
+                .background(action.tint, in: PixelCornerShape(step: 2))
+                .overlay { PixelCornerShape(step: 2).stroke(PixelTheme.goldBright.opacity(0.8), lineWidth: 1) }
                 .accessibilityLabel(action.title)
                 .help(action.title)
 
                 Text(action.title)
                     .font(.caption2)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(PixelTheme.paper.opacity(0.72))
                     .lineLimit(1)
             }
             .frame(width: 56)
@@ -264,6 +265,7 @@ struct ContentView: View {
         platformRoot
             .macOSMinimumWindowSize(width: 920, height: 680)
             .preferredColorScheme(.light)
+            .tint(PixelTheme.selection)
             .animation(reduceMotion ? nil : .smooth(duration: 0.42), value: selectedPage)
             .animation(reduceMotion ? nil : .smooth(duration: 0.42), value: creationPhase)
             .animation(reduceMotion ? nil : .smooth(duration: 0.32), value: savedMessage)
@@ -322,7 +324,7 @@ struct ContentView: View {
 
     private func rootContent(containerSize: CGSize?) -> some View {
         ZStack {
-            GlassBackground()
+            PixelBackground()
 
             navigationLayout(containerSize: containerSize)
 
@@ -352,24 +354,32 @@ struct ContentView: View {
     private func navigationLayout(containerSize: CGSize?) -> some View {
 #if os(iOS)
         let resolvedSize = containerSize ?? .zero
-        TabView(selection: $selectedPage) {
-            mobileTab(.create, containerSize: resolvedSize) {
-                creationPage
-            }
-            .tag(AppPage.create)
-            .tabItem { Label(AppPage.create.title, systemImage: AppPage.create.icon) }
+        VStack(spacing: 0) {
+            ZStack {
+                topLevelPage(.create) {
+                    mobileTab(.create, containerSize: resolvedSize) {
+                        creationPage
+                    }
+                }
 
-            mobileTab(.tasks, containerSize: resolvedSize) {
-                taskListPage
-            }
-            .tag(AppPage.tasks)
-            .tabItem { Label(AppPage.tasks.title, systemImage: AppPage.tasks.icon) }
+                topLevelPage(.tasks) {
+                    mobileTab(.tasks, containerSize: resolvedSize) {
+                        taskListPage
+                    }
+                }
 
-            mobileTab(.medals, containerSize: resolvedSize) {
-                medalsPage
+                topLevelPage(.medals) {
+                    mobileTab(.medals, containerSize: resolvedSize) {
+                        medalsPage
+                    }
+                }
             }
-            .tag(AppPage.medals)
-            .tabItem { Label(AppPage.medals.title, systemImage: AppPage.medals.icon) }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+
+            pixelNavigationTabs
+                .padding(.horizontal, PixelTheme.space12)
+                .padding(.top, PixelTheme.space8)
+                .padding(.bottom, PixelTheme.space4)
         }
         .frame(width: resolvedSize.width, height: resolvedSize.height)
 #else
@@ -389,10 +399,16 @@ struct ContentView: View {
         @ViewBuilder content: @escaping () -> Content
     ) -> some View {
         NavigationStack {
-            content()
-                .frame(width: containerSize.width)
+            ZStack {
+                PixelBackground()
+                content()
+                    .frame(width: containerSize.width)
+            }
                 .navigationTitle(page == .create ? "人生勋章" : page.title)
                 .navigationBarTitleDisplayMode(.inline)
+                .toolbarBackground(PixelTheme.backgroundRaised, for: .navigationBar)
+                .toolbarBackground(.visible, for: .navigationBar)
+                .toolbarColorScheme(.dark, for: .navigationBar)
                 .toolbar {
                     ToolbarItem(placement: .primaryAction) {
                         Button {
@@ -401,7 +417,7 @@ struct ContentView: View {
                             Label("账户", systemImage: "person.crop.circle")
                                 .labelStyle(.iconOnly)
                                 .font(.body.weight(.medium))
-                                .foregroundStyle(.primary)
+                                .foregroundStyle(PixelTheme.paperRaised)
                         }
                         .buttonStyle(.plain)
                         .accessibilityLabel("查看账户与 iCloud 同步状态")
@@ -435,13 +451,22 @@ struct ContentView: View {
                 HStack(spacing: 10) {
                     Image(systemName: "medal.fill")
                         .font(.system(size: 18, weight: .semibold))
-                        .foregroundStyle(.orange)
+                        .foregroundStyle(PixelTheme.goldBright)
                     Text("人生勋章")
-                        .font(.headline)
+                        .font(PixelTheme.displayFont(size: 17))
+                        .foregroundStyle(PixelTheme.paper)
                 }
-                .padding(.horizontal, 15)
-                .padding(.vertical, 10)
-                .glassEffect(.regular, in: Capsule())
+                .padding(.horizontal, PixelTheme.space16)
+                .padding(.vertical, PixelTheme.space8)
+                .background {
+                    ZStack {
+                        PixelCornerShape()
+                            .fill(PixelTheme.background)
+                            .offset(x: 3, y: 3)
+                        PixelCornerShape().fill(PixelTheme.backgroundRaised)
+                    }
+                }
+                .overlay { PixelCornerShape().stroke(PixelTheme.gold, lineWidth: 2) }
 
                 Spacer()
 
@@ -450,41 +475,32 @@ struct ContentView: View {
                 } label: {
                     Label(syncMonitor.shortTitle, systemImage: syncMonitor.iconName)
                         .font(.caption.weight(.medium))
-                        .foregroundStyle(syncMonitor.isAvailable ? Color.blue : Color.secondary)
+                        .foregroundStyle(syncMonitor.isAvailable ? PixelTheme.paper : PixelTheme.paper.opacity(0.65))
+                        .padding(.horizontal, PixelTheme.space12)
+                        .padding(.vertical, PixelTheme.space8)
+                        .background(PixelTheme.backgroundRaised, in: PixelCornerShape())
+                        .overlay { PixelCornerShape().stroke(PixelTheme.gold, lineWidth: 2) }
                 }
                 .buttonStyle(.plain)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 10)
-                    .glassEffect(.regular.interactive(), in: Capsule())
-                    .help("查看账户与 iCloud 同步状态")
+                .help("查看账户与 iCloud 同步状态")
             }
 
-            GlassEffectContainer(spacing: 10) {
-                HStack(spacing: 10) {
-                    ForEach(AppPage.allCases) { page in
-                        Button {
-                            selectPage(page)
-                        } label: {
-                            Label(page.title, systemImage: page.icon)
-                                .font(.subheadline.weight(selectedPage == page ? .semibold : .medium))
-                                .foregroundStyle(selectedPage == page ? .primary : .secondary)
-                                .padding(.horizontal, 16)
-                                .padding(.vertical, 10)
-                                .contentShape(Capsule())
-                        }
-                        .buttonStyle(.plain)
-                        .glassEffect(
-                            .regular
-                                .tint(selectedPage == page ? Color.accentColor.opacity(0.16) : .clear)
-                                .interactive(),
-                            in: Capsule()
-                        )
-                        .accessibilityLabel("切换到\(page.title)页面")
-                    }
-                }
-            }
+            pixelNavigationTabs
+                .frame(width: 390)
         }
         .frame(height: 48)
+    }
+
+    private var pixelNavigationTabs: some View {
+        PixelTabBar(
+            items: AppPage.allCases.map {
+                PixelTabItem(id: $0.rawValue, title: $0.title, systemImage: $0.icon)
+            },
+            selection: selectedPage.rawValue
+        ) { rawValue in
+            guard let page = AppPage(rawValue: rawValue) else { return }
+            selectPage(page)
+        }
     }
 
     // MARK: - Creation flow
@@ -512,63 +528,90 @@ struct ContentView: View {
     }
 
     private var taskComposer: some View {
-        VStack(spacing: 24) {
-            Spacer()
+        ScrollView {
+            VStack(alignment: .leading, spacing: PixelTheme.space16) {
+                HStack(alignment: .top, spacing: PixelTheme.space12) {
+                    VStack(alignment: .leading, spacing: PixelTheme.space4) {
+                        Text("NEW QUEST")
+                            .font(PixelTheme.statFont(size: 12))
+                            .foregroundStyle(PixelTheme.goldBright)
+                        Text("建立新任务")
+                            .font(PixelTheme.displayFont(size: isCompactLayout ? 28 : 34))
+                            .foregroundStyle(PixelTheme.paperRaised)
+                        Text("描述你想完成的事，我们会整理成可验证的任务契约。")
+                            .font(.subheadline)
+                            .foregroundStyle(PixelTheme.paper.opacity(0.74))
+                    }
+                    Spacer()
+                    PixelStatusBadge(title: "QUEST  /  01", color: PixelTheme.selection)
+                }
 
-            VStack(spacing: 18) {
-                TextField("", text: $taskInput, axis: .vertical)
-                    .textFieldStyle(.plain)
-                    .font(.system(size: 30, weight: .regular, design: .rounded))
-                    .multilineTextAlignment(.center)
-                    .lineLimit(1...5)
-                    .focused($isTaskInputFocused)
-                    .frame(maxWidth: 680, minHeight: 48)
-                    .padding(.horizontal, 24)
-                    .accessibilityLabel("输入你想完成的任务")
-                    .onSubmit(generateTask)
+                PixelPanel(fill: PixelTheme.paper, padding: isCompactLayout ? PixelTheme.space16 : PixelTheme.space24) {
+                    VStack(alignment: .leading, spacing: PixelTheme.space16) {
+                        PixelSectionHeader(
+                            title: "任务委托",
+                            subtitle: "一句话即可开始，也可以写清时间、数量或完成标准。"
+                        )
 
-                if !trimmedTaskInput.isEmpty || isGenerating || errorMessage != nil {
-                    VStack(spacing: 14) {
-                        Button(action: generateTask) {
-                            HStack(spacing: 9) {
-                                if isGenerating {
-                                    ProgressView()
-                                        .controlSize(.small)
-                                } else {
-                                    Image(systemName: errorMessage == nil ? "arrow.up" : "arrow.clockwise")
-                                }
-                                Text(buttonTitle)
-                                    .fontWeight(.semibold)
-                            }
-                            .padding(.horizontal, 22)
-                            .padding(.vertical, 12)
+                        PixelInput(isFocused: isTaskInputFocused) {
+                            TextField("例如：本周完成三次 30 分钟跑步", text: $taskInput, axis: .vertical)
+                                .textFieldStyle(.plain)
+                                .font(.system(size: isCompactLayout ? 18 : 22, weight: .medium, design: .rounded))
+                                .foregroundStyle(PixelTheme.ink)
+                                .lineLimit(3...6)
+                                .focused($isTaskInputFocused)
+                                .frame(maxWidth: .infinity, minHeight: isCompactLayout ? 76 : 96, alignment: .topLeading)
+                                .accessibilityLabel("输入你想完成的任务")
+                                .onSubmit(generateTask)
                         }
-                        .buttonStyle(.plain)
-                        .disabled(isGenerating || trimmedTaskInput.isEmpty)
-                        .contentShape(Capsule())
-                        .glassEffect(.regular.tint(Color.accentColor.opacity(0.14)).interactive(), in: Capsule())
-                        .transition(.move(edge: .bottom).combined(with: .opacity).combined(with: .scale(scale: 0.94)))
+
+                        HStack(alignment: .center, spacing: PixelTheme.space12) {
+                            HStack(spacing: PixelTheme.space8) {
+                                Image(systemName: "wand.and.stars")
+                                    .foregroundStyle(PixelTheme.gold)
+                                Text("AI 将补全截止时间、证据要求与 EXP")
+                                    .font(.caption)
+                                    .foregroundStyle(PixelTheme.inkMuted)
+                            }
+                            Spacer()
+                            PixelButton(
+                                title: buttonTitle,
+                                systemImage: errorMessage == nil ? nil : "arrow.clockwise",
+                                isLoading: isGenerating,
+                                action: generateTask
+                            )
+                            .disabled(isGenerating || trimmedTaskInput.isEmpty)
+                            .opacity(isGenerating || trimmedTaskInput.isEmpty ? 0.48 : 1)
+                        }
 
                         if let errorMessage {
-                            statusBanner(icon: "wifi.exclamationmark", message: errorMessage, color: .orange)
-                                .frame(maxWidth: 560)
+                            PixelStatusBadge(title: "连接失败", color: PixelTheme.danger)
+                                .accessibilityLabel(errorMessage)
+                            Text(errorMessage)
+                                .font(.caption)
+                                .foregroundStyle(PixelTheme.danger)
                                 .transition(.opacity.combined(with: .move(edge: .top)))
                         }
                     }
                 }
+
+                HStack(spacing: PixelTheme.space8) {
+                    ForEach(["明确目标", "设置期限", "照片验证"], id: \.self) { tip in
+                        Text(tip)
+                            .font(.caption.weight(.semibold))
+                            .foregroundStyle(PixelTheme.paper.opacity(0.78))
+                            .padding(.horizontal, PixelTheme.space8)
+                            .padding(.vertical, PixelTheme.space4)
+                            .overlay { PixelCornerShape(step: 2).stroke(PixelTheme.brownLight, lineWidth: 1) }
+                    }
+                }
+                .accessibilityElement(children: .combine)
             }
-            .animation(.snappy(duration: 0.32), value: trimmedTaskInput.isEmpty)
-            .animation(.smooth(duration: 0.3), value: errorMessage)
-
-            Spacer()
-
-            Text("在这里写下你想完成的事")
-                .font(.caption)
-                .foregroundStyle(.tertiary)
-                .opacity(taskInput.isEmpty && !isTaskInputFocused ? 1 : 0)
-                .padding(.bottom, 24)
+            .padding(.horizontal, max(compactPageInset, PixelTheme.space16))
+            .padding(.vertical, isCompactLayout ? PixelTheme.space24 : 56)
+            .platformScrollableContentWidth(790)
+            .frame(maxWidth: .infinity)
         }
-        .padding(.horizontal, compactPageInset)
         .contentShape(Rectangle())
         .onTapGesture { isTaskInputFocused = true }
     }
@@ -633,44 +676,47 @@ struct ContentView: View {
                                 HStack(alignment: .top, spacing: 8) {
                                     if draftEvidenceImageCount <= 2 {
                                         Text("\(index + 1)")
-                                            .font(.caption.bold())
+                                            .font(PixelTheme.statFont(size: 11))
                                             .foregroundStyle(.white)
                                             .frame(width: 20, height: 20)
-                                            .background(Color.accentColor, in: Circle())
+                                            .background(PixelTheme.selection, in: PixelCornerShape(step: 2))
                                     }
                                     Text(description)
                                         .font(.subheadline)
-                                        .foregroundStyle(.secondary)
+                                        .foregroundStyle(PixelTheme.inkMuted)
                                         .fixedSize(horizontal: false, vertical: true)
                                 }
                             }
                         }
                         .padding(14)
                         .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(.white.opacity(0.46), in: RoundedRectangle(cornerRadius: 14))
+                        .background(PixelTheme.paperRaised, in: PixelCornerShape())
+                        .overlay { PixelCornerShape().stroke(PixelTheme.gold.opacity(0.62), lineWidth: 1) }
                     }
 
                     Button(action: saveTask) {
                         Label("确认并保存", systemImage: "checkmark")
                             .fontWeight(.semibold)
                             .frame(maxWidth: .infinity)
-                            .padding(.vertical, 13)
                     }
-                    .buttonStyle(.plain)
+                    .buttonStyle(PixelButtonStyle(tone: PixelTheme.selection))
                     .disabled(!canSaveDraft)
                     .opacity(canSaveDraft ? 1 : 0.45)
-                    .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
-                    .glassEffect(
-                        .regular.tint(Color.accentColor.opacity(0.16)).interactive(),
-                        in: RoundedRectangle(cornerRadius: 18, style: .continuous)
-                    )
 
                     if let errorMessage {
-                        statusBanner(icon: "exclamationmark.triangle.fill", message: errorMessage, color: .orange)
+                        statusBanner(icon: "exclamationmark.triangle.fill", message: errorMessage, color: PixelTheme.danger)
                     }
                 }
                 .padding(isCompactLayout ? 18 : 24)
-                .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
+                .background {
+                    ZStack {
+                        PixelCornerShape()
+                            .fill(PixelTheme.background.opacity(0.92))
+                            .offset(x: 4, y: 4)
+                        PixelCornerShape().fill(PixelTheme.paper)
+                    }
+                }
+                .overlay { PixelCornerShape().stroke(PixelTheme.gold, lineWidth: 2) }
             }
             .padding(.horizontal, 20)
             .padding(.vertical, 28)
@@ -682,9 +728,10 @@ struct ContentView: View {
     private var contractReviewTitle: some View {
         VStack(alignment: .leading, spacing: 5) {
             Text("确认任务契约")
-                .font(.largeTitle.bold())
+                .font(PixelTheme.displayFont(size: 32))
+                .foregroundStyle(PixelTheme.paperRaised)
             Text("确认截止日期和证据照片后，即可开始执行。")
-                .foregroundStyle(.secondary)
+                .foregroundStyle(PixelTheme.paper.opacity(0.72))
         }
     }
 
@@ -696,11 +743,8 @@ struct ContentView: View {
             focusTaskInput()
         } label: {
             Label("返回修改想法", systemImage: "chevron.left")
-                .padding(.horizontal, 14)
-                .padding(.vertical, 9)
         }
-        .buttonStyle(.plain)
-        .glassEffect(.regular.interactive(), in: Capsule())
+        .buttonStyle(PixelButtonStyle(tone: PixelTheme.brown))
     }
 
     private var taskTitleContractField: some View {
@@ -710,7 +754,8 @@ struct ContentView: View {
                 .font(.title3.weight(.medium))
                 .frame(maxWidth: .infinity)
                 .padding(14)
-                .background(.white.opacity(0.46), in: RoundedRectangle(cornerRadius: 14))
+                .background(PixelTheme.paperRaised, in: PixelCornerShape())
+                .overlay { PixelCornerShape().stroke(PixelTheme.gold.opacity(0.62), lineWidth: 1) }
         }
     }
 
@@ -718,10 +763,11 @@ struct ContentView: View {
         contractField("完成奖励") {
             Label("+\(draftXP) EXP", systemImage: "sparkles")
                 .font(.title3.bold())
-                .foregroundStyle(.orange)
+                .foregroundStyle(PixelTheme.brown)
                 .padding(14)
                 .frame(maxWidth: .infinity, alignment: .leading)
-                .background(.white.opacity(0.46), in: RoundedRectangle(cornerRadius: 14))
+                .background(PixelTheme.paperRaised, in: PixelCornerShape())
+                .overlay { PixelCornerShape().stroke(PixelTheme.gold.opacity(0.62), lineWidth: 1) }
         }
     }
 
@@ -733,7 +779,8 @@ struct ContentView: View {
                 .clipped()
                 .padding(4)
                 .frame(maxWidth: .infinity, minHeight: 144, maxHeight: 144)
-                .background(.white.opacity(0.46), in: RoundedRectangle(cornerRadius: 14))
+                .background(PixelTheme.paperRaised, in: PixelCornerShape())
+                .overlay { PixelCornerShape().stroke(PixelTheme.gold.opacity(0.62), lineWidth: 1) }
         }
     }
 
@@ -810,7 +857,7 @@ struct ContentView: View {
                         actions: actions,
                         onSelect: { openTask(task) }
                     )
-                        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+                        .clipShape(PixelCornerShape())
                         .listRowBackground(Color.clear)
                         .listRowSeparator(.hidden)
                         .listRowInsets(EdgeInsets(top: 7, leading: pageHorizontalInset, bottom: 7, trailing: pageHorizontalInset))
@@ -834,11 +881,12 @@ struct ContentView: View {
                     }
                 } label: {
                     Image(systemName: "archivebox")
-                        .font(.system(size: 14, weight: .semibold))
-                        .frame(width: 32, height: 32)
+                        .font(.system(size: 14, weight: .bold))
+                        .foregroundStyle(PixelTheme.ink)
+                        .frame(width: 34, height: 34)
                 }
                 .buttonStyle(.plain)
-                .glassEffect(.regular.interactive(), in: Circle())
+                .pixelSurface(fill: PixelTheme.paperRaised, border: PixelTheme.gold, step: 3, hasShadow: true)
                 .accessibilityLabel("查看已归档任务")
                 .help("查看已归档任务")
 
@@ -876,10 +924,11 @@ struct ContentView: View {
                 } label: {
                     Image(systemName: "chevron.left")
                         .font(.system(size: 13, weight: .bold))
-                        .frame(width: 32, height: 32)
+                        .foregroundStyle(PixelTheme.ink)
+                        .frame(width: 34, height: 34)
                 }
                 .buttonStyle(.plain)
-                .glassEffect(.regular.interactive(), in: Circle())
+                .pixelSurface(fill: PixelTheme.paperRaised, border: PixelTheme.gold, step: 3, hasShadow: true)
                 .accessibilityLabel("返回任务")
                 .help("返回任务")
 
@@ -908,7 +957,7 @@ struct ContentView: View {
                         actions: actions,
                         onSelect: { openTask(task) }
                     )
-                        .clipShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
+                        .clipShape(PixelCornerShape())
                         .listRowBackground(Color.clear)
                         .listRowSeparator(.hidden)
                         .listRowInsets(EdgeInsets(top: 7, leading: pageHorizontalInset, bottom: 7, trailing: pageHorizontalInset))
@@ -924,8 +973,7 @@ struct ContentView: View {
         completedCount: Int,
         overdueCount: Int
     ) -> some View {
-        GlassEffectContainer(spacing: 10) {
-            HStack(spacing: 10) {
+        HStack(spacing: PixelTheme.space4) {
                 ForEach(TaskListTab.allCases) { tab in
                     let count = switch tab {
                     case .unfinished: unfinishedCount
@@ -948,8 +996,8 @@ struct ContentView: View {
                                         .padding(.horizontal, 5)
                                         .padding(.vertical, 2)
                                         .background(
-                                            (selectedTaskTab == tab ? tab.tint : Color.secondary).opacity(0.12),
-                                            in: Capsule()
+                                            selectedTaskTab == tab ? PixelTheme.paperRaised.opacity(0.22) : PixelTheme.brown.opacity(0.2),
+                                            in: PixelCornerShape(step: 2)
                                         )
                                 }
                             } else {
@@ -962,30 +1010,30 @@ struct ContentView: View {
                                         .padding(.horizontal, 7)
                                         .padding(.vertical, 3)
                                         .background(
-                                            (selectedTaskTab == tab ? tab.tint : Color.secondary).opacity(0.12),
-                                            in: Capsule()
+                                            selectedTaskTab == tab ? PixelTheme.paperRaised.opacity(0.22) : PixelTheme.brown.opacity(0.2),
+                                            in: PixelCornerShape(step: 2)
                                         )
                                 }
                             }
                         }
                         .font((isCompactLayout ? Font.caption : .subheadline).weight(selectedTaskTab == tab ? .semibold : .medium))
-                        .foregroundStyle(selectedTaskTab == tab ? tab.tint : .secondary)
+                        .foregroundStyle(selectedTaskTab == tab ? Color.white : PixelTheme.inkMuted)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 11)
-                        .contentShape(Capsule())
+                        .contentShape(PixelCornerShape(step: 3))
                     }
                     .buttonStyle(.plain)
-                    .glassEffect(
-                        .regular
-                            .tint(selectedTaskTab == tab ? tab.tint.opacity(0.12) : .clear)
-                            .interactive(),
-                        in: Capsule()
+                    .background(
+                        selectedTaskTab == tab ? tab.tint : PixelTheme.paperRaised,
+                        in: PixelCornerShape(step: 3)
                     )
+                    .overlay { PixelCornerShape(step: 3).stroke(selectedTaskTab == tab ? PixelTheme.goldBright : PixelTheme.gold.opacity(0.55), lineWidth: selectedTaskTab == tab ? 2 : 1) }
                     .accessibilityLabel("\(tab.title)，\(count) 项")
                     .accessibilityAddTraits(selectedTaskTab == tab ? .isSelected : [])
                 }
             }
-        }
+        .padding(PixelTheme.space4)
+        .pixelSurface(fill: PixelTheme.paper, border: PixelTheme.gold, step: 4, hasShadow: true)
     }
 
     @ViewBuilder
@@ -1015,7 +1063,7 @@ struct ContentView: View {
             VStack(alignment: .leading, spacing: 6) {
                 Text(task.title)
                     .font(.headline)
-                    .foregroundStyle(.primary)
+                    .foregroundStyle(PixelTheme.ink)
                     .lineLimit(2)
                 if isCompactLayout {
                     Label(
@@ -1035,7 +1083,7 @@ struct ContentView: View {
                 }
             }
             .font(.caption)
-            .foregroundStyle(task.deadline <= now && task.status != .verified ? .red : .secondary)
+            .foregroundStyle(task.deadline <= now && task.status != .verified ? PixelTheme.danger : PixelTheme.inkMuted)
 
             Spacer()
 
@@ -1046,17 +1094,18 @@ struct ContentView: View {
                     .lineLimit(1)
                 Text("+\(task.xpReward) EXP")
                     .font(.subheadline.bold())
-                    .foregroundStyle(.orange)
+                    .foregroundStyle(PixelTheme.brown)
                 if !isCompactLayout {
                     Image(systemName: "chevron.right")
                         .font(.caption.weight(.semibold))
-                        .foregroundStyle(.tertiary)
+                        .foregroundStyle(PixelTheme.inkMuted.opacity(0.7))
                 }
             }
         }
         .padding(isCompactLayout ? 14 : 18)
-        .contentShape(RoundedRectangle(cornerRadius: 22, style: .continuous))
-        .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 22, style: .continuous))
+        .foregroundStyle(PixelTheme.ink)
+        .contentShape(PixelCornerShape())
+        .pixelSurface(fill: PixelTheme.paper, border: PixelTheme.gold, step: 4, hasShadow: true)
         .accessibilityHint("查看任务契约详情")
     }
 
@@ -1120,7 +1169,7 @@ struct ContentView: View {
                         title: "截止时间",
                         value: task.deadline.formatted(date: .long, time: .shortened),
                         icon: task.deadline < .now ? "clock.badge.exclamationmark" : "calendar.badge.clock",
-                        tint: task.deadline < .now ? .red : .accentColor
+                        tint: task.deadline < .now ? PixelTheme.danger : PixelTheme.selection
                     )
                     detailCard(
                         title: "所属勋章",
@@ -1136,26 +1185,28 @@ struct ContentView: View {
                         title: "完成奖励",
                         value: "+\(task.xpReward) EXP",
                         icon: "sparkles",
-                        tint: .orange
+                        tint: PixelTheme.gold
                     )
                 }
 
                 VStack(alignment: .leading, spacing: 14) {
                     HStack {
                         Label("验收标准", systemImage: "doc.text.magnifyingglass")
-                            .font(.headline)
+                            .font(PixelTheme.displayFont(size: 17))
+                            .foregroundStyle(PixelTheme.ink)
                         Spacer()
                         Label("已锁定", systemImage: "lock.fill")
                             .font(.caption.weight(.semibold))
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(PixelTheme.inkMuted)
                             .padding(.horizontal, 11)
                             .padding(.vertical, 7)
-                            .glassEffect(.regular, in: Capsule())
+                            .background(PixelTheme.paper, in: PixelCornerShape(step: 2))
+                            .overlay { PixelCornerShape(step: 2).stroke(PixelTheme.gold.opacity(0.7), lineWidth: 1) }
                     }
 
                     Text(task.evidenceRequirement)
                         .font(.body)
-                        .foregroundStyle(.primary)
+                        .foregroundStyle(PixelTheme.ink)
                         .lineSpacing(5)
                         .textSelection(.enabled)
                         .fixedSize(horizontal: false, vertical: true)
@@ -1169,7 +1220,7 @@ struct ContentView: View {
                         ForEach(Array(task.evidenceImageDescriptions.enumerated()), id: \.offset) { index, description in
                             Text(task.requiredEvidenceImageCount <= 2 ? "\(index + 1). \(description)" : description)
                                 .font(.subheadline)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(PixelTheme.inkMuted)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
                     }
@@ -1179,16 +1230,16 @@ struct ContentView: View {
 
                     Text("创建于 \(task.createdAt.formatted(date: .long, time: .shortened))")
                         .font(.caption)
-                        .foregroundStyle(.tertiary)
+                        .foregroundStyle(PixelTheme.inkMuted.opacity(0.72))
                 }
                 .padding(22)
-                .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+                .pixelSurface(fill: PixelTheme.paperRaised, border: PixelTheme.gold, step: 4, hasShadow: true)
 
                 if task.isArchived {
                     statusBanner(
                         icon: "archivebox.fill",
                         message: "这项任务已归档。向左滑动并选择“取消归档”后，才能继续提交证据。",
-                        color: .orange
+                        color: PixelTheme.gold
                     )
                 } else {
                     EvidenceSubmissionView(task: task)
@@ -1209,19 +1260,21 @@ struct ContentView: View {
             Label(taskDetailOrigin.backTitle, systemImage: "chevron.left")
                 .padding(.horizontal, 14)
                 .padding(.vertical, 9)
+                .foregroundStyle(PixelTheme.ink)
         }
         .buttonStyle(.plain)
-        .glassEffect(.regular.interactive(), in: Capsule())
+        .pixelSurface(fill: PixelTheme.paperRaised, border: PixelTheme.gold, step: 3, hasShadow: true)
     }
 
     private func taskDetailTitle(_ task: TaskContract) -> some View {
         VStack(alignment: .leading, spacing: 7) {
             Text(task.title)
-                .font(isCompactLayout ? .title.bold() : .largeTitle.bold())
+                .font(PixelTheme.displayFont(size: isCompactLayout ? 28 : 34))
+                .foregroundStyle(PixelTheme.paperRaised)
                 .fixedSize(horizontal: false, vertical: true)
             Text("任务契约")
                 .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(PixelTheme.paper.opacity(0.72))
         }
     }
 
@@ -1291,7 +1344,8 @@ struct ContentView: View {
                 .layoutPriority(1)
 
             Text(badgeDisplayName(badge))
-                .font(.title3.bold())
+                .font(PixelTheme.displayFont(size: 19))
+                .foregroundStyle(PixelTheme.ink)
                 .lineLimit(1)
 
             MedalFragmentStatusLabel(
@@ -1303,9 +1357,9 @@ struct ContentView: View {
         .padding(18)
         .frame(maxWidth: .infinity)
         .aspectRatio(1, contentMode: .fit)
-        .clipShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-        .contentShape(RoundedRectangle(cornerRadius: 24, style: .continuous))
-        .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .foregroundStyle(PixelTheme.ink)
+        .contentShape(PixelCornerShape())
+        .pixelSurface(fill: PixelTheme.paper, border: PixelTheme.gold, step: 4, hasShadow: true)
         .accessibilityElement(children: .combine)
         .accessibilityHint("查看历史任务和证据")
     }
@@ -1332,12 +1386,14 @@ struct ContentView: View {
                         Label("返回勋章", systemImage: "chevron.left")
                             .padding(.horizontal, 14)
                             .padding(.vertical, 9)
+                            .foregroundStyle(PixelTheme.ink)
                     }
                     .buttonStyle(.plain)
-                    .glassEffect(.regular.interactive(), in: Capsule())
+                    .pixelSurface(fill: PixelTheme.paperRaised, border: PixelTheme.gold, step: 3, hasShadow: true)
 
                     Text(badgeDisplayName(badge))
-                        .font(.largeTitle.bold())
+                        .font(PixelTheme.displayFont(size: 32))
+                        .foregroundStyle(PixelTheme.paperRaised)
 
                     Spacer()
                 }
@@ -1349,7 +1405,8 @@ struct ContentView: View {
                 #endif
 
                 Text("历史任务与证据")
-                    .font(.headline)
+                    .font(PixelTheme.displayFont(size: 18))
+                    .foregroundStyle(PixelTheme.paperRaised)
 
                 if historyTasks.isEmpty {
                     emptyState(
@@ -1385,11 +1442,11 @@ struct ContentView: View {
                     VStack(alignment: .leading, spacing: 5) {
                         Text(task.title)
                             .font(.headline)
-                            .foregroundStyle(.primary)
+                            .foregroundStyle(PixelTheme.ink)
                             .lineLimit(2)
                         Text(task.createdAt.formatted(date: .abbreviated, time: .shortened))
                             .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(PixelTheme.inkMuted)
                     }
 
                     Spacer()
@@ -1398,7 +1455,7 @@ struct ContentView: View {
                         statusPill(for: task)
                         Text("+\(task.xpReward) EXP")
                             .font(.caption.bold())
-                            .foregroundStyle(.orange)
+                            .foregroundStyle(PixelTheme.brown)
                     }
                 }
 
@@ -1415,10 +1472,10 @@ struct ContentView: View {
             }
             .padding(16)
             .frame(maxWidth: .infinity, alignment: .leading)
-            .contentShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+            .contentShape(PixelCornerShape())
         }
         .buttonStyle(.plain)
-        .glassEffect(.regular.interactive(), in: RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .pixelSurface(fill: PixelTheme.paper, border: PixelTheme.gold, step: 4, hasShadow: true)
     }
 
     private func libraryEvidenceThumbnail(_ evidence: Evidence) -> some View {
@@ -1429,12 +1486,13 @@ struct ContentView: View {
             } else {
                 Image(systemName: "photo")
                     .font(.title2)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(PixelTheme.inkMuted)
             }
         }
         .frame(width: 88, height: 66)
-        .background(.white.opacity(0.4))
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .background(PixelTheme.paperRaised)
+        .clipShape(PixelCornerShape(step: 3))
+        .overlay { PixelCornerShape(step: 3).stroke(PixelTheme.gold.opacity(0.7), lineWidth: 1) }
     }
 
     #if DEBUG
@@ -1445,7 +1503,7 @@ struct ContentView: View {
         HStack(spacing: 10) {
             Label("调试", systemImage: "ladybug.fill")
                 .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(PixelTheme.paper.opacity(0.72))
 
             ForEach([25, 100, 500, 1000], id: \.self) { amount in
                 Button("+\(amount)") {
@@ -1453,9 +1511,10 @@ struct ContentView: View {
                 }
                 .buttonStyle(.plain)
                 .font(.caption.weight(.semibold))
+                .foregroundStyle(PixelTheme.ink)
                 .padding(.horizontal, 10)
                 .padding(.vertical, 6)
-                .glassEffect(.regular.tint(Color.purple.opacity(0.12)).interactive(), in: Capsule())
+                .pixelSurface(fill: PixelTheme.paperRaised, border: PixelTheme.selection, step: 2)
             }
 
             Button("重置") {
@@ -1463,10 +1522,10 @@ struct ContentView: View {
             }
             .buttonStyle(.plain)
             .font(.caption.weight(.semibold))
-            .foregroundStyle(.red)
+            .foregroundStyle(PixelTheme.danger)
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
-            .glassEffect(.regular.tint(Color.red.opacity(0.10)).interactive(), in: Capsule())
+            .pixelSurface(fill: PixelTheme.paperRaised, border: PixelTheme.danger, step: 2)
 
             Spacer()
         }
@@ -1893,42 +1952,38 @@ struct ContentView: View {
 
     private func taskListStatusColor(for task: TaskContract, now: Date) -> Color {
         if task.status != .verified, task.deadline <= now {
-            return .red
+            return PixelTheme.danger
         }
 
         return switch task.status {
-        case .pending, .awaitingVerification: .accentColor
-        case .verified: .green
-        case .needMoreProof: .orange
-        case .notVerified: .red
+        case .pending, .awaitingVerification: PixelTheme.selection
+        case .verified: PixelTheme.success
+        case .needMoreProof: PixelTheme.gold
+        case .notVerified: PixelTheme.danger
         }
     }
 
     private func statusPill(for task: TaskContract) -> some View {
         let presentation: (title: String, icon: String, color: Color)
         if task.status != .verified, task.deadline <= .now {
-            presentation = ("已逾期", "exclamationmark.circle.fill", .red)
+            presentation = ("已逾期", "exclamationmark.circle.fill", PixelTheme.danger)
         } else {
             presentation = switch task.status {
             case .pending:
-                ("待完成", "circle.dashed", .accentColor)
+                ("待完成", "circle.dashed", PixelTheme.selection)
             case .awaitingVerification:
-                ("等待核验", "hourglass", .accentColor)
+                ("等待核验", "hourglass", PixelTheme.selection)
             case .verified:
-                ("已完成", "checkmark.circle.fill", .green)
+                ("已完成", "checkmark.circle.fill", PixelTheme.success)
             case .needMoreProof:
-                ("需补充证据", "photo.badge.plus", .orange)
+                ("需补充证据", "photo.badge.plus", PixelTheme.gold)
             case .notVerified:
-                ("未通过核验", "xmark.circle.fill", .red)
+                ("未通过核验", "xmark.circle.fill", PixelTheme.danger)
             }
         }
 
-        return Label(presentation.title, systemImage: presentation.icon)
-            .font(.caption.weight(.semibold))
-            .foregroundStyle(presentation.color)
-            .padding(.horizontal, 12)
-            .padding(.vertical, 8)
-            .glassEffect(.regular.tint(presentation.color.opacity(0.10)), in: Capsule())
+        return PixelStatusBadge(title: presentation.title, color: presentation.color)
+            .accessibilityLabel(presentation.title)
     }
 
     @ViewBuilder
@@ -1937,27 +1992,23 @@ struct ContentView: View {
             statusBanner(
                 icon: reminderFeedbackIsError ? "bell.slash.fill" : "bell.badge.fill",
                 message: reminderFeedback,
-                color: reminderFeedbackIsError ? .orange : .green
+                color: reminderFeedbackIsError ? PixelTheme.gold : PixelTheme.success
             )
         } else {
             switch reminderAuthorization {
             case .authorized:
-                statusBanner(icon: "bell.badge.fill", message: "截止提醒已开启；未来任务会在截止时间发送系统通知。", color: .green)
+                statusBanner(icon: "bell.badge.fill", message: "截止提醒已开启；未来任务会在截止时间发送系统通知。", color: PixelTheme.success)
             case .denied:
-                statusBanner(icon: "bell.slash.fill", message: "系统通知已关闭。任务仍会保存在本机；可在系统设置中为 LifeMedals 开启通知。", color: .orange)
+                statusBanner(icon: "bell.slash.fill", message: "系统通知已关闭。任务仍会保存在本机；可在系统设置中为 LifeMedals 开启通知。", color: PixelTheme.gold)
             case .notDetermined:
-                statusBanner(icon: "bell", message: "保存未来任务时，系统会询问是否允许截止提醒。", color: .accentColor)
+                statusBanner(icon: "bell", message: "保存未来任务时，系统会询问是否允许截止提醒。", color: PixelTheme.selection)
             }
         }
     }
 
     private func detailCard(title: String, value: String, icon: String, tint: Color) -> some View {
         detailCard(title: title, value: value) {
-            Image(systemName: icon)
-                .font(.system(size: 18, weight: .semibold))
-                .foregroundStyle(tint)
-                .frame(width: 40, height: 40)
-                .glassEffect(.regular.tint(tint.opacity(0.10)), in: Circle())
+            PixelSymbolTile(systemImage: icon, tint: tint)
         }
     }
 
@@ -1972,10 +2023,10 @@ struct ContentView: View {
             VStack(alignment: .leading, spacing: 4) {
                 Text(title)
                     .font(.caption.weight(.semibold))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(PixelTheme.inkMuted)
                 Text(value)
                     .font(.subheadline.weight(.semibold))
-                    .foregroundStyle(.primary)
+                    .foregroundStyle(PixelTheme.ink)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
@@ -1983,25 +2034,25 @@ struct ContentView: View {
         }
         .padding(17)
         .frame(maxWidth: .infinity, minHeight: 78, alignment: .leading)
-        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 21, style: .continuous))
+        .pixelSurface(fill: PixelTheme.paper, border: PixelTheme.gold, step: 4, hasShadow: true)
     }
 
     @ViewBuilder
     private func taskReminderDetail(for task: TaskContract) -> some View {
         if task.deadline <= .now {
-            statusBanner(icon: "clock.badge.exclamationmark", message: "这项任务已过截止时间，不再安排新的系统提醒。", color: .red)
+            statusBanner(icon: "clock.badge.exclamationmark", message: "这项任务已过截止时间，不再安排新的系统提醒。", color: PixelTheme.danger)
         } else {
             switch reminderAuthorization {
             case .authorized:
                 statusBanner(
                     icon: "bell.badge.fill",
                     message: "将在 \(task.deadline.formatted(date: .long, time: .shortened)) 发送本地通知。",
-                    color: .green
+                    color: PixelTheme.success
                 )
             case .denied:
-                statusBanner(icon: "bell.slash.fill", message: "系统通知权限已关闭；任务本身不受影响。", color: .orange)
+                statusBanner(icon: "bell.slash.fill", message: "系统通知权限已关闭；任务本身不受影响。", color: PixelTheme.gold)
             case .notDetermined:
-                statusBanner(icon: "bell", message: "尚未授予通知权限。新建任务时可以开启截止提醒。", color: .accentColor)
+                statusBanner(icon: "bell", message: "尚未授予通知权限。新建任务时可以开启截止提醒。", color: PixelTheme.selection)
             }
         }
     }
@@ -2082,7 +2133,7 @@ struct ContentView: View {
         VStack(alignment: .leading, spacing: 8) {
             Text(title)
                 .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(PixelTheme.inkMuted)
             content()
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -2090,10 +2141,14 @@ struct ContentView: View {
 
     private func pageHeader(title: String, subtitle: String) -> some View {
         VStack(alignment: .leading, spacing: 5) {
+            Text("QUEST LOG")
+                .font(PixelTheme.statFont(size: 11))
+                .foregroundStyle(PixelTheme.goldBright)
             Text(title)
-                .font(isCompactLayout ? .title.bold() : .largeTitle.bold())
+                .font(PixelTheme.displayFont(size: isCompactLayout ? 28 : 34))
+                .foregroundStyle(PixelTheme.paperRaised)
             Text(subtitle)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(PixelTheme.paper.opacity(0.72))
                 .fixedSize(horizontal: false, vertical: true)
         }
     }
@@ -2101,44 +2156,36 @@ struct ContentView: View {
     private func emptyState(icon: String, title: String, message: String) -> some View {
         VStack(spacing: 13) {
             Image(systemName: icon)
-                .font(.system(size: 36, weight: .light))
-                .foregroundStyle(.secondary)
+                .font(.system(size: 36, weight: .bold))
+                .foregroundStyle(PixelTheme.gold)
             Text(title)
-                .font(.headline)
+                .font(PixelTheme.displayFont(size: 18))
+                .foregroundStyle(PixelTheme.ink)
             Text(message)
                 .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(PixelTheme.inkMuted)
         }
         .frame(maxWidth: .infinity, minHeight: 330)
         .padding(24)
-        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 28, style: .continuous))
+        .pixelSurface(fill: PixelTheme.paper, border: PixelTheme.gold, step: 4, hasShadow: true)
     }
 
     private func statusBanner(icon: String, message: String, color: Color) -> some View {
-        HStack(alignment: .top, spacing: 10) {
-            Image(systemName: icon)
-                .foregroundStyle(color)
-            Text(message)
-                .font(.subheadline)
-                .fixedSize(horizontal: false, vertical: true)
-            Spacer(minLength: 0)
-        }
-        .padding(13)
-        .background(.white.opacity(0.42), in: RoundedRectangle(cornerRadius: 15))
-        .glassEffect(.regular.tint(color.opacity(0.08)), in: RoundedRectangle(cornerRadius: 15))
+        PixelNotice(systemImage: icon, message: message, color: color)
     }
 
     private func saveConfirmation(message: String) -> some View {
         VStack {
             HStack(spacing: 10) {
                 Image(systemName: "checkmark.circle.fill")
-                    .foregroundStyle(.green)
+                    .foregroundStyle(PixelTheme.success)
                 Text(message)
                     .font(.subheadline.weight(.semibold))
+                    .foregroundStyle(PixelTheme.ink)
             }
             .padding(.horizontal, 18)
             .padding(.vertical, 12)
-            .glassEffect(.regular.tint(.green.opacity(0.10)), in: Capsule())
+            .pixelSurface(fill: PixelTheme.paperRaised, border: PixelTheme.success, step: 3, hasShadow: true)
 
             Spacer()
         }

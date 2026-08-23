@@ -29,45 +29,54 @@ struct MedalAnimationLab: View {
     }
 
     var body: some View {
-        VStack(spacing: 20) {
-            ErodingMedalView(
-                progress: progress,
-                seed: erosionSeed,
-                particles: particles,
-                particleStart: particleStart
-            )
-            .frame(width: 380, height: 380)
+        ZStack {
+            PixelBackground()
 
-            Slider(
-                value: xpBinding,
-                in: Double(rank.cumulativeXPThreshold)...Double(rank.next?.cumulativeXPThreshold ?? 1_000)
-            )
-            .frame(maxWidth: 380)
-            .accessibilityLabel("当前经验")
+            VStack(spacing: 20) {
+                ErodingMedalView(
+                    progress: progress,
+                    seed: erosionSeed,
+                    particles: particles,
+                    particleStart: particleStart
+                )
+                .frame(width: 380, height: 380)
 
-            HStack(spacing: 12) {
-                Button("+1% EXP") {
-                    awardXP(10)
-                }
+                PixelPanel(fill: PixelTheme.paper, padding: PixelTheme.space16) {
+                    VStack(spacing: PixelTheme.space16) {
+                        Slider(
+                            value: xpBinding,
+                            in: Double(rank.cumulativeXPThreshold)...Double(rank.next?.cumulativeXPThreshold ?? 1_000)
+                        )
+                        .tint(PixelTheme.selection)
+                        .frame(maxWidth: 380)
+                        .accessibilityLabel("当前经验")
 
-                Button("+10% EXP") {
-                    awardXP(100)
-                }
+                        HStack(spacing: PixelTheme.space12) {
+                            Button("+1% EXP") { awardXP(10) }
+                                .buttonStyle(PixelButtonStyle(tone: PixelTheme.selection))
 
-                Button("重置") {
-                    currentXP = rank.cumulativeXPThreshold
-                    particles = []
+                            Button("+10% EXP") { awardXP(100) }
+                                .buttonStyle(PixelButtonStyle(tone: PixelTheme.selection))
+
+                            Button("重置") {
+                                currentXP = rank.cumulativeXPThreshold
+                                particles = []
+                            }
+                            .buttonStyle(PixelButtonStyle(tone: PixelTheme.danger))
+                        }
+
+                        Text("青铜 → 白银  ·  \(currentXP) / \(rank.next?.cumulativeXPThreshold ?? 1_000) EXP")
+                            .font(PixelTheme.statFont(size: 14))
+                            .foregroundStyle(PixelTheme.ink)
+
+                        Text("当前剥落进度：\(Int((progress * 100).rounded()))%")
+                            .foregroundStyle(PixelTheme.inkMuted)
+                            .monospacedDigit()
+                    }
                 }
             }
-
-            Text("青铜 → 白银  ·  \(currentXP) / \(rank.next?.cumulativeXPThreshold ?? 1_000) EXP")
-                .font(.headline)
-
-            Text("当前剥落进度：\(Int((progress * 100).rounded()))%")
-                .foregroundStyle(.secondary)
-                .monospacedDigit()
+            .padding(30)
         }
-        .padding(30)
     }
 
     private func awardXP(_ amount: Int) {

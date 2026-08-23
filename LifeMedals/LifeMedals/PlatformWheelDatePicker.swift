@@ -21,12 +21,18 @@ struct DeadlinePresetWheelPicker: View {
 
     var body: some View {
         ZStack {
+            PixelCornerShape(step: 3)
+                .fill(PixelTheme.paperRaised)
+                .frame(height: 44)
+                .overlay { PixelCornerShape(step: 3).stroke(PixelTheme.selection, lineWidth: 2) }
+                .allowsHitTesting(false)
+
             ScrollView(.vertical) {
                 LazyVStack(spacing: 0) {
                     ForEach(TaskDeadlinePreset.allCases, id: \.self) { preset in
                         Text(preset.title)
                             .font(.body.weight(selection == preset ? .semibold : .regular))
-                            .foregroundStyle(selection == preset ? .primary : .secondary)
+                            .foregroundStyle(selection == preset ? PixelTheme.ink : PixelTheme.inkMuted)
                             .frame(maxWidth: .infinity)
                             .frame(height: 44)
                             .id(preset)
@@ -50,14 +56,10 @@ struct DeadlinePresetWheelPicker: View {
                     endPoint: .bottom
                 )
             }
-
-            RoundedRectangle(cornerRadius: 10, style: .continuous)
-                .fill(.white.opacity(0.48))
-                .frame(height: 44)
-                .allowsHitTesting(false)
         }
         .frame(height: 144)
-        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 16, style: .continuous))
+        .background(PixelTheme.paper.opacity(0.72), in: PixelCornerShape())
+        .overlay { PixelCornerShape().stroke(PixelTheme.gold.opacity(0.62), lineWidth: 1) }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("截止日期")
         .accessibilityValue(selection?.title ?? "未选择")

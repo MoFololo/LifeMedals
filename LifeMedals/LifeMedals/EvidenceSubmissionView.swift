@@ -85,7 +85,8 @@ struct EvidenceSubmissionView: View {
             }
         }
         .padding(isCompactLayout ? 16 : 22)
-        .glassEffect(.regular, in: RoundedRectangle(cornerRadius: 24, style: .continuous))
+        .foregroundStyle(PixelTheme.ink)
+        .pixelSurface(fill: PixelTheme.paper, border: PixelTheme.gold, step: 4, hasShadow: true)
         .onGeometryChange(for: CGSize.self) { proxy in
             proxy.size
         } action: { newSize in
@@ -98,12 +99,8 @@ struct EvidenceSubmissionView: View {
             guard !isWorking, remainingDraftSlots > 0 else { return }
             importItemProviders(providers, targetSlot: nil)
         }
-        // Registered here, outside/after `.glassEffect(...)`, rather than on the
-        // individual photo slots. Liquid Glass rendering was found to swallow
-        // `onDrop` hit-testing for any descendant nested inside a
-        // `.glassEffect`-wrapped view, so a single delegate-based onDrop on the
-        // card's own boundary (routed to the right slot via drop location) is
-        // used instead.
+        // A single card-boundary drop handler routes the drop to the right slot
+        // and keeps drag-and-drop behavior identical across macOS and iOS.
         .onDrop(
             of: [UTType.image, UTType.fileURL],
             delegate: EvidenceDropDelegate(
@@ -169,7 +166,7 @@ struct EvidenceSubmissionView: View {
                 .font(.headline)
             Text("图片副本压缩后保存在本机；只有点击提交后才会发送核验。")
                 .font(.caption)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(PixelTheme.inkMuted)
         }
     }
 
@@ -233,8 +230,8 @@ struct EvidenceSubmissionView: View {
                     .font(.subheadline.weight(.semibold))
                 Spacer()
                 Text("\(draftImages.count)/\(requiredImageCount)")
-                    .font(.caption.monospacedDigit())
-                    .foregroundStyle(.secondary)
+                    .font(PixelTheme.statFont(size: 12))
+                    .foregroundStyle(PixelTheme.inkMuted)
             }
 
             switch requiredImageCount {
@@ -258,15 +255,13 @@ struct EvidenceSubmissionView: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(isWorking)
-                .glassEffect(
-                    .regular.tint(Color.orange.opacity(0.12)).interactive(),
-                    in: RoundedRectangle(cornerRadius: 17, style: .continuous)
-                )
+                .foregroundStyle(.white)
+                .pixelSurface(fill: PixelTheme.gold, border: PixelTheme.brown, step: 3, hasShadow: true)
             }
 
             Text(pasteAndDropHint)
                 .font(.caption2)
-                .foregroundStyle(.tertiary)
+                .foregroundStyle(PixelTheme.inkMuted.opacity(0.72))
 
             if hasPendingEvidence && draftImages.isEmpty {
                 Button {
@@ -282,10 +277,8 @@ struct EvidenceSubmissionView: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(isWorking)
-                .glassEffect(
-                    .regular.tint(Color.accentColor.opacity(0.14)).interactive(),
-                    in: RoundedRectangle(cornerRadius: 17, style: .continuous)
-                )
+                .foregroundStyle(.white)
+                .pixelSurface(fill: PixelTheme.selection, border: PixelTheme.gold, step: 3, hasShadow: true)
             }
 
             if !draftImages.isEmpty {
@@ -300,10 +293,8 @@ struct EvidenceSubmissionView: View {
                 .buttonStyle(.plain)
                 .disabled(isWorking || !isDraftComplete)
                 .opacity(isDraftComplete ? 1 : 0.52)
-                .glassEffect(
-                    .regular.tint(Color.accentColor.opacity(0.18)).interactive(),
-                    in: RoundedRectangle(cornerRadius: 17, style: .continuous)
-                )
+                .foregroundStyle(.white)
+                .pixelSurface(fill: PixelTheme.selection, border: PixelTheme.goldBright, step: 3, hasShadow: true)
             }
 
             if isWorking {
@@ -312,7 +303,7 @@ struct EvidenceSubmissionView: View {
                         .controlSize(.small)
                     Text("本地副本已保存，正在按锁定的验收标准核验…")
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(PixelTheme.inkMuted)
                 }
                 .transition(.opacity.combined(with: .move(edge: .top)))
             }
@@ -350,13 +341,12 @@ struct EvidenceSubmissionView: View {
         VStack(alignment: .leading, spacing: 12) {
             Text(normalizedImageDescriptions[0])
                 .font(.subheadline)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(PixelTheme.inkMuted)
                 .fixedSize(horizontal: false, vertical: true)
 
             bulkDraftImageArea
 
-            GlassEffectContainer(spacing: 12) {
-                HStack(spacing: 12) {
+            HStack(spacing: 12) {
                     PhotosPicker(
                         selection: $selectedPhotos,
                         maxSelectionCount: remainingDraftSlots,
@@ -369,10 +359,8 @@ struct EvidenceSubmissionView: View {
                     }
                     .buttonStyle(.plain)
                     .disabled(isWorking || remainingDraftSlots == 0)
-                    .glassEffect(
-                        .regular.tint(Color.accentColor.opacity(0.14)).interactive(),
-                        in: RoundedRectangle(cornerRadius: 17, style: .continuous)
-                    )
+                    .foregroundStyle(.white)
+                    .pixelSurface(fill: PixelTheme.selection, border: PixelTheme.gold, step: 3)
 
                     Button {
                         presentFileImporter(targetSlot: nil)
@@ -384,11 +372,8 @@ struct EvidenceSubmissionView: View {
                     }
                     .buttonStyle(.plain)
                     .disabled(isWorking || remainingDraftSlots == 0)
-                    .glassEffect(
-                        .regular.interactive(),
-                        in: RoundedRectangle(cornerRadius: 17, style: .continuous)
-                    )
-                }
+                    .foregroundStyle(PixelTheme.ink)
+                    .pixelSurface(fill: PixelTheme.paperRaised, border: PixelTheme.gold, step: 3)
             }
         }
     }
@@ -411,8 +396,8 @@ struct EvidenceSubmissionView: View {
                         .fixedSize(horizontal: false, vertical: true)
 
                     Image(systemName: "photo.badge.plus")
-                        .font(.system(size: 38, weight: .light))
-                        .foregroundStyle(.secondary)
+                        .font(.system(size: 38, weight: .bold))
+                        .foregroundStyle(PixelTheme.gold)
 
                     VStack(spacing: 10) {
                         PhotosPicker(selection: photoSelectionBinding(for: index), matching: .images) {
@@ -423,10 +408,8 @@ struct EvidenceSubmissionView: View {
                         }
                         .buttonStyle(.plain)
                         .disabled(isWorking)
-                        .glassEffect(
-                            .regular.tint(Color.accentColor.opacity(0.14)).interactive(),
-                            in: Capsule()
-                        )
+                        .foregroundStyle(.white)
+                        .pixelSurface(fill: PixelTheme.selection, border: PixelTheme.gold, step: 2)
 
                         Button {
                             presentFileImporter(targetSlot: index)
@@ -438,7 +421,8 @@ struct EvidenceSubmissionView: View {
                         }
                         .buttonStyle(.plain)
                         .disabled(isWorking)
-                        .glassEffect(.regular.interactive(), in: Capsule())
+                        .foregroundStyle(PixelTheme.ink)
+                        .pixelSurface(fill: PixelTheme.paperRaised, border: PixelTheme.gold, step: 2)
                     }
                     }
                     .padding(.horizontal, 22)
@@ -447,14 +431,14 @@ struct EvidenceSubmissionView: View {
         }
         .frame(width: sideLength, height: sideLength)
         .background(
-            targetedFixedSlot == index ? Color.accentColor.opacity(0.12) : Color.white.opacity(0.28),
-            in: RoundedRectangle(cornerRadius: 20, style: .continuous)
+            targetedFixedSlot == index ? PixelTheme.selection.opacity(0.16) : PixelTheme.paperRaised,
+            in: PixelCornerShape()
         )
-        .clipShape(RoundedRectangle(cornerRadius: 20, style: .continuous))
+        .clipShape(PixelCornerShape())
         .overlay {
-            RoundedRectangle(cornerRadius: 20, style: .continuous)
-                .strokeBorder(
-                    targetedFixedSlot == index ? Color.accentColor : Color.secondary.opacity(0.22),
+            PixelCornerShape()
+                .stroke(
+                    targetedFixedSlot == index ? PixelTheme.selection : PixelTheme.gold.opacity(0.58),
                     style: StrokeStyle(lineWidth: targetedFixedSlot == index ? 2 : 1, dash: [7, 5])
                 )
         }
@@ -478,7 +462,7 @@ struct EvidenceSubmissionView: View {
 
             Text(normalizedImageDescriptions[index])
                 .font(.caption2)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(PixelTheme.inkMuted)
                 .multilineTextAlignment(.center)
                 .lineLimit(2)
 
@@ -491,7 +475,8 @@ struct EvidenceSubmissionView: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(isWorking)
-                .glassEffect(.regular.tint(Color.accentColor.opacity(0.14)).interactive(), in: Circle())
+                .foregroundStyle(.white)
+                .pixelSurface(fill: PixelTheme.selection, border: PixelTheme.gold, step: 2)
                 .accessibilityLabel("为照片 \(index + 1) 从图库选择")
 
                 Button {
@@ -502,7 +487,8 @@ struct EvidenceSubmissionView: View {
                 }
                 .buttonStyle(.plain)
                 .disabled(isWorking)
-                .glassEffect(.regular.interactive(), in: Circle())
+                .foregroundStyle(PixelTheme.ink)
+                .pixelSurface(fill: PixelTheme.paperRaised, border: PixelTheme.gold, step: 2)
                 .accessibilityLabel("为照片 \(index + 1) 选择文件")
             }
         }
@@ -526,13 +512,13 @@ struct EvidenceSubmissionView: View {
                             Text(draftImages.isEmpty ? "添加照片" : "继续添加")
                                 .font(.caption)
                         }
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(PixelTheme.inkMuted)
                         .frame(width: Self.thumbnailSize.width, height: Self.thumbnailSize.height)
-                        .background(.white.opacity(0.28))
+                        .background(PixelTheme.paperRaised)
                         .overlay {
-                            RoundedRectangle(cornerRadius: 14, style: .continuous)
-                                .strokeBorder(
-                                    Color.secondary.opacity(0.34),
+                            PixelCornerShape(step: 3)
+                                .stroke(
+                                    PixelTheme.gold.opacity(0.58),
                                     style: StrokeStyle(lineWidth: 1.2, dash: [6, 5])
                                 )
                         }
@@ -548,17 +534,17 @@ struct EvidenceSubmissionView: View {
         .frame(maxWidth: .infinity, minHeight: Self.thumbnailSize.height + 4, alignment: .leading)
         .padding(12)
         .background(
-            isBulkDropTargeted ? Color.accentColor.opacity(0.12) : Color.white.opacity(0.18),
-            in: RoundedRectangle(cornerRadius: 18, style: .continuous)
+            isBulkDropTargeted ? PixelTheme.selection.opacity(0.16) : PixelTheme.paperRaised,
+            in: PixelCornerShape()
         )
         .overlay {
-            RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .strokeBorder(
-                    isBulkDropTargeted ? Color.accentColor : Color.secondary.opacity(0.18),
+            PixelCornerShape()
+                .stroke(
+                    isBulkDropTargeted ? PixelTheme.selection : PixelTheme.gold.opacity(0.5),
                     lineWidth: isBulkDropTargeted ? 2 : 1
                 )
         }
-        .contentShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .contentShape(PixelCornerShape())
         .onTapGesture {
             isDraftAreaFocused = true
         }
@@ -570,8 +556,9 @@ struct EvidenceSubmissionView: View {
                 .scaledToFill()
         }
         .frame(width: Self.thumbnailSize.width, height: Self.thumbnailSize.height)
-        .background(.white.opacity(0.4))
-        .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+        .background(PixelTheme.paperRaised)
+        .clipShape(PixelCornerShape(step: 3))
+        .overlay { PixelCornerShape(step: 3).stroke(PixelTheme.gold.opacity(0.7), lineWidth: 1) }
         .overlay(alignment: .topTrailing) {
             removeButton(for: draftImage)
                 .padding(6)
@@ -586,7 +573,8 @@ struct EvidenceSubmissionView: View {
                 .font(.caption2.weight(.bold))
                 .foregroundStyle(.white)
                 .frame(width: 22, height: 22)
-                .background(.black.opacity(0.68), in: Circle())
+                .background(PixelTheme.danger, in: PixelCornerShape(step: 2))
+                .overlay { PixelCornerShape(step: 2).stroke(PixelTheme.goldBright.opacity(0.72), lineWidth: 1) }
         }
         .buttonStyle(.plain)
         .disabled(isWorking)
@@ -609,7 +597,7 @@ struct EvidenceSubmissionView: View {
             }
         }
         .padding(13)
-        .background(.white.opacity(0.36), in: RoundedRectangle(cornerRadius: 18, style: .continuous))
+        .pixelSurface(fill: PixelTheme.paperRaised, border: PixelTheme.gold.opacity(0.72), step: 3)
     }
 
     private func evidenceBatchThumbnails(_ batch: EvidenceBatch, expands: Bool) -> some View {
@@ -646,12 +634,12 @@ struct EvidenceSubmissionView: View {
             if let explanation = batch.explanation {
                 Text(explanation)
                     .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(PixelTheme.inkMuted)
                     .fixedSize(horizontal: false, vertical: true)
             } else if batch.verdict == .pending {
                 Text("已保存在本机，等待核验。")
                     .font(.subheadline)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(PixelTheme.inkMuted)
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
@@ -663,7 +651,7 @@ struct EvidenceSubmissionView: View {
             if batch.evidences.count > 1 {
                 Text("\(batch.evidences.count) 张照片")
                     .font(.caption.weight(.medium))
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(PixelTheme.inkMuted)
             }
         }
     }
@@ -671,7 +659,7 @@ struct EvidenceSubmissionView: View {
     private func evidenceBatchDate(_ batch: EvidenceBatch) -> some View {
         Text(batch.submittedAt.formatted(date: .abbreviated, time: .shortened))
             .font(.caption2)
-            .foregroundStyle(.tertiary)
+            .foregroundStyle(PixelTheme.inkMuted.opacity(0.72))
     }
 
     private func evidenceThumbnail(_ evidence: Evidence) -> some View {
@@ -682,47 +670,45 @@ struct EvidenceSubmissionView: View {
             } else {
                 Image(systemName: "photo")
                     .font(.title2)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(PixelTheme.inkMuted)
             }
         }
         .frame(width: 88, height: 66)
-        .background(.white.opacity(0.4))
-        .clipShape(RoundedRectangle(cornerRadius: 12, style: .continuous))
+        .background(PixelTheme.paperRaised)
+        .clipShape(PixelCornerShape(step: 3))
+        .overlay { PixelCornerShape(step: 3).stroke(PixelTheme.gold.opacity(0.7), lineWidth: 1) }
     }
 
     private func verdictPill(_ verdict: EvidenceVerdict) -> some View {
         let presentation: (String, String, Color) = switch verdict {
         case .pending:
-            ("Pending Verification", "hourglass", .accentColor)
+            ("Pending Verification", "hourglass", PixelTheme.selection)
         case .verified:
-            ("Verified", "checkmark.circle.fill", .green)
+            ("Verified", "checkmark.circle.fill", PixelTheme.success)
         case .needMoreProof:
-            ("Need More Proof", "photo.badge.plus", .orange)
+            ("Need More Proof", "photo.badge.plus", PixelTheme.gold)
         case .notVerified:
-            ("Not Verified", "xmark.circle.fill", .red)
+            ("Not Verified", "xmark.circle.fill", PixelTheme.danger)
         }
 
-        return Label(presentation.0, systemImage: presentation.1)
-            .font(.caption.weight(.semibold))
-            .foregroundStyle(presentation.2)
-            .padding(.horizontal, 10)
-            .padding(.vertical, 6)
-            .glassEffect(.regular.tint(presentation.2.opacity(0.09)), in: Capsule())
+        return PixelStatusBadge(title: presentation.0, color: presentation.2)
+            .accessibilityLabel(presentation.0)
     }
 
     private func feedbackBanner(message: String, isError: Bool) -> some View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: isError ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
-                .foregroundStyle(isError ? .orange : .green)
+                .foregroundStyle(isError ? PixelTheme.gold : PixelTheme.success)
             Text(message)
                 .font(.subheadline)
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
         }
         .padding(13)
-        .glassEffect(
-            .regular.tint((isError ? Color.orange : .green).opacity(0.08)),
-            in: RoundedRectangle(cornerRadius: 15, style: .continuous)
+        .pixelSurface(
+            fill: PixelTheme.paperRaised,
+            border: isError ? PixelTheme.gold : PixelTheme.success,
+            step: 3
         )
     }
 
