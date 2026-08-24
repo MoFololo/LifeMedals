@@ -71,7 +71,6 @@ struct MedalAnimationLab: View {
 
                         Text("当前剥落进度：\(Int((progress * 100).rounded()))%")
                             .foregroundStyle(PixelTheme.inkMuted)
-                            .monospacedDigit()
                     }
                 }
             }

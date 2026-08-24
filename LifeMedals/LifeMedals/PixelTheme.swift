@@ -1,4 +1,38 @@
 import SwiftUI
+import CoreText
+
+private enum PixelFontRegistry {
+    private static let resourceName = "fusion-pixel-10px-proportional-zh_hans"
+
+    static let graphicsFont: CGFont = {
+        let resourceURL = Bundle.main.url(
+            forResource: resourceName,
+            withExtension: "ttf",
+            subdirectory: "Fonts"
+        ) ?? Bundle.main.url(forResource: resourceName, withExtension: "ttf")
+
+        guard
+            let resourceURL,
+            let provider = CGDataProvider(url: resourceURL as CFURL),
+            let graphicsFont = CGFont(provider)
+        else {
+            preconditionFailure("Required Fusion Pixel Font resource is missing or invalid")
+        }
+
+        return graphicsFont
+    }()
+
+    static let postScriptName = graphicsFont.postScriptName as String?
+        ?? "Fusion-Pixel-10px-Prop-zh_hans-Regular"
+
+    static func font(size: CGFloat) -> Font {
+        // Construct Font from the bundled CGFont itself. Looking it up later by
+        // name lets SwiftUI silently substitute a system font when a requested
+        // design or weight has no matching face.
+        let coreTextFont = CTFontCreateWithGraphicsFont(graphicsFont, size, nil, nil)
+        return Font(coreTextFont)
+    }
+}
 
 enum PixelTheme {
     // MARK: Palette
@@ -32,12 +66,49 @@ enum PixelTheme {
     static let shadowOffset: CGFloat = 4
     static let cornerStep: CGFloat = 4
 
+    static func prepareFonts() {
+        _ = PixelFontRegistry.graphicsFont
+#if DEBUG
+        print("[PixelTheme] Loaded \(PixelFontRegistry.postScriptName)")
+#endif
+    }
+
+    static func font(
+        _ style: Font.TextStyle = .body,
+        weight: Font.Weight = .regular
+    ) -> Font {
+        let size = baseSize(for: style)
+        _ = weight // Fusion Pixel ships one regular face; SwiftUI cannot synthesize bold.
+        return PixelFontRegistry.font(size: size)
+    }
+
+    static func font(size: CGFloat, weight: Font.Weight = .regular) -> Font {
+        _ = weight
+        return PixelFontRegistry.font(size: size)
+    }
+
     static func displayFont(size: CGFloat, weight: Font.Weight = .bold) -> Font {
-        .system(size: size, weight: weight, design: .rounded)
+        font(size: size, weight: weight)
     }
 
     static func statFont(size: CGFloat, weight: Font.Weight = .bold) -> Font {
-        .system(size: size, weight: weight, design: .monospaced)
+        font(size: size, weight: weight)
+    }
+
+    private static func baseSize(for style: Font.TextStyle) -> CGFloat {
+        switch style {
+        case .largeTitle: 34
+        case .title: 28
+        case .title2: 22
+        case .title3: 20
+        case .headline, .body: 17
+        case .callout: 16
+        case .subheadline: 15
+        case .footnote: 13
+        case .caption: 12
+        case .caption2: 11
+        @unknown default: 17
+        }
     }
 }
 
@@ -143,7 +214,7 @@ struct PixelButtonStyle: ButtonStyle {
 
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
-            .font(.subheadline.weight(.bold))
+            .font(PixelTheme.font(.subheadline, weight: .bold))
             .foregroundStyle(foreground)
             .padding(.horizontal, PixelTheme.space16)
             .padding(.vertical, PixelTheme.space12)
@@ -198,14 +269,14 @@ struct PixelIconButton: View {
     var body: some View {
         Button(action: action) {
             Image(systemName: systemImage)
-                .font(.system(size: 14, weight: .bold))
+                .font(PixelTheme.font(size: 14, weight: .bold))
                 .foregroundStyle(isSelected ? Color.white : PixelTheme.ink)
                 .frame(width: 34, height: 34)
                 .background(isSelected ? PixelTheme.selection : PixelTheme.paperRaised, in: PixelCornerShape(step: 3))
                 .overlay { PixelCornerShape(step: 3).stroke(PixelTheme.gold, lineWidth: 2) }
         }
         .buttonStyle(.plain)
-        .accessibilityLabel(accessibilityLabel)
+        .accessibilityLabel(LocalizedStringKey(accessibilityLabel))
     }
 }
 
@@ -224,8 +295,12 @@ struct PixelTabBar: View {
         HStack(spacing: PixelTheme.space4) {
             ForEach(items) { item in
                 Button { onSelect(item.id) } label: {
-                    Label(item.title, systemImage: item.systemImage)
-                        .font(.subheadline.weight(selection == item.id ? .bold : .medium))
+                    Label {
+                        Text(LocalizedStringKey(item.title))
+                    } icon: {
+                        Image(systemName: item.systemImage)
+                    }
+                        .font(PixelTheme.font(.subheadline, weight: selection == item.id ? .bold : .medium))
                         .foregroundStyle(selection == item.id ? Color.white : PixelTheme.paper)
                         .frame(maxWidth: .infinity)
                         .padding(.horizontal, PixelTheme.space12)
@@ -341,7 +416,7 @@ struct PixelSectionHeader: View {
             }
             if let subtitle {
                 Text(subtitle)
-                    .font(.caption)
+                    .font(PixelTheme.font(.caption))
                     .foregroundStyle(PixelTheme.inkMuted)
             }
             Rectangle()
@@ -415,7 +490,7 @@ struct PixelSymbolTile: View {
 
     var body: some View {
         Image(systemName: systemImage)
-            .font(.system(size: size * 0.42, weight: .bold))
+            .font(PixelTheme.font(size: size * 0.42, weight: .bold))
             .foregroundStyle(tint)
             .frame(width: size, height: size)
             .pixelSurface(
@@ -435,10 +510,10 @@ struct PixelNotice: View {
     var body: some View {
         HStack(alignment: .top, spacing: PixelTheme.space12) {
             Image(systemName: systemImage)
-                .font(.system(size: 14, weight: .bold))
+                .font(PixelTheme.font(size: 14, weight: .bold))
                 .foregroundStyle(color)
-            Text(message)
-                .font(.subheadline)
+            Text(LocalizedStringKey(message))
+                .font(PixelTheme.font(.subheadline))
                 .foregroundStyle(PixelTheme.ink)
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)

@@ -31,15 +31,15 @@ enum BadgeRank: Int, CaseIterable, Comparable, Codable, Sendable {
 
     var displayName: String {
         switch self {
-        case .bronze: "青铜"
-        case .silver: "白银"
-        case .gold: "黄金"
-        case .platinum: "铂金"
-        case .emerald: "翡翠"
-        case .diamond: "钻石"
-        case .master: "大师"
-        case .grandmaster: "宗师"
-        case .champion: "王者"
+        case .bronze: L10n.text("青铜", english: "Bronze")
+        case .silver: L10n.text("白银", english: "Silver")
+        case .gold: L10n.text("黄金", english: "Gold")
+        case .platinum: L10n.text("铂金", english: "Platinum")
+        case .emerald: L10n.text("翡翠", english: "Emerald")
+        case .diamond: L10n.text("钻石", english: "Diamond")
+        case .master: L10n.text("大师", english: "Master")
+        case .grandmaster: L10n.text("宗师", english: "Grandmaster")
+        case .champion: L10n.text("王者", english: "Champion")
         }
     }
 

@@ -20,10 +20,10 @@ enum BadgeKind: String, CaseIterable, Identifiable, Codable, Sendable {
 
     var displayName: String {
         switch self {
-        case .problemSolver: "解题勋章"
-        case .builder: "创造勋章"
-        case .career: "职业勋章"
-        case .athlete: "运动勋章"
+        case .problemSolver: L10n.text("解题勋章", english: "Problem Solver")
+        case .builder: L10n.text("创造勋章", english: "Creator")
+        case .career: L10n.text("职业勋章", english: "Career")
+        case .athlete: L10n.text("运动勋章", english: "Athlete")
         }
     }
 

@@ -371,10 +371,10 @@ struct MedalAwardAnimationOverlay: View {
                 HStack(spacing: 12) {
                     VStack(alignment: .leading, spacing: 3) {
                         Text(toProgress >= 1 ? "100% · 白银勋章" : "\(Int((toProgress * 100).rounded()))% · 青铜勋章")
-                            .font(.headline.monospacedDigit())
+                            .font(PixelTheme.font(.headline))
                             .foregroundStyle(.white)
                         Text(toProgress >= 1 ? "淬炼完成，白银真身已经显露" : "已拥有 \(fragmentCount) / \(totalFragmentCount) 块甲片")
-                            .font(.caption)
+                            .font(PixelTheme.font(.caption))
                             .foregroundStyle(.white.opacity(0.6))
                     }
 
@@ -406,11 +406,11 @@ struct MedalAwardAnimationOverlay: View {
                     ? "白银觉醒"
                     : "\(BadgeKind.displayName(for: event.categoryName))正在铸造"
             )
-                .font(.title2.bold())
+                .font(PixelTheme.font(.title2, weight: .bold))
                 .foregroundStyle(.white)
                 .lineLimit(2)
             Text("+\(event.amount) EXP · \(event.currentXP) / \(BadgeRank.silver.cumulativeXPThreshold)")
-                .font(.subheadline.monospacedDigit())
+                .font(PixelTheme.font(.subheadline))
                 .foregroundStyle(.white.opacity(0.64))
         }
     }
@@ -423,7 +423,7 @@ struct MedalAwardAnimationOverlay: View {
                 isFinished ? "关闭" : "跳过动画",
                 systemImage: isFinished ? "xmark" : "forward.end.fill"
             )
-                .font(.subheadline.weight(.semibold))
+                .font(PixelTheme.font(.subheadline, weight: .semibold))
                 .foregroundStyle(PixelTheme.ink)
                 .padding(.horizontal, 13)
                 .frame(height: 34)

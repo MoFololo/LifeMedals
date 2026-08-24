@@ -163,9 +163,9 @@ struct EvidenceSubmissionView: View {
     private var evidenceHeaderTitle: some View {
         VStack(alignment: .leading, spacing: 5) {
             Label("证据核验", systemImage: "photo.on.rectangle.angled")
-                .font(.headline)
+                .font(PixelTheme.font(.headline))
             Text("图片副本压缩后保存在本机；只有点击提交后才会发送核验。")
-                .font(.caption)
+                .font(PixelTheme.font(.caption))
                 .foregroundStyle(PixelTheme.inkMuted)
         }
     }
@@ -227,7 +227,7 @@ struct EvidenceSubmissionView: View {
         VStack(alignment: .leading, spacing: 14) {
             HStack {
                 Text("待提交照片")
-                    .font(.subheadline.weight(.semibold))
+                    .font(PixelTheme.font(.subheadline, weight: .semibold))
                 Spacer()
                 Text("\(draftImages.count)/\(requiredImageCount)")
                     .font(PixelTheme.statFont(size: 12))
@@ -249,7 +249,7 @@ struct EvidenceSubmissionView: View {
                     isCameraPresented = cameraTargetSlot != nil
                 } label: {
                     Label("拍摄照片", systemImage: "camera.fill")
-                        .fontWeight(.semibold)
+                        .font(PixelTheme.font(.subheadline, weight: .semibold))
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 12)
                 }
@@ -260,7 +260,7 @@ struct EvidenceSubmissionView: View {
             }
 
             Text(pasteAndDropHint)
-                .font(.caption2)
+                .font(PixelTheme.font(.caption2))
                 .foregroundStyle(PixelTheme.inkMuted.opacity(0.72))
 
             if hasPendingEvidence && draftImages.isEmpty {
@@ -271,7 +271,7 @@ struct EvidenceSubmissionView: View {
                         isWorking ? "正在核验" : "重试待核验证据",
                         systemImage: isWorking ? "hourglass" : "arrow.clockwise"
                     )
-                    .fontWeight(.semibold)
+                    .font(PixelTheme.font(.subheadline, weight: .semibold))
                     .frame(maxWidth: .infinity)
                     .padding(.vertical, 12)
                 }
@@ -286,7 +286,7 @@ struct EvidenceSubmissionView: View {
                     Task { await submitDraftEvidence() }
                 } label: {
                     Label(submitButtonTitle, systemImage: isDraftComplete ? "paperplane.fill" : "photo.badge.plus")
-                        .fontWeight(.semibold)
+                        .font(PixelTheme.font(.subheadline, weight: .semibold))
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 12)
                 }
@@ -302,7 +302,7 @@ struct EvidenceSubmissionView: View {
                     ProgressView()
                         .controlSize(.small)
                     Text("本地副本已保存，正在按锁定的验收标准核验…")
-                        .font(.caption)
+                        .font(PixelTheme.font(.caption))
                         .foregroundStyle(PixelTheme.inkMuted)
                 }
                 .transition(.opacity.combined(with: .move(edge: .top)))
@@ -340,7 +340,7 @@ struct EvidenceSubmissionView: View {
     private var multiImageLayout: some View {
         VStack(alignment: .leading, spacing: 12) {
             Text(normalizedImageDescriptions[0])
-                .font(.subheadline)
+                .font(PixelTheme.font(.subheadline))
                 .foregroundStyle(PixelTheme.inkMuted)
                 .fixedSize(horizontal: false, vertical: true)
 
@@ -353,7 +353,7 @@ struct EvidenceSubmissionView: View {
                         matching: .images
                     ) {
                         Label("照片图库", systemImage: "photo.on.rectangle")
-                            .fontWeight(.semibold)
+                            .font(PixelTheme.font(.subheadline, weight: .semibold))
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 12)
                     }
@@ -366,7 +366,7 @@ struct EvidenceSubmissionView: View {
                         presentFileImporter(targetSlot: nil)
                     } label: {
                         Label("选择本地文件", systemImage: "folder")
-                            .fontWeight(.semibold)
+                            .font(PixelTheme.font(.subheadline, weight: .semibold))
                             .frame(maxWidth: .infinity)
                             .padding(.vertical, 12)
                     }
@@ -391,18 +391,18 @@ struct EvidenceSubmissionView: View {
                 } else {
                     VStack(spacing: 14) {
                     Text(normalizedImageDescriptions[index])
-                        .font(.subheadline.weight(.medium))
+                        .font(PixelTheme.font(.subheadline, weight: .medium))
                         .multilineTextAlignment(.center)
                         .fixedSize(horizontal: false, vertical: true)
 
                     Image(systemName: "photo.badge.plus")
-                        .font(.system(size: 38, weight: .bold))
+                        .font(PixelTheme.font(size: 38, weight: .bold))
                         .foregroundStyle(PixelTheme.gold)
 
                     VStack(spacing: 10) {
                         PhotosPicker(selection: photoSelectionBinding(for: index), matching: .images) {
                             Label("照片图库", systemImage: "photo.on.rectangle")
-                                .font(.subheadline.weight(.semibold))
+                                .font(PixelTheme.font(.subheadline, weight: .semibold))
                                 .frame(maxWidth: min(150, sideLength - 24))
                                 .padding(.vertical, 10)
                         }
@@ -415,7 +415,7 @@ struct EvidenceSubmissionView: View {
                             presentFileImporter(targetSlot: index)
                         } label: {
                             Label("选择本地文件", systemImage: "folder")
-                                .font(.subheadline.weight(.semibold))
+                                .font(PixelTheme.font(.subheadline, weight: .semibold))
                                 .frame(maxWidth: min(150, sideLength - 24))
                                 .padding(.vertical, 10)
                         }
@@ -458,10 +458,10 @@ struct EvidenceSubmissionView: View {
     private func compactFixedImageSlot(index: Int) -> some View {
         VStack(spacing: 7) {
             Text("照片 \(index + 1)")
-                .font(.caption.weight(.semibold))
+                .font(PixelTheme.font(.caption, weight: .semibold))
 
             Text(normalizedImageDescriptions[index])
-                .font(.caption2)
+                .font(PixelTheme.font(.caption2))
                 .foregroundStyle(PixelTheme.inkMuted)
                 .multilineTextAlignment(.center)
                 .lineLimit(2)
@@ -508,9 +508,9 @@ struct EvidenceSubmissionView: View {
                     } label: {
                         VStack(spacing: 7) {
                             Image(systemName: "plus")
-                                .font(.title2.weight(.medium))
+                                .font(PixelTheme.font(.title2, weight: .medium))
                             Text(draftImages.isEmpty ? "添加照片" : "继续添加")
-                                .font(.caption)
+                                .font(PixelTheme.font(.caption))
                         }
                         .foregroundStyle(PixelTheme.inkMuted)
                         .frame(width: Self.thumbnailSize.width, height: Self.thumbnailSize.height)
@@ -570,7 +570,7 @@ struct EvidenceSubmissionView: View {
             removeDraftImage(draftImage.id)
         } label: {
             Image(systemName: "xmark")
-                .font(.caption2.weight(.bold))
+                .font(PixelTheme.font(.caption2, weight: .bold))
                 .foregroundStyle(.white)
                 .frame(width: 22, height: 22)
                 .background(PixelTheme.danger, in: PixelCornerShape(step: 2))
@@ -633,12 +633,12 @@ struct EvidenceSubmissionView: View {
 
             if let explanation = batch.explanation {
                 Text(explanation)
-                    .font(.subheadline)
+                    .font(PixelTheme.font(.subheadline))
                     .foregroundStyle(PixelTheme.inkMuted)
                     .fixedSize(horizontal: false, vertical: true)
             } else if batch.verdict == .pending {
                 Text("已保存在本机，等待核验。")
-                    .font(.subheadline)
+                    .font(PixelTheme.font(.subheadline))
                     .foregroundStyle(PixelTheme.inkMuted)
             }
         }
@@ -650,7 +650,7 @@ struct EvidenceSubmissionView: View {
             verdictPill(batch.verdict)
             if batch.evidences.count > 1 {
                 Text("\(batch.evidences.count) 张照片")
-                    .font(.caption.weight(.medium))
+                    .font(PixelTheme.font(.caption, weight: .medium))
                     .foregroundStyle(PixelTheme.inkMuted)
             }
         }
@@ -658,7 +658,7 @@ struct EvidenceSubmissionView: View {
 
     private func evidenceBatchDate(_ batch: EvidenceBatch) -> some View {
         Text(batch.submittedAt.formatted(date: .abbreviated, time: .shortened))
-            .font(.caption2)
+            .font(PixelTheme.font(.caption2))
             .foregroundStyle(PixelTheme.inkMuted.opacity(0.72))
     }
 
@@ -669,7 +669,7 @@ struct EvidenceSubmissionView: View {
                     .scaledToFill()
             } else {
                 Image(systemName: "photo")
-                    .font(.title2)
+                    .font(PixelTheme.font(.title2))
                     .foregroundStyle(PixelTheme.inkMuted)
             }
         }
@@ -700,7 +700,7 @@ struct EvidenceSubmissionView: View {
             Image(systemName: isError ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
                 .foregroundStyle(isError ? PixelTheme.gold : PixelTheme.success)
             Text(message)
-                .font(.subheadline)
+                .font(PixelTheme.font(.subheadline))
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
         }

@@ -31,7 +31,7 @@ struct AccountSyncView: View {
 
                 Button("完成") { dismiss() }
                     .buttonStyle(.plain)
-                    .font(.subheadline.weight(.bold))
+                    .font(PixelTheme.font(.subheadline, weight: .bold))
                     .foregroundStyle(PixelTheme.ink)
                     .padding(.horizontal, 13)
                     .padding(.vertical, 8)
@@ -60,14 +60,14 @@ struct AccountSyncView: View {
 
             if let message = syncMonitor.errorMessage {
                 Label(message, systemImage: "exclamationmark.triangle.fill")
-                    .font(.subheadline)
+                    .font(PixelTheme.font(.subheadline))
                     .foregroundStyle(PixelTheme.goldBright)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
             if let message = accountManager.errorMessage {
                 Label(message, systemImage: "person.crop.circle.badge.exclamationmark")
-                    .font(.subheadline)
+                    .font(PixelTheme.font(.subheadline))
                     .foregroundStyle(PixelTheme.goldBright)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -86,7 +86,7 @@ struct AccountSyncView: View {
             }
 
             Text(accountFooter)
-                .font(.caption)
+                .font(PixelTheme.font(.caption))
                 .foregroundStyle(PixelTheme.paper.opacity(0.62))
                 .fixedSize(horizontal: false, vertical: true)
             }
@@ -118,7 +118,7 @@ struct AccountSyncView: View {
                     .pixelSurface(fill: PixelTheme.paperRaised, border: PixelTheme.gold, step: 3, hasShadow: true)
                 } else {
                     Label("本机存储已启用", systemImage: "checkmark.circle.fill")
-                        .font(.subheadline.weight(.medium))
+                        .font(PixelTheme.font(.subheadline, weight: .medium))
                         .foregroundStyle(PixelTheme.success)
                 }
     }
@@ -147,38 +147,66 @@ struct AccountSyncView: View {
                     .clipShape(PixelCornerShape(step: 3))
                 } else {
                     Text("Debug 仅本机")
-                        .font(.subheadline.weight(.medium))
+                        .font(PixelTheme.font(.subheadline, weight: .medium))
                         .foregroundStyle(PixelTheme.paper.opacity(0.72))
                 }
     }
 
     private var appleAccountDetail: String {
         if !LifeMedalsCloud.isEnabledForCurrentBuild {
-            return "本地开发模式未启用 Apple 登录"
+            return L10n.text(
+                "本地开发模式未启用 Apple 登录",
+                english: "Sign in with Apple is disabled in local development mode"
+            )
         }
         if accountManager.isSignedIn {
-            return accountManager.displayName.map { "已登录 · \($0)" } ?? "已登录"
+            return accountManager.displayName.map {
+                L10n.text("已登录 · \($0)", english: "Signed in · \($0)")
+            } ?? L10n.text("已登录", english: "Signed in")
         }
-        return "未登录；本地功能仍可使用"
+        return L10n.text(
+            "未登录；本地功能仍可使用",
+            english: "Not signed in; on-device features are still available"
+        )
     }
 
     private var cloudDetail: String {
         if !LifeMedalsCloud.isEnabledForCurrentBuild {
-            return "Debug 使用本机 SwiftData，不连接 CloudKit"
+            return L10n.text(
+                "Debug 使用本机 SwiftData，不连接 CloudKit",
+                english: "Debug uses on-device SwiftData without CloudKit"
+            )
         }
-        if syncMonitor.isCheckingAccount { return "正在检查账户状态…" }
-        if syncMonitor.isSyncing { return "正在上传或下载更改…" }
+        if syncMonitor.isCheckingAccount {
+            return L10n.text("正在检查账户状态…", english: "Checking account status…")
+        }
+        if syncMonitor.isSyncing {
+            return L10n.text("正在上传或下载更改…", english: "Uploading or downloading changes…")
+        }
         if let date = syncMonitor.lastSuccessfulSync {
-            return "最近完成：\(date.formatted(date: .abbreviated, time: .shortened))"
+            let formattedDate = date.formatted(date: .abbreviated, time: .shortened)
+            return L10n.text("最近完成：\(formattedDate)", english: "Last completed: \(formattedDate)")
         }
-        if syncMonitor.isAvailable { return "已连接；更改会自动同步" }
-        return "不可用；当前更改只保存在本机"
+        if syncMonitor.isAvailable {
+            return L10n.text("已连接；更改会自动同步", english: "Connected; changes sync automatically")
+        }
+        return L10n.text(
+            "不可用；当前更改只保存在本机",
+            english: "Unavailable; current changes are stored on this device"
+        )
     }
 
     private var accountAndSyncSubtitle: String {
-        LifeMedalsCloud.isEnabledForCurrentBuild
-            ? "iCloud 可用时，数据会保存到你的私有数据库。"
-            : "当前是无需付费开发者团队的本地 Debug 构建。"
+        if LifeMedalsCloud.isEnabledForCurrentBuild {
+            return L10n.text(
+                "iCloud 可用时，数据会保存到你的私有数据库。",
+                english: "When iCloud is available, data is saved to your private database."
+            )
+        }
+        return L10n.text(
+            "当前是无需付费开发者团队的本地 Debug 构建。",
+            english: "This is a local Debug build that does not require a paid developer team."
+        )
     }
 
     private var syncStatusColor: Color {
@@ -187,22 +215,29 @@ struct AccountSyncView: View {
     }
 
     private var accountFooter: String {
-        LifeMedalsCloud.isEnabledForCurrentBuild
-            ? "Apple 登录用于识别你在 LifeMedals 中的会话；跨设备数据由这台设备登录的 iCloud 账户负责。退出应用账户不会删除本机或 iCloud 中的数据。"
-            : "这个模式专供本机开发和调试。切换到带云端 entitlement 的构建后，才会启用 Apple 登录和 CloudKit。"
+        if LifeMedalsCloud.isEnabledForCurrentBuild {
+            return L10n.text(
+                "Apple 登录用于识别你在 LifeMedals 中的会话；跨设备数据由这台设备登录的 iCloud 账户负责。退出应用账户不会删除本机或 iCloud 中的数据。",
+                english: "Apple sign-in identifies your LifeMedals session. Cross-device data uses the iCloud account signed in on this device. Signing out does not delete local or iCloud data."
+            )
+        }
+        return L10n.text(
+            "这个模式专供本机开发和调试。切换到带云端 entitlement 的构建后，才会启用 Apple 登录和 CloudKit。",
+            english: "This mode is for local development and debugging. Apple sign-in and CloudKit are enabled in a build with cloud entitlements."
+        )
     }
 
     private func statusRow(icon: String, title: String, detail: String, color: Color) -> some View {
         HStack(spacing: 14) {
             Image(systemName: icon)
-                .font(.system(size: 20, weight: .semibold))
+                .font(PixelTheme.font(size: 20, weight: .semibold))
                 .foregroundStyle(color)
                 .frame(width: 30)
 
             VStack(alignment: .leading, spacing: 3) {
-                Text(title).font(.headline)
+                Text(LocalizedStringKey(title)).font(PixelTheme.font(.headline))
                 Text(detail)
-                    .font(.subheadline)
+                    .font(PixelTheme.font(.subheadline))
                     .foregroundStyle(PixelTheme.inkMuted)
             }
 

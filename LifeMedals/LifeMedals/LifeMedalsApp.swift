@@ -15,11 +15,14 @@ struct LifeMedalsApp: App {
 #endif
 
     @AppStorage("hasEnteredApp") private var hasEnteredApp = false
+    @AppStorage(AppLanguage.storageKey) private var appLanguage = AppLanguage.simplifiedChinese.rawValue
     @StateObject private var accountManager = AppleAccountManager()
     @StateObject private var syncMonitor = CloudSyncMonitor()
     private let modelContainer: ModelContainer
 
     init() {
+        PixelTheme.prepareFonts()
+
         let schema = Schema([
             BadgeCategory.self,
             UserBadge.self,
@@ -69,6 +72,8 @@ struct LifeMedalsApp: App {
                     .transition(.opacity.combined(with: .scale(scale: 0.985)))
                 }
             }
+            .font(PixelTheme.font())
+            .environment(\.locale, resolvedLanguage.locale)
             .preferredColorScheme(.light)
             .animation(.smooth(duration: 0.52), value: hasEnteredApp)
             .environmentObject(accountManager)
@@ -90,6 +95,10 @@ struct LifeMedalsApp: App {
         .modelContainer(modelContainer)
     }
 
+    private var resolvedLanguage: AppLanguage {
+        AppLanguage(rawValue: appLanguage) ?? .simplifiedChinese
+    }
+
 #if DEBUG && os(macOS)
     private var mainWindow: some Scene {
         appWindowGroup.commands {
@@ -105,6 +114,7 @@ struct LifeMedalsApp: App {
     private var medalAnimationLabWindow: some Scene {
         Window("勋章揭露实验", id: "medal-animation-lab") {
             MedalAnimationLab()
+                .font(PixelTheme.font())
         }
         .defaultSize(width: 520, height: 600)
     }

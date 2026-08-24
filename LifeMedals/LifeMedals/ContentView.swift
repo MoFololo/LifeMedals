@@ -23,9 +23,9 @@ struct ContentView: View {
 
         var title: String {
             switch self {
-            case .create: "新任务"
-            case .tasks: "任务"
-            case .medals: "勋章"
+            case .create: L10n.text("新任务", english: "New Task")
+            case .tasks: L10n.text("任务", english: "Tasks")
+            case .medals: L10n.text("勋章", english: "Medals")
             }
         }
 
@@ -51,8 +51,8 @@ struct ContentView: View {
 
         var title: String {
             switch self {
-            case .text: "文字"
-            case .image: "图片"
+            case .text: L10n.text("文字", english: "Text")
+            case .image: L10n.text("图片", english: "Image")
             }
         }
 
@@ -70,8 +70,8 @@ struct ContentView: View {
 
         var backTitle: String {
             switch self {
-            case .taskList: "返回任务"
-            case .badgeHistory: "返回历史记录"
+            case .taskList: L10n.text("返回任务", english: "Back to Tasks")
+            case .badgeHistory: L10n.text("返回历史记录", english: "Back to History")
             }
         }
     }
@@ -85,9 +85,9 @@ struct ContentView: View {
 
         var title: String {
             switch self {
-            case .unfinished: "未完成"
-            case .completed: "已完成"
-            case .overdue: "已逾期"
+            case .unfinished: L10n.text("未完成", english: "Active")
+            case .completed: L10n.text("已完成", english: "Completed")
+            case .overdue: L10n.text("已逾期", english: "Overdue")
             }
         }
 
@@ -113,7 +113,7 @@ struct ContentView: View {
             case delete
 
             var title: String {
-                "删除"
+                L10n.text("删除", english: "Delete")
             }
 
             var icon: String {
@@ -215,10 +215,10 @@ struct ContentView: View {
             } label: {
                 VStack(spacing: PixelTheme.space4) {
                     Image(systemName: action.icon)
-                        .font(.system(size: 18, weight: .bold))
+                        .font(PixelTheme.font(size: 18, weight: .bold))
 
                     Text(action.title)
-                        .font(.caption2.bold())
+                        .font(PixelTheme.font(.caption2, weight: .bold))
                         .lineLimit(1)
                 }
                 .foregroundStyle(.white)
@@ -272,7 +272,7 @@ struct ContentView: View {
     @State private var selectedTaskTab = TaskListTab.unfinished
     @State private var selectedLibraryBadge: String?
     @State private var medalAnimationPresentation: XPAwardEvent?
-    @State private var isShowingAccountAndSync = false
+    @State private var isShowingSettings = false
     @State private var selectedSourcePhoto: PhotosPickerItem?
     @State private var draftSourceImageData: Data?
     @State private var draftContractSourceImageData: Data?
@@ -327,8 +327,8 @@ struct ContentView: View {
                     medalAnimationPresentation = event
                 }
             }
-            .sheet(isPresented: $isShowingAccountAndSync) {
-                AccountSyncView(onSignOut: onSignOut)
+            .sheet(isPresented: $isShowingSettings) {
+                SettingsView(onSignOut: onSignOut)
                     .environmentObject(accountManager)
                     .environmentObject(syncMonitor)
             }
@@ -486,18 +486,18 @@ struct ContentView: View {
                 Spacer()
 
                 Button {
-                    isShowingAccountAndSync = true
+                    isShowingSettings = true
                 } label: {
-                    Label(syncMonitor.shortTitle, systemImage: syncMonitor.iconName)
-                        .font(.caption.weight(.medium))
-                        .foregroundStyle(syncMonitor.isAvailable ? PixelTheme.paper : PixelTheme.paper.opacity(0.65))
+                    Label("设置", systemImage: "gearshape.fill")
+                        .font(PixelTheme.font(.caption, weight: .medium))
+                        .foregroundStyle(PixelTheme.paper)
                         .padding(.horizontal, PixelTheme.space12)
                         .padding(.vertical, PixelTheme.space8)
                         .background(PixelTheme.backgroundRaised, in: PixelCornerShape())
                         .overlay { PixelCornerShape().stroke(PixelTheme.gold, lineWidth: 2) }
                 }
                 .buttonStyle(.plain)
-                .help("查看账户与 iCloud 同步状态")
+                .help("打开设置")
             }
 
             pixelNavigationTabs
@@ -604,7 +604,7 @@ struct ContentView: View {
             PixelInput(isFocused: isTaskInputFocused) {
                 TextField("例如：本周完成三次 30 分钟跑步", text: $taskInput, axis: .vertical)
                     .textFieldStyle(.plain)
-                    .font(.system(size: isCompactLayout ? 18 : 22, weight: .medium, design: .rounded))
+                    .font(PixelTheme.font(size: isCompactLayout ? 18 : 22, weight: .medium))
                     .foregroundStyle(PixelTheme.ink)
                     .lineLimit(3...6)
                     .focused($isTaskInputFocused)
@@ -636,7 +636,7 @@ struct ContentView: View {
                 PixelInput {
                     TextField("补充说明（可选）", text: $imageTaskNote, axis: .vertical)
                         .textFieldStyle(.plain)
-                        .font(.body)
+                        .font(PixelTheme.font(.body))
                         .foregroundStyle(PixelTheme.ink)
                         .lineLimit(1...3)
                         .frame(maxWidth: .infinity, minHeight: 38, alignment: .topLeading)
@@ -649,7 +649,7 @@ struct ContentView: View {
 
             if let sourceImageError {
                 Text(sourceImageError)
-                    .font(.caption)
+                    .font(PixelTheme.font(.caption))
                     .foregroundStyle(PixelTheme.danger)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -676,7 +676,7 @@ struct ContentView: View {
     private var generationError: some View {
         if let errorMessage {
             Text(errorMessage)
-                .font(.caption)
+                .font(PixelTheme.font(.caption))
                 .foregroundStyle(PixelTheme.danger)
                 .fixedSize(horizontal: false, vertical: true)
                 .transition(.opacity.combined(with: .move(edge: .top)))
@@ -697,7 +697,7 @@ struct ContentView: View {
                             removeSourceImage()
                         } label: {
                             Image(systemName: "xmark")
-                                .font(.caption.bold())
+                                .font(PixelTheme.font(.caption, weight: .bold))
                                 .foregroundStyle(.white)
                                 .frame(width: 30, height: 30)
                                 .background(PixelTheme.danger, in: PixelCornerShape(step: 2))
@@ -712,21 +712,21 @@ struct ContentView: View {
                         ProgressView()
                             .controlSize(.small)
                         Text("正在压缩照片…")
-                            .font(.caption)
+                            .font(PixelTheme.font(.caption))
                             .foregroundStyle(PixelTheme.inkMuted)
                     } else {
                         Image(systemName: "doc.viewfinder")
-                            .font(.system(size: 30, weight: .semibold))
+                            .font(PixelTheme.font(size: 30, weight: .semibold))
                             .foregroundStyle(PixelTheme.gold)
                         Text("上传邮件、syllabus 或活动海报")
-                            .font(.caption)
+                            .font(PixelTheme.font(.caption))
                             .foregroundStyle(PixelTheme.inkMuted)
                     }
 
                     HStack(spacing: 10) {
                         PhotosPicker(selection: $selectedSourcePhoto, matching: .images) {
                             Label("照片图库", systemImage: "photo.on.rectangle")
-                                .font(.subheadline.weight(.semibold))
+                                .font(PixelTheme.font(.subheadline, weight: .semibold))
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 10)
                         }
@@ -739,7 +739,7 @@ struct ContentView: View {
                             isSourceCameraPresented = true
                         } label: {
                             Label("拍照", systemImage: "camera")
-                                .font(.subheadline.weight(.semibold))
+                                .font(PixelTheme.font(.subheadline, weight: .semibold))
                                 .frame(maxWidth: .infinity)
                                 .padding(.vertical, 10)
                         }
@@ -820,7 +820,7 @@ struct ContentView: View {
                                     .background(PixelTheme.background.opacity(0.08))
                                     .clipShape(PixelCornerShape(step: 3))
                                 Label("这个任务由上图内容生成；保存后可在任务详情中回看。", systemImage: "sparkles")
-                                    .font(.caption)
+                                    .font(PixelTheme.font(.caption))
                                     .foregroundStyle(PixelTheme.inkMuted)
                             }
                             .padding(12)
@@ -832,7 +832,7 @@ struct ContentView: View {
                     contractField("证据照片") {
                         VStack(alignment: .leading, spacing: 10) {
                             Label("需要 \(draftEvidenceImageCount) 张照片", systemImage: "photo.stack")
-                                .font(.subheadline.weight(.semibold))
+                                .font(PixelTheme.font(.subheadline, weight: .semibold))
 
                             ForEach(Array(draftEvidenceImageDescriptions.enumerated()), id: \.offset) { index, description in
                                 HStack(alignment: .top, spacing: 8) {
@@ -844,7 +844,7 @@ struct ContentView: View {
                                             .background(PixelTheme.selection, in: PixelCornerShape(step: 2))
                                     }
                                     Text(description)
-                                        .font(.subheadline)
+                                        .font(PixelTheme.font(.subheadline))
                                         .foregroundStyle(PixelTheme.inkMuted)
                                         .fixedSize(horizontal: false, vertical: true)
                                 }
@@ -858,7 +858,7 @@ struct ContentView: View {
 
                     Button(action: saveTask) {
                         Label("确认并保存", systemImage: "checkmark")
-                            .fontWeight(.semibold)
+                            .font(PixelTheme.font(.subheadline, weight: .semibold))
                             .frame(maxWidth: .infinity)
                     }
                     .buttonStyle(PixelButtonStyle(tone: PixelTheme.selection))
@@ -913,7 +913,7 @@ struct ContentView: View {
         contractField("任务标题") {
             TextField("任务标题", text: $draftTitle)
                 .textFieldStyle(.plain)
-                .font(.title3.weight(.medium))
+                .font(PixelTheme.font(.title3, weight: .medium))
                 .frame(maxWidth: .infinity)
                 .padding(14)
                 .background(PixelTheme.paperRaised, in: PixelCornerShape())
@@ -924,7 +924,7 @@ struct ContentView: View {
     private var xpContractField: some View {
         contractField("完成奖励") {
             Label("+\(draftXP) EXP", systemImage: "sparkles")
-                .font(.title3.bold())
+                .font(PixelTheme.font(.title3, weight: .bold))
                 .foregroundStyle(PixelTheme.brown)
                 .padding(14)
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -1038,7 +1038,10 @@ struct ContentView: View {
                     ? nil
                     : activeTaskContracts.isEmpty
                         ? "你保存的任务契约会出现在这里。"
-                        : "\(unfinishedCount) 项未完成 · \(completedCount) 项已完成 · \(overdueCount) 项已逾期，全部保存在这台设备上。"
+                        : L10n.text(
+                            "\(unfinishedCount) 项未完成 · \(completedCount) 项已完成 · \(overdueCount) 项已逾期，全部保存在这台设备上。",
+                            english: "\(unfinishedCount) active · \(completedCount) completed · \(overdueCount) overdue. All are saved on this device."
+                        )
             )
 
             taskListTabs(
@@ -1076,8 +1079,7 @@ struct ContentView: View {
                                 HStack(spacing: 5) {
                                     Text(tab.title)
                                     Text("\(count)")
-                                        .font(.caption2.bold())
-                                        .monospacedDigit()
+                                        .font(PixelTheme.font(.caption2, weight: .bold))
                                         .padding(.horizontal, 5)
                                         .padding(.vertical, 2)
                                         .background(
@@ -1090,8 +1092,7 @@ struct ContentView: View {
                                     Image(systemName: tab.icon)
                                     Text(tab.title)
                                     Text("\(count)")
-                                        .font(.caption.bold())
-                                        .monospacedDigit()
+                                        .font(PixelTheme.font(.caption, weight: .bold))
                                         .padding(.horizontal, 7)
                                         .padding(.vertical, 3)
                                         .background(
@@ -1101,7 +1102,7 @@ struct ContentView: View {
                                 }
                             }
                         }
-                        .font((isCompactLayout ? Font.caption : .subheadline).weight(selectedTaskTab == tab ? .semibold : .medium))
+                        .font(PixelTheme.font(isCompactLayout ? .caption : .subheadline, weight: selectedTaskTab == tab ? .semibold : .medium))
                         .foregroundStyle(selectedTaskTab == tab ? Color.white : PixelTheme.inkMuted)
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 11)
@@ -1147,7 +1148,7 @@ struct ContentView: View {
 
             VStack(alignment: .leading, spacing: 6) {
                 Text(task.title)
-                    .font(.headline)
+                    .font(PixelTheme.font(.headline))
                     .foregroundStyle(PixelTheme.ink)
                     .lineLimit(2)
                 if isCompactLayout {
@@ -1167,22 +1168,22 @@ struct ContentView: View {
                     }
                 }
             }
-            .font(.caption)
+            .font(PixelTheme.font(.caption))
             .foregroundStyle(task.deadline <= now && task.status != .verified ? PixelTheme.danger : PixelTheme.inkMuted)
 
             Spacer()
 
             VStack(alignment: .trailing, spacing: 9) {
                 Text(taskListStatusTitle(for: task, now: now))
-                    .font(.caption.weight(.semibold))
+                    .font(PixelTheme.font(.caption, weight: .semibold))
                     .foregroundStyle(taskListStatusColor(for: task, now: now))
                     .lineLimit(1)
                 Text("+\(task.xpReward) EXP")
-                    .font(.subheadline.bold())
+                    .font(PixelTheme.font(.subheadline, weight: .bold))
                     .foregroundStyle(PixelTheme.brown)
                 if !isCompactLayout {
                     Image(systemName: "chevron.right")
-                        .font(.caption.weight(.semibold))
+                        .font(PixelTheme.font(.caption, weight: .semibold))
                         .foregroundStyle(PixelTheme.inkMuted.opacity(0.7))
                 }
             }
@@ -1265,7 +1266,7 @@ struct ContentView: View {
                             .clipShape(PixelCornerShape(step: 3))
 
                         Text("创建任务时由 AI 读取的来源图片副本")
-                            .font(.caption)
+                            .font(PixelTheme.font(.caption))
                             .foregroundStyle(PixelTheme.inkMuted)
                     }
                     .padding(18)
@@ -1279,7 +1280,7 @@ struct ContentView: View {
                             .foregroundStyle(PixelTheme.ink)
                         Spacer()
                         Label("已锁定", systemImage: "lock.fill")
-                            .font(.caption.weight(.semibold))
+                            .font(PixelTheme.font(.caption, weight: .semibold))
                             .foregroundStyle(PixelTheme.inkMuted)
                             .padding(.horizontal, 11)
                             .padding(.vertical, 7)
@@ -1288,7 +1289,7 @@ struct ContentView: View {
                     }
 
                     Text(task.evidenceRequirement)
-                        .font(.body)
+                        .font(PixelTheme.font(.body))
                         .foregroundStyle(PixelTheme.ink)
                         .lineSpacing(5)
                         .textSelection(.enabled)
@@ -1299,10 +1300,10 @@ struct ContentView: View {
 
                     VStack(alignment: .leading, spacing: 8) {
                         Label("需要 \(task.requiredEvidenceImageCount) 张照片", systemImage: "photo.stack")
-                            .font(.subheadline.weight(.semibold))
+                            .font(PixelTheme.font(.subheadline, weight: .semibold))
                         ForEach(Array(task.evidenceImageDescriptions.enumerated()), id: \.offset) { index, description in
                             Text(task.requiredEvidenceImageCount <= 2 ? "\(index + 1). \(description)" : description)
-                                .font(.subheadline)
+                                .font(PixelTheme.font(.subheadline))
                                 .foregroundStyle(PixelTheme.inkMuted)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
@@ -1312,7 +1313,7 @@ struct ContentView: View {
                         .opacity(0.45)
 
                     Text("创建于 \(task.createdAt.formatted(date: .long, time: .shortened))")
-                        .font(.caption)
+                        .font(PixelTheme.font(.caption))
                         .foregroundStyle(PixelTheme.inkMuted.opacity(0.72))
                 }
                 .padding(22)
@@ -1348,7 +1349,7 @@ struct ContentView: View {
                 .foregroundStyle(PixelTheme.paperRaised)
                 .fixedSize(horizontal: false, vertical: true)
             Text("任务契约")
-                .font(.subheadline)
+                .font(PixelTheme.font(.subheadline))
                 .foregroundStyle(PixelTheme.paper.opacity(0.72))
         }
     }
@@ -1521,11 +1522,11 @@ struct ContentView: View {
                 HStack(alignment: .top) {
                     VStack(alignment: .leading, spacing: 5) {
                         Text(task.title)
-                            .font(.headline)
+                            .font(PixelTheme.font(.headline))
                             .foregroundStyle(PixelTheme.ink)
                             .lineLimit(2)
                         Text(task.createdAt.formatted(date: .abbreviated, time: .shortened))
-                            .font(.caption)
+                            .font(PixelTheme.font(.caption))
                             .foregroundStyle(PixelTheme.inkMuted)
                     }
 
@@ -1534,7 +1535,7 @@ struct ContentView: View {
                     VStack(alignment: .trailing, spacing: 7) {
                         statusPill(for: task)
                         Text("+\(task.xpReward) EXP")
-                            .font(.caption.bold())
+                            .font(PixelTheme.font(.caption, weight: .bold))
                             .foregroundStyle(PixelTheme.brown)
                     }
                 }
@@ -1565,7 +1566,7 @@ struct ContentView: View {
                     .scaledToFill()
             } else {
                 Image(systemName: "photo")
-                    .font(.title2)
+                    .font(PixelTheme.font(.title2))
                     .foregroundStyle(PixelTheme.inkMuted)
             }
         }
@@ -1582,7 +1583,7 @@ struct ContentView: View {
     private func debugXPControls(for badge: String) -> some View {
         HStack(spacing: 10) {
             Label("调试", systemImage: "ladybug.fill")
-                .font(.caption.weight(.semibold))
+                .font(PixelTheme.font(.caption, weight: .semibold))
                 .foregroundStyle(PixelTheme.paper.opacity(0.72))
 
             ForEach([25, 100, 500, 1000], id: \.self) { amount in
@@ -1590,7 +1591,7 @@ struct ContentView: View {
                     debugAddXP(amount, toBadge: badge)
                 }
                 .buttonStyle(.plain)
-                .font(.caption.weight(.semibold))
+                .font(PixelTheme.font(.caption, weight: .semibold))
                 .foregroundStyle(PixelTheme.ink)
                 .padding(.horizontal, 10)
                 .padding(.vertical, 6)
@@ -1601,7 +1602,7 @@ struct ContentView: View {
                 debugAddXP(nil, toBadge: badge)
             }
             .buttonStyle(.plain)
-            .font(.caption.weight(.semibold))
+            .font(PixelTheme.font(.caption, weight: .semibold))
             .foregroundStyle(PixelTheme.danger)
             .padding(.horizontal, 10)
             .padding(.vertical, 6)
@@ -1942,7 +1943,7 @@ struct ContentView: View {
         case "medals":
             selectedPage = .medals
         case "account":
-            isShowingAccountAndSync = true
+            isShowingSettings = true
         case "review":
             draftTitle = "完成一次 30 分钟专注阅读"
             draftEvidenceRequirement = "提交计时结束页面，并确保阅读时长和书名清晰可见。"
@@ -2191,11 +2192,11 @@ struct ContentView: View {
             leading()
 
             VStack(alignment: .leading, spacing: 4) {
-                Text(title)
-                    .font(.caption.weight(.semibold))
+                Text(LocalizedStringKey(title))
+                    .font(PixelTheme.font(.caption, weight: .semibold))
                     .foregroundStyle(PixelTheme.inkMuted)
                 Text(value)
-                    .font(.subheadline.weight(.semibold))
+                    .font(PixelTheme.font(.subheadline, weight: .semibold))
                     .foregroundStyle(PixelTheme.ink)
                     .fixedSize(horizontal: false, vertical: true)
             }
@@ -2302,8 +2303,8 @@ struct ContentView: View {
         @ViewBuilder content: () -> Content
     ) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Text(title)
-                .font(.caption.weight(.semibold))
+            Text(LocalizedStringKey(title))
+                .font(PixelTheme.font(.caption, weight: .semibold))
                 .foregroundStyle(PixelTheme.inkMuted)
             content()
         }
@@ -2318,11 +2319,11 @@ struct ContentView: View {
                         .font(PixelTheme.statFont(size: 11))
                         .foregroundStyle(PixelTheme.goldBright)
                 }
-                Text(title)
+                Text(LocalizedStringKey(title))
                     .font(PixelTheme.displayFont(size: isCompactLayout ? 28 : 34))
                     .foregroundStyle(PixelTheme.paperRaised)
                 if let subtitle {
-                    Text(subtitle)
+                    Text(LocalizedStringKey(subtitle))
                         .foregroundStyle(PixelTheme.paper.opacity(0.72))
                         .fixedSize(horizontal: false, vertical: true)
                 }
@@ -2332,10 +2333,10 @@ struct ContentView: View {
 
             if isCompactLayout {
                 PixelIconButton(
-                    systemImage: "person.crop.circle",
-                    accessibilityLabel: "查看账户与 iCloud 同步状态"
+                    systemImage: "gearshape.fill",
+                    accessibilityLabel: "打开设置"
                 ) {
-                    isShowingAccountAndSync = true
+                    isShowingSettings = true
                 }
             }
         }
@@ -2344,13 +2345,13 @@ struct ContentView: View {
     private func emptyState(icon: String, title: String, message: String) -> some View {
         VStack(spacing: 13) {
             Image(systemName: icon)
-                .font(.system(size: 36, weight: .bold))
+                .font(PixelTheme.font(size: 36, weight: .bold))
                 .foregroundStyle(PixelTheme.gold)
-            Text(title)
+            Text(LocalizedStringKey(title))
                 .font(PixelTheme.displayFont(size: 18))
                 .foregroundStyle(PixelTheme.ink)
-            Text(message)
-                .font(.subheadline)
+            Text(LocalizedStringKey(message))
+                .font(PixelTheme.font(.subheadline))
                 .foregroundStyle(PixelTheme.inkMuted)
         }
         .frame(maxWidth: .infinity, minHeight: 330)
@@ -2368,7 +2369,7 @@ struct ContentView: View {
                 Image(systemName: "checkmark.circle.fill")
                     .foregroundStyle(PixelTheme.success)
                 Text(message)
-                    .font(.subheadline.weight(.semibold))
+                    .font(PixelTheme.font(.subheadline, weight: .semibold))
                     .foregroundStyle(PixelTheme.ink)
             }
             .padding(.horizontal, 18)

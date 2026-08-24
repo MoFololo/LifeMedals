@@ -41,7 +41,7 @@ struct EvidenceCameraView: View {
                             .font(PixelTheme.displayFont(size: 26))
                             .foregroundStyle(PixelTheme.paperRaised)
                         Text(detail)
-                            .font(.subheadline)
+                            .font(PixelTheme.font(.subheadline))
                             .foregroundStyle(PixelTheme.paper.opacity(0.72))
                     }
 
@@ -51,7 +51,7 @@ struct EvidenceCameraView: View {
                         dismiss()
                     } label: {
                         Image(systemName: "xmark")
-                            .font(.system(size: 14, weight: .bold))
+                            .font(PixelTheme.font(size: 14, weight: .bold))
                             .foregroundStyle(PixelTheme.ink)
                             .frame(width: 34, height: 34)
                     }
@@ -90,7 +90,7 @@ struct EvidenceCameraView: View {
                                 ProgressView()
                             } else {
                                 Image(systemName: "camera.fill")
-                                    .font(.system(size: 38, weight: .bold))
+                                    .font(PixelTheme.font(size: 38, weight: .bold))
                                     .foregroundStyle(PixelTheme.gold)
                             }
                             Text(controller.message)
@@ -111,7 +111,7 @@ struct EvidenceCameraView: View {
 
                 if let errorMessage = controller.errorMessage {
                     Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
-                        .font(.subheadline)
+                        .font(PixelTheme.font(.subheadline))
                         .foregroundStyle(PixelTheme.goldBright)
                 }
             }
