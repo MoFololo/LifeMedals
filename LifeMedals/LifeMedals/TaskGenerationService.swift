@@ -92,10 +92,28 @@ struct GeneratedTaskContract: Decodable, Sendable {
 }
 
 struct TaskGenerationService: Sendable {
+    private struct ImagePayload: Encodable {
+        let mimeType: String
+        let base64Data: String
+
+        enum CodingKeys: String, CodingKey {
+            case mimeType = "mime_type"
+            case base64Data = "base64_data"
+        }
+    }
+
     private struct GenerateTaskRequest: Encodable {
         let text: String
         let timezone: String
         let locale: String
+        let sourceImage: ImagePayload?
+
+        enum CodingKeys: String, CodingKey {
+            case text
+            case timezone
+            case locale
+            case sourceImage = "source_image"
+        }
     }
 
     private struct APIErrorEnvelope: Decodable {
@@ -107,17 +125,20 @@ struct TaskGenerationService: Sendable {
         let error: APIError
     }
 
-    func generate(from text: String) async throws -> GeneratedTaskContract {
+    func generate(from text: String, sourceImageData: Data? = nil) async throws -> GeneratedTaskContract {
         let endpoint = try Self.generateTaskEndpoint()
         var request = URLRequest(url: endpoint)
         request.httpMethod = "POST"
-        request.timeoutInterval = 35
+        request.timeoutInterval = sourceImageData == nil ? 35 : 50
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONEncoder().encode(
             GenerateTaskRequest(
                 text: text,
                 timezone: TimeZone.current.identifier,
-                locale: Locale.current.identifier
+                locale: Locale.current.identifier,
+                sourceImage: sourceImageData.map {
+                    ImagePayload(mimeType: "image/jpeg", base64Data: $0.base64EncodedString())
+                }
             )
         )
 
@@ -170,6 +191,9 @@ enum TaskGenerationError: LocalizedError {
             }
             if statusCode == 402 {
                 return "本月 AI 内测预算已用完，请等待预算重置。"
+            }
+            if statusCode == 413 {
+                return "照片已自动压缩，但当前 AI 服务仍使用旧版上传限制。请更新服务后重试。"
             }
             return message ?? "代理请求失败（HTTP \(statusCode)）。"
         }

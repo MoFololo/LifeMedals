@@ -3,8 +3,10 @@ import assert from "node:assert/strict";
 
 import worker, {
   GlobalUsageGate,
+  buildTaskGenerationOpenAIRequest,
   buildEvidenceVerificationOpenAIRequest,
   isTaskContract,
+  validateGenerateTaskInput,
   validateEvidenceVerificationInput,
 } from "../src/index.ts";
 
@@ -67,6 +69,91 @@ const validEvidenceBody = {
     },
   ],
 };
+
+const validImageTaskBody = {
+  text: "帮我提取最重要的下一步",
+  timezone: "America/New_York",
+  locale: "zh-CN",
+  source_image: {
+    mime_type: "image/jpeg",
+    base64_data: Buffer.from("compressed-source-jpeg").toString("base64"),
+  },
+};
+
+test("validates image task input and requires text or an image", () => {
+  assert.equal(validateGenerateTaskInput(validImageTaskBody), null);
+  assert.equal(validateGenerateTaskInput({ ...validImageTaskBody, text: "" }), null);
+  assert.match(
+    validateGenerateTaskInput({ text: "", timezone: "UTC", locale: "en-US" }),
+    /Either non-empty text or source_image/,
+  );
+  assert.match(
+    validateGenerateTaskInput({
+      ...validImageTaskBody,
+      source_image: { ...validImageTaskBody.source_image, mime_type: "image/png" },
+    }),
+    /image\/jpeg/,
+  );
+});
+
+test("builds a stateless vision request for task generation", () => {
+  const request = buildTaskGenerationOpenAIRequest(validImageTaskBody, "test-model");
+
+  assert.equal(request.model, "test-model");
+  assert.equal(request.store, false);
+  assert.equal(request.input[0].content[0].type, "input_text");
+  assert.match(request.input[0].content[0].text, /帮我提取最重要的下一步/);
+  assert.equal(request.input[0].content[1].type, "input_image");
+  assert.match(request.input[0].content[1].image_url, /^data:image\/jpeg;base64,/);
+  assert.match(request.instructions, /single clearest actionable next step/);
+});
+
+test("generate-task forwards the source image without storing response state", async (t) => {
+  const originalFetch = globalThis.fetch;
+  let capturedRequest;
+  globalThis.fetch = async (url, init) => {
+    capturedRequest = { url, body: JSON.parse(init.body) };
+    return Response.json({
+      status: "completed",
+      output_text: JSON.stringify({
+        title: "报名校园摄影社",
+        deadline: "2026-08-24T23:59:00-04:00",
+        deadline_preset: "tomorrow",
+        evidence_requirement: "提交报名成功页面截图。",
+        evidence_image_count: 1,
+        evidence_image_descriptions: ["显示报名成功状态的页面截图。"],
+        suggested_badge: "Career",
+        estimated_hours: 0.25,
+      }),
+    });
+  };
+  t.after(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  const env = {
+    OPENAI_API_KEY: "test-only",
+    OPENAI_MODEL: "test-model",
+    GLOBAL_USAGE_GATE: {
+      idFromName: () => "global-id",
+      get: () => ({ fetch: async () => Response.json({ allowed: true }) }),
+    },
+  };
+  const response = await worker.fetch(
+    new Request("https://example.test/generate-task", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(validImageTaskBody),
+    }),
+    env,
+  );
+
+  assert.equal(response.status, 200);
+  assert.equal(capturedRequest.url, "https://api.openai.com/v1/responses");
+  assert.equal(capturedRequest.body.store, false);
+  assert.equal(capturedRequest.body.input[0].content[1].type, "input_image");
+  assert.equal((await response.json()).title, "报名校园摄影社");
+});
 
 test("validates compressed evidence without accepting extra fields", () => {
   assert.equal(validateEvidenceVerificationInput(validEvidenceBody), null);

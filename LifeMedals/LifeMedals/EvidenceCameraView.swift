@@ -17,8 +17,16 @@ struct EvidenceCameraView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @StateObject private var controller: EvidenceCameraController
+    private let title: String
+    private let detail: String
 
-    init(onCapture: @escaping (Data) -> Void) {
+    init(
+        title: String = "拍摄证据",
+        detail: String = "照片会先压缩并仅保存到这台设备。",
+        onCapture: @escaping (Data) -> Void
+    ) {
+        self.title = title
+        self.detail = detail
         _controller = StateObject(wrappedValue: EvidenceCameraController(onCapture: onCapture))
     }
 
@@ -29,10 +37,10 @@ struct EvidenceCameraView: View {
             VStack(spacing: 18) {
                 HStack {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text("拍摄证据")
+                        Text(title)
                             .font(PixelTheme.displayFont(size: 26))
                             .foregroundStyle(PixelTheme.paperRaised)
-                        Text("照片会先压缩并仅保存到这台设备。")
+                        Text(detail)
                             .font(.subheadline)
                             .foregroundStyle(PixelTheme.paper.opacity(0.72))
                     }
@@ -128,9 +136,13 @@ private final class EvidenceCameraController: NSObject, ObservableObject, AVCapt
     @Published var message = "正在准备相机…"
     @Published var errorMessage: String?
 
-    let session = AVCaptureSession()
-    private let output = AVCapturePhotoOutput()
+    private let cameraSession = CameraSessionCoordinator()
     private let onCapture: (Data) -> Void
+    private var startupTimeoutTask: Task<Void, Never>?
+
+    var session: AVCaptureSession {
+        cameraSession.session
+    }
 
     init(onCapture: @escaping (Data) -> Void) {
         self.onCapture = onCapture
@@ -138,13 +150,21 @@ private final class EvidenceCameraController: NSObject, ObservableObject, AVCapt
     }
 
     func start() {
-        Task {
+        startupTimeoutTask?.cancel()
+        isStarting = true
+        isReady = false
+        message = "正在准备相机…"
+        errorMessage = nil
+
+        Task { [weak self] in
+            guard let self else { return }
             let authorization = AVCaptureDevice.authorizationStatus(for: .video)
             let allowed: Bool
             switch authorization {
             case .authorized:
                 allowed = true
             case .notDetermined:
+                message = "等待相机权限…"
                 allowed = await AVCaptureDevice.requestAccess(for: .video)
             default:
                 allowed = false
@@ -156,45 +176,55 @@ private final class EvidenceCameraController: NSObject, ObservableObject, AVCapt
                 return
             }
 
-            configureSession()
+            beginSessionStartup()
         }
     }
 
     func stop() {
-        if session.isRunning {
-            session.stopRunning()
-        }
+        startupTimeoutTask?.cancel()
+        startupTimeoutTask = nil
+        cameraSession.stop()
     }
 
     func capture() {
         guard isReady, !isCapturing else { return }
         isCapturing = true
         errorMessage = nil
-        output.capturePhoto(with: AVCapturePhotoSettings(), delegate: self)
+        cameraSession.capture(delegate: self)
     }
 
-    private func configureSession() {
-        session.beginConfiguration()
-        session.sessionPreset = .photo
-        defer { session.commitConfiguration() }
-
-        guard
-            let camera = AVCaptureDevice.default(for: .video),
-            let input = try? AVCaptureDeviceInput(device: camera),
-            session.canAddInput(input),
-            session.canAddOutput(output)
-        else {
-            isStarting = false
-            message = "没有找到可用的相机。你仍可以从照片图库选择证据。"
-            return
+    private func beginSessionStartup() {
+        message = "正在启动相机…"
+        startupTimeoutTask = Task { [weak self] in
+            try? await Task.sleep(for: .seconds(12))
+            guard !Task.isCancelled, let self, self.isStarting else { return }
+            self.isStarting = false
+            self.isReady = false
+            self.message = "相机启动超时。请关闭后重试，或检查系统相机权限。"
+            self.cameraSession.stop()
         }
 
-        session.addInput(input)
-        session.addOutput(output)
-        session.startRunning()
-        isStarting = false
-        isReady = session.isRunning
-        message = isReady ? "" : "相机启动失败，请重新打开后再试。"
+        cameraSession.configureAndStart { [weak self] result in
+            guard let self, self.isStarting else { return }
+            self.startupTimeoutTask?.cancel()
+            self.startupTimeoutTask = nil
+            self.isStarting = false
+
+            switch result {
+            case .ready:
+                self.isReady = true
+                self.message = ""
+            case .cameraUnavailable:
+                self.isReady = false
+                self.message = "没有找到可用的相机。你仍可以从照片图库选择图片。"
+            case .configurationFailed:
+                self.isReady = false
+                self.message = "相机配置失败，请关闭后重试。"
+            case .startFailed:
+                self.isReady = false
+                self.message = "相机启动失败，请关闭后重试。"
+            }
+        }
     }
 
     nonisolated func photoOutput(
@@ -217,6 +247,74 @@ private final class EvidenceCameraController: NSObject, ObservableObject, AVCapt
             onCapture(data)
             didCapture = true
         }
+    }
+}
+
+private enum CameraSessionStartResult: Sendable {
+    case ready
+    case cameraUnavailable
+    case configurationFailed
+    case startFailed
+}
+
+/// AVFoundation session setup and `startRunning()` are blocking operations.
+/// Keep them off the main actor so the camera sheet can always update its state.
+private final class CameraSessionCoordinator: @unchecked Sendable {
+    let session = AVCaptureSession()
+
+    private let output = AVCapturePhotoOutput()
+    private let queue = DispatchQueue(label: "noorg.LifeMedals.camera-session")
+    private var isConfigured = false
+
+    func configureAndStart(
+        completion: @escaping @MainActor @Sendable (CameraSessionStartResult) -> Void
+    ) {
+        queue.async { [self] in
+            if !isConfigured {
+                guard let camera = AVCaptureDevice.default(for: .video) else {
+                    Task { @MainActor in completion(.cameraUnavailable) }
+                    return
+                }
+
+                let input: AVCaptureDeviceInput
+                do {
+                    input = try AVCaptureDeviceInput(device: camera)
+                } catch {
+                    Task { @MainActor in completion(.configurationFailed) }
+                    return
+                }
+
+                session.beginConfiguration()
+                session.sessionPreset = .photo
+                guard session.canAddInput(input), session.canAddOutput(output) else {
+                    session.commitConfiguration()
+                    Task { @MainActor in completion(.configurationFailed) }
+                    return
+                }
+                session.addInput(input)
+                session.addOutput(output)
+                session.commitConfiguration()
+                isConfigured = true
+            }
+
+            if !session.isRunning {
+                session.startRunning()
+            }
+            let result: CameraSessionStartResult = session.isRunning ? .ready : .startFailed
+            Task { @MainActor in completion(result) }
+        }
+    }
+
+    func stop() {
+        queue.async { [self] in
+            if session.isRunning {
+                session.stopRunning()
+            }
+        }
+    }
+
+    func capture(delegate: AVCapturePhotoCaptureDelegate) {
+        output.capturePhoto(with: AVCapturePhotoSettings(), delegate: delegate)
     }
 }
 

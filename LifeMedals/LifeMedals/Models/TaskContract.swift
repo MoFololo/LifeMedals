@@ -36,6 +36,9 @@ final class TaskContract {
     var createdAt: Date = Date.now
     /// Nil means the task is active. Optional storage keeps existing local stores migration-compatible.
     var archivedAt: Date?
+    /// App-owned compressed copy of the image that was used to generate this task.
+    /// Optional external storage keeps text-created tasks and existing stores migration-compatible.
+    @Attribute(.externalStorage) var sourceImageData: Data?
 
     var badgeCategory: BadgeCategory?
 
@@ -87,6 +90,7 @@ final class TaskContract {
         status: TaskStatus = .pending,
         createdAt: Date = .now,
         archivedAt: Date? = nil,
+        sourceImageData: Data? = nil,
         badgeCategory: BadgeCategory? = nil
     ) {
         self.id = id
@@ -105,6 +109,7 @@ final class TaskContract {
         self.statusRawValue = status.rawValue
         self.createdAt = createdAt
         self.archivedAt = archivedAt
+        self.sourceImageData = sourceImageData
         self.badgeCategory = badgeCategory
     }
 }

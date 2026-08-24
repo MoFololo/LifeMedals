@@ -14,11 +14,14 @@ struct LoginView: View {
             PixelPanel(fill: PixelTheme.paper, padding: 0) {
                 VStack(spacing: PixelTheme.space24) {
                     VStack(spacing: 12) {
-                        Image(systemName: "medal.fill")
-                            .font(.system(size: 34, weight: .bold))
-                            .foregroundStyle(PixelTheme.gold)
+                        Image("LifeMedalsLogo")
+                            .resizable()
+                            .interpolation(.none)
+                            .scaledToFit()
+                            .padding(9)
                             .frame(width: 72, height: 72)
                             .pixelSurface(fill: PixelTheme.paperRaised, border: PixelTheme.gold, step: 4, hasShadow: true)
+                            .accessibilityLabel("人生勋章")
 
                         VStack(spacing: 7) {
                             Text("人生勋章")

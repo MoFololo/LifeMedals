@@ -1,3 +1,4 @@
+import PhotosUI
 import SwiftUI
 import SwiftData
 
@@ -40,6 +41,27 @@ struct ContentView: View {
     private enum CreationPhase {
         case composing
         case reviewing
+    }
+
+    private enum TaskCreationInputMode: String, CaseIterable, Identifiable {
+        case text
+        case image
+
+        var id: Self { self }
+
+        var title: String {
+            switch self {
+            case .text: "文字"
+            case .image: "图片"
+            }
+        }
+
+        var icon: String {
+            switch self {
+            case .text: "text.alignleft"
+            case .image: "photo"
+            }
+        }
     }
 
     private enum TaskDetailOrigin {
@@ -88,32 +110,18 @@ struct ContentView: View {
 
     private struct TaskRowAction: Identifiable {
         enum Kind: Hashable {
-            case archive
-            case restore
             case delete
 
             var title: String {
-                switch self {
-                case .archive: "归档"
-                case .restore: "取消归档"
-                case .delete: "删除"
-                }
+                "删除"
             }
 
             var icon: String {
-                switch self {
-                case .archive: "archivebox.fill"
-                case .restore: "tray.and.arrow.up.fill"
-                case .delete: "trash.fill"
-                }
+                "trash.fill"
             }
 
             var tint: Color {
-                switch self {
-                case .archive: PixelTheme.gold
-                case .restore: PixelTheme.selection
-                case .delete: PixelTheme.danger
-                }
+                PixelTheme.danger
             }
         }
 
@@ -126,8 +134,9 @@ struct ContentView: View {
         var tint: Color { kind.tint }
     }
 
-    private struct MouseDragSwipeRow<Content: View>: View {
-        private let revealWidth: CGFloat = 188
+    private struct PixelSwipeActionRow<Content: View>: View {
+        private let actionWidth: CGFloat = 68
+        private let actionSpacing: CGFloat = PixelTheme.space8
         private let actions: [TaskRowAction]
         private let onSelect: () -> Void
         private let content: Content
@@ -147,12 +156,12 @@ struct ContentView: View {
 
         var body: some View {
             ZStack(alignment: .trailing) {
-                HStack(spacing: PixelTheme.space16) {
+                HStack(spacing: actionSpacing) {
                     ForEach(actions) { action in
-                        mouseActionButton(action)
+                        pixelActionButton(action)
                     }
                 }
-                .padding(.trailing, 8)
+                .padding(.horizontal, PixelTheme.space8)
                 .opacity(displayedOffset < -4 ? 1 : 0)
                 .allowsHitTesting(displayedOffset < -4)
                 .zIndex(1)
@@ -167,18 +176,24 @@ struct ContentView: View {
                             onSelect()
                         }
                     }
-                    .simultaneousGesture(mouseDragGesture)
+                    .simultaneousGesture(dragGesture)
                     .zIndex(0)
             }
             .clipShape(PixelCornerShape())
             .accessibilityAddTraits(.isButton)
         }
 
+        private var revealWidth: CGFloat {
+            let buttonsWidth = CGFloat(actions.count) * actionWidth
+            let spacingWidth = CGFloat(max(actions.count - 1, 0)) * actionSpacing
+            return buttonsWidth + spacingWidth + PixelTheme.space16
+        }
+
         private var displayedOffset: CGFloat {
             min(0, max(-revealWidth, settledOffset + dragTranslation))
         }
 
-        private var mouseDragGesture: some Gesture {
+        private var dragGesture: some Gesture {
             DragGesture(minimumDistance: 6, coordinateSpace: .local)
                 .updating($dragTranslation) { value, translation, _ in
                     guard abs(value.translation.width) > abs(value.translation.height) else { return }
@@ -193,30 +208,39 @@ struct ContentView: View {
                 }
         }
 
-        private func mouseActionButton(_ action: TaskRowAction) -> some View {
-            VStack(spacing: 5) {
-                Button {
-                    closeActions()
-                    action.perform()
-                } label: {
+        private func pixelActionButton(_ action: TaskRowAction) -> some View {
+            Button {
+                closeActions()
+                action.perform()
+            } label: {
+                VStack(spacing: PixelTheme.space4) {
                     Image(systemName: action.icon)
-                        .font(.system(size: 13, weight: .semibold))
-                        .foregroundStyle(.white)
-                        .frame(width: 56, height: 30)
-                        .contentShape(PixelCornerShape(step: 2))
-                }
-                .buttonStyle(.borderless)
-                .background(action.tint, in: PixelCornerShape(step: 2))
-                .overlay { PixelCornerShape(step: 2).stroke(PixelTheme.goldBright.opacity(0.8), lineWidth: 1) }
-                .accessibilityLabel(action.title)
-                .help(action.title)
+                        .font(.system(size: 18, weight: .bold))
 
-                Text(action.title)
-                    .font(.caption2)
-                    .foregroundStyle(PixelTheme.paper.opacity(0.72))
-                    .lineLimit(1)
+                    Text(action.title)
+                        .font(.caption2.bold())
+                        .lineLimit(1)
+                }
+                .foregroundStyle(.white)
+                .frame(width: actionWidth, height: 58)
+                .background {
+                    ZStack {
+                        PixelCornerShape(step: 3)
+                            .fill(PixelTheme.background.opacity(0.9))
+                            .offset(x: 3, y: 3)
+                        PixelCornerShape(step: 3)
+                            .fill(action.tint)
+                    }
+                }
+                .overlay {
+                    PixelCornerShape(step: 3)
+                        .stroke(PixelTheme.goldBright.opacity(0.9), lineWidth: 2)
+                }
+                .contentShape(PixelCornerShape(step: 3))
             }
-            .frame(width: 56)
+            .buttonStyle(.borderless)
+            .accessibilityLabel(action.title)
+            .help(action.title)
         }
 
         private func closeActions() {
@@ -235,6 +259,8 @@ struct ContentView: View {
     @AppStorage("pendingTaskInput") private var taskInput = ""
     @State private var selectedPage = AppPage.create
     @State private var creationPhase = CreationPhase.composing
+    @State private var creationInputMode = TaskCreationInputMode.text
+    @State private var imageTaskNote = ""
     @State private var isGenerating = false
     @State private var errorMessage: String?
     @State private var savedMessage: String?
@@ -244,10 +270,15 @@ struct ContentView: View {
     @State private var reminderFeedback: String?
     @State private var reminderFeedbackIsError = false
     @State private var selectedTaskTab = TaskListTab.unfinished
-    @State private var isShowingArchivedTasks = false
     @State private var selectedLibraryBadge: String?
     @State private var medalAnimationPresentation: XPAwardEvent?
     @State private var isShowingAccountAndSync = false
+    @State private var selectedSourcePhoto: PhotosPickerItem?
+    @State private var draftSourceImageData: Data?
+    @State private var draftContractSourceImageData: Data?
+    @State private var isImportingSourceImage = false
+    @State private var isSourceCameraPresented = false
+    @State private var sourceImageError: String?
     @FocusState private var isTaskInputFocused: Bool
 
     @State private var draftTitle = ""
@@ -268,6 +299,7 @@ struct ContentView: View {
             .tint(PixelTheme.selection)
             .animation(reduceMotion ? nil : .smooth(duration: 0.42), value: selectedPage)
             .animation(reduceMotion ? nil : .smooth(duration: 0.42), value: creationPhase)
+            .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: creationInputMode)
             .animation(reduceMotion ? nil : .smooth(duration: 0.32), value: savedMessage)
             .onAppear {
                 notificationService.configureForegroundPresentation()
@@ -317,6 +349,7 @@ struct ContentView: View {
             rootContent(containerSize: proxy.size)
                 .frame(width: proxy.size.width, height: proxy.size.height)
         }
+        .ignoresSafeArea(.keyboard, edges: .bottom)
 #else
         rootContent(containerSize: nil)
 #endif
@@ -394,35 +427,14 @@ struct ContentView: View {
 
 #if os(iOS)
     private func mobileTab<Content: View>(
-        _ page: AppPage,
+        _: AppPage,
         containerSize: CGSize,
         @ViewBuilder content: @escaping () -> Content
     ) -> some View {
-        NavigationStack {
-            ZStack {
-                PixelBackground()
-                content()
-                    .frame(width: containerSize.width)
-            }
-                .navigationTitle(page == .create ? "人生勋章" : page.title)
-                .navigationBarTitleDisplayMode(.inline)
-                .toolbarBackground(PixelTheme.backgroundRaised, for: .navigationBar)
-                .toolbarBackground(.visible, for: .navigationBar)
-                .toolbarColorScheme(.dark, for: .navigationBar)
-                .toolbar {
-                    ToolbarItem(placement: .primaryAction) {
-                        Button {
-                            isShowingAccountAndSync = true
-                        } label: {
-                            Label("账户", systemImage: "person.crop.circle")
-                                .labelStyle(.iconOnly)
-                                .font(.body.weight(.medium))
-                                .foregroundStyle(PixelTheme.paperRaised)
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("查看账户与 iCloud 同步状态")
-                    }
-                }
+        ZStack {
+            PixelBackground()
+            content()
+                .frame(width: containerSize.width)
         }
         .frame(width: containerSize.width)
     }
@@ -449,9 +461,12 @@ struct ContentView: View {
         ZStack {
             HStack {
                 HStack(spacing: 10) {
-                    Image(systemName: "medal.fill")
-                        .font(.system(size: 18, weight: .semibold))
-                        .foregroundStyle(PixelTheme.goldBright)
+                    Image("LifeMedalsLogo")
+                        .resizable()
+                        .interpolation(.none)
+                        .scaledToFit()
+                        .frame(width: 22, height: 22)
+                        .accessibilityHidden(true)
                     Text("人生勋章")
                         .font(PixelTheme.displayFont(size: 17))
                         .foregroundStyle(PixelTheme.paper)
@@ -530,90 +545,219 @@ struct ContentView: View {
     private var taskComposer: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: PixelTheme.space16) {
-                HStack(alignment: .top, spacing: PixelTheme.space12) {
-                    VStack(alignment: .leading, spacing: PixelTheme.space4) {
-                        Text("NEW QUEST")
-                            .font(PixelTheme.statFont(size: 12))
-                            .foregroundStyle(PixelTheme.goldBright)
-                        Text("建立新任务")
-                            .font(PixelTheme.displayFont(size: isCompactLayout ? 28 : 34))
-                            .foregroundStyle(PixelTheme.paperRaised)
-                        Text("描述你想完成的事，我们会整理成可验证的任务契约。")
-                            .font(.subheadline)
-                            .foregroundStyle(PixelTheme.paper.opacity(0.74))
-                    }
-                    Spacer()
-                    PixelStatusBadge(title: "QUEST  /  01", color: PixelTheme.selection)
-                }
+                pageHeader(title: "创建新任务")
 
                 PixelPanel(fill: PixelTheme.paper, padding: isCompactLayout ? PixelTheme.space16 : PixelTheme.space24) {
                     VStack(alignment: .leading, spacing: PixelTheme.space16) {
-                        PixelSectionHeader(
-                            title: "任务委托",
-                            subtitle: "一句话即可开始，也可以写清时间、数量或完成标准。"
-                        )
+                        PixelSectionHeader(title: "任务委托")
+                        taskCreationModeTabs
 
-                        PixelInput(isFocused: isTaskInputFocused) {
-                            TextField("例如：本周完成三次 30 分钟跑步", text: $taskInput, axis: .vertical)
-                                .textFieldStyle(.plain)
-                                .font(.system(size: isCompactLayout ? 18 : 22, weight: .medium, design: .rounded))
-                                .foregroundStyle(PixelTheme.ink)
-                                .lineLimit(3...6)
-                                .focused($isTaskInputFocused)
-                                .frame(maxWidth: .infinity, minHeight: isCompactLayout ? 76 : 96, alignment: .topLeading)
-                                .accessibilityLabel("输入你想完成的任务")
-                                .onSubmit(generateTask)
-                        }
-
-                        HStack(alignment: .center, spacing: PixelTheme.space12) {
-                            HStack(spacing: PixelTheme.space8) {
-                                Image(systemName: "wand.and.stars")
-                                    .foregroundStyle(PixelTheme.gold)
-                                Text("AI 将补全截止时间、证据要求与 EXP")
-                                    .font(.caption)
-                                    .foregroundStyle(PixelTheme.inkMuted)
+                        Group {
+                            switch creationInputMode {
+                            case .text:
+                                textTaskComposer
+                            case .image:
+                                imageTaskComposer
                             }
-                            Spacer()
-                            PixelButton(
-                                title: buttonTitle,
-                                systemImage: errorMessage == nil ? nil : "arrow.clockwise",
-                                isLoading: isGenerating,
-                                action: generateTask
-                            )
-                            .disabled(isGenerating || trimmedTaskInput.isEmpty)
-                            .opacity(isGenerating || trimmedTaskInput.isEmpty ? 0.48 : 1)
                         }
-
-                        if let errorMessage {
-                            PixelStatusBadge(title: "连接失败", color: PixelTheme.danger)
-                                .accessibilityLabel(errorMessage)
-                            Text(errorMessage)
-                                .font(.caption)
-                                .foregroundStyle(PixelTheme.danger)
-                                .transition(.opacity.combined(with: .move(edge: .top)))
-                        }
+                        .transition(.opacity.combined(with: .scale(scale: 0.99)))
                     }
                 }
-
-                HStack(spacing: PixelTheme.space8) {
-                    ForEach(["明确目标", "设置期限", "照片验证"], id: \.self) { tip in
-                        Text(tip)
-                            .font(.caption.weight(.semibold))
-                            .foregroundStyle(PixelTheme.paper.opacity(0.78))
-                            .padding(.horizontal, PixelTheme.space8)
-                            .padding(.vertical, PixelTheme.space4)
-                            .overlay { PixelCornerShape(step: 2).stroke(PixelTheme.brownLight, lineWidth: 1) }
-                    }
-                }
-                .accessibilityElement(children: .combine)
             }
             .padding(.horizontal, max(compactPageInset, PixelTheme.space16))
             .padding(.vertical, isCompactLayout ? PixelTheme.space24 : 56)
             .platformScrollableContentWidth(790)
             .frame(maxWidth: .infinity)
         }
-        .contentShape(Rectangle())
-        .onTapGesture { isTaskInputFocused = true }
+#if os(iOS)
+        .scrollDismissesKeyboard(.interactively)
+#endif
+        .platformCameraPresentation(isPresented: $isSourceCameraPresented) {
+            EvidenceCameraView(
+                title: "拍摄任务来源",
+                detail: "照片会先压缩，再用于生成任务。"
+            ) { sourceData in
+                importCapturedSourceImage(sourceData)
+            }
+        }
+        .onChange(of: selectedSourcePhoto) { _, item in
+            guard let item else { return }
+            Task { await importSourcePhoto(item) }
+        }
+    }
+
+    private var taskCreationModeTabs: some View {
+        PixelTabBar(
+            items: TaskCreationInputMode.allCases.map {
+                PixelTabItem(id: $0.rawValue, title: $0.title, systemImage: $0.icon)
+            },
+            selection: creationInputMode.rawValue
+        ) { rawValue in
+            guard let mode = TaskCreationInputMode(rawValue: rawValue) else { return }
+            selectCreationInputMode(mode)
+        }
+        .accessibilityLabel("任务生成方式")
+    }
+
+    private var textTaskComposer: some View {
+        VStack(alignment: .leading, spacing: PixelTheme.space16) {
+            PixelInput(isFocused: isTaskInputFocused) {
+                TextField("例如：本周完成三次 30 分钟跑步", text: $taskInput, axis: .vertical)
+                    .textFieldStyle(.plain)
+                    .font(.system(size: isCompactLayout ? 18 : 22, weight: .medium, design: .rounded))
+                    .foregroundStyle(PixelTheme.ink)
+                    .lineLimit(3...6)
+                    .focused($isTaskInputFocused)
+                    .frame(maxWidth: .infinity, minHeight: isCompactLayout ? 76 : 96, alignment: .topLeading)
+                    .accessibilityLabel("输入你想完成的任务")
+#if os(iOS)
+                    .toolbar {
+                        ToolbarItemGroup(placement: .keyboard) {
+                            Spacer()
+                            Button("完成") {
+                                isTaskInputFocused = false
+                            }
+                        }
+                    }
+#endif
+                    .onSubmit(generateTask)
+            }
+
+            generationAction
+            generationError
+        }
+    }
+
+    private var imageTaskComposer: some View {
+        VStack(alignment: .leading, spacing: PixelTheme.space16) {
+            taskSourceImagePicker
+
+            if draftSourceImageData != nil {
+                PixelInput {
+                    TextField("补充说明（可选）", text: $imageTaskNote, axis: .vertical)
+                        .textFieldStyle(.plain)
+                        .font(.body)
+                        .foregroundStyle(PixelTheme.ink)
+                        .lineLimit(1...3)
+                        .frame(maxWidth: .infinity, minHeight: 38, alignment: .topLeading)
+                        .accessibilityLabel("图片补充说明")
+                        .onSubmit(generateTask)
+                }
+            }
+
+            generationAction
+
+            if let sourceImageError {
+                Text(sourceImageError)
+                    .font(.caption)
+                    .foregroundStyle(PixelTheme.danger)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+
+            generationError
+        }
+    }
+
+    private var generationAction: some View {
+        HStack {
+            Spacer()
+            PixelButton(
+                title: buttonTitle,
+                systemImage: errorMessage == nil ? "wand.and.stars" : "arrow.clockwise",
+                isLoading: isGenerating,
+                action: generateTask
+            )
+            .disabled(isGenerating || isImportingSourceImage || !canGenerateTask)
+            .opacity(isGenerating || isImportingSourceImage || !canGenerateTask ? 0.48 : 1)
+        }
+    }
+
+    @ViewBuilder
+    private var generationError: some View {
+        if let errorMessage {
+            Text(errorMessage)
+                .font(.caption)
+                .foregroundStyle(PixelTheme.danger)
+                .fixedSize(horizontal: false, vertical: true)
+                .transition(.opacity.combined(with: .move(edge: .top)))
+        }
+    }
+
+    private var taskSourceImagePicker: some View {
+        VStack(alignment: .leading, spacing: 8) {
+            if let draftSourceImageData {
+                PlatformImageView(data: draftSourceImageData)
+                    .scaledToFit()
+                    .frame(maxWidth: .infinity, maxHeight: 260)
+                    .background(PixelTheme.background.opacity(0.08))
+                    .clipShape(PixelCornerShape(step: 3))
+                    .overlay { PixelCornerShape(step: 3).stroke(PixelTheme.gold.opacity(0.72), lineWidth: 1) }
+                    .overlay(alignment: .topTrailing) {
+                        Button {
+                            removeSourceImage()
+                        } label: {
+                            Image(systemName: "xmark")
+                                .font(.caption.bold())
+                                .foregroundStyle(.white)
+                                .frame(width: 30, height: 30)
+                                .background(PixelTheme.danger, in: PixelCornerShape(step: 2))
+                        }
+                        .buttonStyle(.plain)
+                        .accessibilityLabel("移除任务来源图片")
+                        .padding(10)
+                    }
+            } else {
+                VStack(spacing: 12) {
+                    if isImportingSourceImage {
+                        ProgressView()
+                            .controlSize(.small)
+                        Text("正在压缩照片…")
+                            .font(.caption)
+                            .foregroundStyle(PixelTheme.inkMuted)
+                    } else {
+                        Image(systemName: "doc.viewfinder")
+                            .font(.system(size: 30, weight: .semibold))
+                            .foregroundStyle(PixelTheme.gold)
+                        Text("上传邮件、syllabus 或活动海报")
+                            .font(.caption)
+                            .foregroundStyle(PixelTheme.inkMuted)
+                    }
+
+                    HStack(spacing: 10) {
+                        PhotosPicker(selection: $selectedSourcePhoto, matching: .images) {
+                            Label("照片图库", systemImage: "photo.on.rectangle")
+                                .font(.subheadline.weight(.semibold))
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 10)
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(isImportingSourceImage)
+                        .foregroundStyle(.white)
+                        .pixelSurface(fill: PixelTheme.selection, border: PixelTheme.gold, step: 2)
+
+                        Button {
+                            isSourceCameraPresented = true
+                        } label: {
+                            Label("拍照", systemImage: "camera")
+                                .font(.subheadline.weight(.semibold))
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 10)
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(isImportingSourceImage)
+                        .foregroundStyle(PixelTheme.ink)
+                        .pixelSurface(fill: PixelTheme.paperRaised, border: PixelTheme.gold, step: 2)
+                    }
+                }
+                .padding(16)
+                .frame(maxWidth: .infinity, minHeight: 130)
+                .background(PixelTheme.paperRaised, in: PixelCornerShape(step: 3))
+                .overlay {
+                    PixelCornerShape(step: 3)
+                        .stroke(PixelTheme.gold.opacity(0.58), style: StrokeStyle(lineWidth: 1, dash: [7, 5]))
+                }
+            }
+        }
     }
 
     private var contractReview: some View {
@@ -664,6 +808,24 @@ struct ContentView: View {
                                 .frame(width: 220)
                             deadlineContractField
                                 .frame(maxWidth: .infinity)
+                        }
+                    }
+
+                    if let draftContractSourceImageData {
+                        contractField("任务来源") {
+                            VStack(alignment: .leading, spacing: 10) {
+                                PlatformImageView(data: draftContractSourceImageData)
+                                    .scaledToFit()
+                                    .frame(maxWidth: .infinity, maxHeight: 280)
+                                    .background(PixelTheme.background.opacity(0.08))
+                                    .clipShape(PixelCornerShape(step: 3))
+                                Label("这个任务由上图内容生成；保存后可在任务详情中回看。", systemImage: "sparkles")
+                                    .font(.caption)
+                                    .foregroundStyle(PixelTheme.inkMuted)
+                            }
+                            .padding(12)
+                            .background(PixelTheme.paperRaised, in: PixelCornerShape())
+                            .overlay { PixelCornerShape().stroke(PixelTheme.gold.opacity(0.62), lineWidth: 1) }
                         }
                     }
 
@@ -815,11 +977,7 @@ struct ContentView: View {
 
     private var taskListRoot: some View {
         TimelineView(.periodic(from: .now, by: 60)) { context in
-            if isShowingArchivedTasks {
-                archivedTaskListRoot(now: context.date)
-            } else {
-                taskListRoot(now: context.date)
-            }
+            taskListRoot(now: context.date)
         }
     }
 
@@ -850,7 +1008,7 @@ struct ContentView: View {
                     .listRowInsets(EdgeInsets(top: 8, leading: pageHorizontalInset, bottom: 28, trailing: pageHorizontalInset))
             } else {
                 ForEach(selectedTasks) { task in
-                    let actions = taskRowActions(for: task, isArchived: false)
+                    let actions = taskRowActions(for: task)
                     adaptiveTaskRow(
                         task: task,
                         now: now,
@@ -874,29 +1032,14 @@ struct ContentView: View {
         overdueCount: Int
     ) -> some View {
         VStack(alignment: .leading, spacing: 20) {
-            HStack(alignment: .top, spacing: 12) {
-                Button {
-                    withAnimation(.smooth(duration: 0.3)) {
-                        isShowingArchivedTasks = true
-                    }
-                } label: {
-                    Image(systemName: "archivebox")
-                        .font(.system(size: 14, weight: .bold))
-                        .foregroundStyle(PixelTheme.ink)
-                        .frame(width: 34, height: 34)
-                }
-                .buttonStyle(.plain)
-                .pixelSurface(fill: PixelTheme.paperRaised, border: PixelTheme.gold, step: 3, hasShadow: true)
-                .accessibilityLabel("查看已归档任务")
-                .help("查看已归档任务")
-
-                pageHeader(
-                    title: "任务",
-                    subtitle: activeTaskContracts.isEmpty
+            pageHeader(
+                title: "任务",
+                subtitle: isCompactLayout
+                    ? nil
+                    : activeTaskContracts.isEmpty
                         ? "你保存的任务契约会出现在这里。"
                         : "\(unfinishedCount) 项未完成 · \(completedCount) 项已完成 · \(overdueCount) 项已逾期，全部保存在这台设备上。"
-                )
-            }
+            )
 
             taskListTabs(
                 unfinishedCount: unfinishedCount,
@@ -908,64 +1051,6 @@ struct ContentView: View {
         }
         .frame(maxWidth: 790, alignment: .leading)
         .frame(maxWidth: .infinity, alignment: .leading)
-    }
-
-    private func archivedTaskListRoot(now: Date) -> some View {
-        let archivedTasks = taskContracts
-            .filter(\.isArchived)
-            .sorted { ($0.archivedAt ?? $0.createdAt) > ($1.archivedAt ?? $1.createdAt) }
-
-        return List {
-            HStack(alignment: .top, spacing: 12) {
-                Button {
-                    withAnimation(.smooth(duration: 0.3)) {
-                        isShowingArchivedTasks = false
-                    }
-                } label: {
-                    Image(systemName: "chevron.left")
-                        .font(.system(size: 13, weight: .bold))
-                        .foregroundStyle(PixelTheme.ink)
-                        .frame(width: 34, height: 34)
-                }
-                .buttonStyle(.plain)
-                .pixelSurface(fill: PixelTheme.paperRaised, border: PixelTheme.gold, step: 3, hasShadow: true)
-                .accessibilityLabel("返回任务")
-                .help("返回任务")
-
-                pageHeader(
-                    title: "已归档",
-                    subtitle: archivedTasks.isEmpty ? "归档的任务会保存在这里，不会出现在任务状态列表中。" : "共 \(archivedTasks.count) 项已归档任务。"
-                )
-            }
-            .frame(maxWidth: 790, alignment: .leading)
-            .frame(maxWidth: .infinity, alignment: .leading)
-            .listRowBackground(Color.clear)
-            .listRowSeparator(.hidden)
-            .listRowInsets(EdgeInsets(top: 24, leading: pageHorizontalInset, bottom: 12, trailing: pageHorizontalInset))
-
-            if archivedTasks.isEmpty {
-                emptyState(icon: "archivebox", title: "还没有已归档任务", message: "向左滑动任何任务，即可将它归档。")
-                    .listRowBackground(Color.clear)
-                    .listRowSeparator(.hidden)
-                    .listRowInsets(EdgeInsets(top: 8, leading: pageHorizontalInset, bottom: 28, trailing: pageHorizontalInset))
-            } else {
-                ForEach(archivedTasks) { task in
-                    let actions = taskRowActions(for: task, isArchived: true)
-                    adaptiveTaskRow(
-                        task: task,
-                        now: now,
-                        actions: actions,
-                        onSelect: { openTask(task) }
-                    )
-                        .clipShape(PixelCornerShape())
-                        .listRowBackground(Color.clear)
-                        .listRowSeparator(.hidden)
-                        .listRowInsets(EdgeInsets(top: 7, leading: pageHorizontalInset, bottom: 7, trailing: pageHorizontalInset))
-                }
-            }
-        }
-        .listStyle(.plain)
-        .scrollContentBackground(.hidden)
     }
 
     private func taskListTabs(
@@ -1067,14 +1152,14 @@ struct ContentView: View {
                     .lineLimit(2)
                 if isCompactLayout {
                     Label(
-                        task.deadline.formatted(date: .numeric, time: .shortened),
+                        deadlineDisplayText(task.deadline, relativeTo: now),
                         systemImage: task.deadline <= now ? "clock.badge.exclamationmark" : "clock"
                     )
                     .lineLimit(1)
                 } else {
                     HStack(spacing: 7) {
                         Label(
-                            task.deadline.formatted(date: .abbreviated, time: .shortened),
+                            deadlineDisplayText(task.deadline, relativeTo: now),
                             systemImage: task.deadline <= now ? "clock.badge.exclamationmark" : "clock"
                         )
                         Text("·")
@@ -1116,30 +1201,8 @@ struct ContentView: View {
         actions: [TaskRowAction],
         onSelect: @escaping () -> Void
     ) -> some View {
-#if os(macOS)
-        MouseDragSwipeRow(actions: actions, onSelect: onSelect) {
+        PixelSwipeActionRow(actions: actions, onSelect: onSelect) {
             taskRow(task, now: now)
-        }
-#else
-        Button(action: onSelect) {
-            taskRow(task, now: now)
-        }
-        .buttonStyle(.plain)
-        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
-            taskSwipeActions(actions)
-        }
-#endif
-    }
-
-    @ViewBuilder
-    private func taskSwipeActions(_ actions: [TaskRowAction]) -> some View {
-        ForEach(Array(actions.reversed())) { action in
-            Button(role: action.kind == .delete ? .destructive : nil) {
-                action.perform()
-            } label: {
-                Label(action.title, systemImage: action.icon)
-            }
-            .tint(action.tint)
         }
     }
 
@@ -1166,8 +1229,8 @@ struct ContentView: View {
 
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 16)], spacing: 16) {
                     detailCard(
-                        title: "截止时间",
-                        value: task.deadline.formatted(date: .long, time: .shortened),
+                        title: "截止日期",
+                        value: deadlineDisplayText(task.deadline),
                         icon: task.deadline < .now ? "clock.badge.exclamationmark" : "calendar.badge.clock",
                         tint: task.deadline < .now ? PixelTheme.danger : PixelTheme.selection
                     )
@@ -1187,6 +1250,26 @@ struct ContentView: View {
                         icon: "sparkles",
                         tint: PixelTheme.gold
                     )
+                }
+
+                if let sourceImageData = task.sourceImageData {
+                    VStack(alignment: .leading, spacing: 12) {
+                        Label("任务来源", systemImage: "photo.text.magnifyingglass")
+                            .font(PixelTheme.displayFont(size: 17))
+                            .foregroundStyle(PixelTheme.ink)
+
+                        PlatformImageView(data: sourceImageData)
+                            .scaledToFit()
+                            .frame(maxWidth: .infinity, maxHeight: 440)
+                            .background(PixelTheme.background.opacity(0.08))
+                            .clipShape(PixelCornerShape(step: 3))
+
+                        Text("创建任务时由 AI 读取的来源图片副本")
+                            .font(.caption)
+                            .foregroundStyle(PixelTheme.inkMuted)
+                    }
+                    .padding(18)
+                    .pixelSurface(fill: PixelTheme.paperRaised, border: PixelTheme.gold, step: 4, hasShadow: true)
                 }
 
                 VStack(alignment: .leading, spacing: 14) {
@@ -1235,16 +1318,8 @@ struct ContentView: View {
                 .padding(22)
                 .pixelSurface(fill: PixelTheme.paperRaised, border: PixelTheme.gold, step: 4, hasShadow: true)
 
-                if task.isArchived {
-                    statusBanner(
-                        icon: "archivebox.fill",
-                        message: "这项任务已归档。向左滑动并选择“取消归档”后，才能继续提交证据。",
-                        color: PixelTheme.gold
-                    )
-                } else {
-                    EvidenceSubmissionView(task: task)
-                    taskReminderDetail(for: task)
-                }
+                EvidenceSubmissionView(task: task)
+                taskReminderDetail(for: task)
             }
             .padding(.horizontal, pageHorizontalInset)
             .padding(.vertical, 38)
@@ -1304,7 +1379,12 @@ struct ContentView: View {
     private var medalsGridPage: some View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
-                pageHeader(title: "勋章", subtitle: "收集碎片，铸造属于每个领域的勋章。点开后可回顾历史任务和证据。")
+                pageHeader(
+                    title: "勋章",
+                    subtitle: isCompactLayout
+                        ? nil
+                        : "收集碎片，铸造属于每个领域的勋章。点开后可回顾历史任务和证据。"
+                )
 
                 LazyVGrid(
                     columns: [
@@ -1566,6 +1646,54 @@ struct ContentView: View {
 
     // MARK: - Actions
 
+    private func selectCreationInputMode(_ mode: TaskCreationInputMode) {
+        guard mode != creationInputMode, !isGenerating else { return }
+        isTaskInputFocused = false
+        errorMessage = nil
+        withAnimation(.smooth(duration: 0.24)) {
+            creationInputMode = mode
+        }
+        if mode == .text {
+            focusTaskInput()
+        }
+    }
+
+    @MainActor
+    private func importSourcePhoto(_ item: PhotosPickerItem) async {
+        isImportingSourceImage = true
+        sourceImageError = nil
+        defer {
+            isImportingSourceImage = false
+            selectedSourcePhoto = nil
+        }
+
+        do {
+            guard let sourceData = try await item.loadTransferable(type: Data.self) else {
+                throw EvidenceImageProcessingError.unreadableImage
+            }
+            draftSourceImageData = try EvidenceImageProcessor.compressedJPEG(from: sourceData)
+            errorMessage = nil
+        } catch {
+            sourceImageError = error.localizedDescription
+        }
+    }
+
+    private func importCapturedSourceImage(_ sourceData: Data) {
+        sourceImageError = nil
+        do {
+            draftSourceImageData = try EvidenceImageProcessor.compressedJPEG(from: sourceData)
+            errorMessage = nil
+        } catch {
+            sourceImageError = error.localizedDescription
+        }
+    }
+
+    private func removeSourceImage() {
+        selectedSourcePhoto = nil
+        draftSourceImageData = nil
+        sourceImageError = nil
+    }
+
     private func selectPage(_ page: AppPage) {
         if page == selectedPage {
             if page == .tasks {
@@ -1592,14 +1720,20 @@ struct ContentView: View {
     }
 
     private func generateTask() {
-        guard !trimmedTaskInput.isEmpty, !isGenerating else { return }
+        guard canGenerateTask, !isGenerating else { return }
+        let prompt = currentTaskPrompt
+        let sourceImageData = activeSourceImageData
 
+        isTaskInputFocused = false
         isGenerating = true
         errorMessage = nil
 
         Task {
             do {
-                let contract = try await generationService.generate(from: trimmedTaskInput)
+                let contract = try await generationService.generate(
+                    from: prompt,
+                    sourceImageData: sourceImageData
+                )
                 guard let deadline = contract.parsedDeadline else {
                     throw TaskGenerationError.invalidResponse
                 }
@@ -1614,6 +1748,7 @@ struct ContentView: View {
                     ? contract.suggestedBadge
                     : Self.badgeOptions[0]
                 draftXP = contract.suggestedXP
+                draftContractSourceImageData = sourceImageData
 
                 withAnimation(.smooth(duration: 0.46)) {
                     creationPhase = .reviewing
@@ -1660,6 +1795,7 @@ struct ContentView: View {
                 evidenceImageCount: draftEvidenceImageCount,
                 evidenceImageDescriptions: draftEvidenceImageDescriptions,
                 xpReward: draftXP,
+                sourceImageData: draftContractSourceImageData,
                 badgeCategory: category
             )
             modelContext.insert(task)
@@ -1669,9 +1805,15 @@ struct ContentView: View {
             )
 
             taskInput = ""
+            selectedSourcePhoto = nil
+            draftSourceImageData = nil
+            draftContractSourceImageData = nil
+            imageTaskNote = ""
+            sourceImageError = nil
             errorMessage = nil
             withAnimation(.smooth(duration: 0.44)) {
                 creationPhase = .composing
+                creationInputMode = .text
                 savedMessage = syncMonitor.isAvailable
                     ? "“\(title)”已保存，正在等待 iCloud 同步"
                     : "“\(title)”已保存到本机"
@@ -1712,25 +1854,10 @@ struct ContentView: View {
         }
     }
 
-    private func taskRowActions(for task: TaskContract, isArchived: Bool) -> [TaskRowAction] {
-        let secondaryAction = TaskRowAction(
-            kind: isArchived ? .restore : .archive,
-            perform: isArchived ? { restoreTask(task) } : { archiveTask(task) }
-        )
-        let deleteAction = TaskRowAction(kind: .delete) {
+    private func taskRowActions(for task: TaskContract) -> [TaskRowAction] {
+        [TaskRowAction(kind: .delete) {
             deleteTask(task)
-        }
-        return [secondaryAction, deleteAction]
-    }
-
-    private func archiveTask(_ task: TaskContract) {
-        task.archivedAt = .now
-        persistTaskChange(successMessage: "“\(task.title)”已归档")
-    }
-
-    private func restoreTask(_ task: TaskContract) {
-        task.archivedAt = nil
-        persistTaskChange(successMessage: "“\(task.title)”已恢复到任务列表")
+        }]
     }
 
     private func deleteTask(_ task: TaskContract) {
@@ -1773,6 +1900,21 @@ struct ContentView: View {
 
     private var trimmedTaskInput: String {
         taskInput.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var trimmedImageTaskNote: String {
+        imageTaskNote.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    private var currentTaskPrompt: String {
+        switch creationInputMode {
+        case .text: trimmedTaskInput
+        case .image: trimmedImageTaskNote
+        }
+    }
+
+    private var activeSourceImageData: Data? {
+        creationInputMode == .image ? draftSourceImageData : nil
     }
 
     private var isCompactLayout: Bool {
@@ -1846,7 +1988,17 @@ struct ContentView: View {
 
     private var buttonTitle: String {
         if isGenerating { return "正在整理契约" }
-        return errorMessage == nil ? "提交" : "保留输入并重试"
+        if creationInputMode == .image {
+            return errorMessage == nil ? "识别并生成" : "保留图片并重试"
+        }
+        return errorMessage == nil ? "生成任务" : "保留输入并重试"
+    }
+
+    private var canGenerateTask: Bool {
+        switch creationInputMode {
+        case .text: !trimmedTaskInput.isEmpty
+        case .image: draftSourceImageData != nil
+        }
     }
 
     private var canSaveDraft: Bool {
@@ -1882,6 +2034,24 @@ struct ContentView: View {
         return .thisWeekend
     }
 
+    private func deadlineDisplayText(_ deadline: Date, relativeTo date: Date = .now) -> String {
+        let calendar = Calendar.current
+        let startOfToday = calendar.startOfDay(for: date)
+        let startOfDeadline = calendar.startOfDay(for: deadline)
+        let days = calendar.dateComponents([.day], from: startOfToday, to: startOfDeadline).day
+
+        switch days {
+        case 0:
+            return "今日"
+        case 1:
+            return "明日"
+        default:
+            let components = calendar.dateComponents([.month, .day], from: deadline)
+            guard let month = components.month, let day = components.day else { return "" }
+            return "\(month)月\(day)日"
+        }
+    }
+
     private var pendingTasks: [TaskContract] {
         activeTaskContracts
             .filter { $0.status != .verified }
@@ -1894,7 +2064,7 @@ struct ContentView: View {
     }
 
     private var activeTaskContracts: [TaskContract] {
-        taskContracts.filter { !$0.isArchived }
+        taskContracts
     }
 
     private func tasks(in tab: TaskListTab, now: Date) -> [TaskContract] {
@@ -2046,7 +2216,7 @@ struct ContentView: View {
             case .authorized:
                 statusBanner(
                     icon: "bell.badge.fill",
-                    message: "将在 \(task.deadline.formatted(date: .long, time: .shortened)) 发送本地通知。",
+                    message: "将在 \(deadlineDisplayText(task.deadline)) 发送本地通知。",
                     color: PixelTheme.success
                 )
             case .denied:
@@ -2097,6 +2267,7 @@ struct ContentView: View {
     }
 
     private func focusTaskInput() {
+        guard creationInputMode == .text else { return }
 #if os(macOS)
         Task { @MainActor in
             isTaskInputFocused = true
@@ -2139,17 +2310,34 @@ struct ContentView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
     }
 
-    private func pageHeader(title: String, subtitle: String) -> some View {
-        VStack(alignment: .leading, spacing: 5) {
-            Text("QUEST LOG")
-                .font(PixelTheme.statFont(size: 11))
-                .foregroundStyle(PixelTheme.goldBright)
-            Text(title)
-                .font(PixelTheme.displayFont(size: isCompactLayout ? 28 : 34))
-                .foregroundStyle(PixelTheme.paperRaised)
-            Text(subtitle)
-                .foregroundStyle(PixelTheme.paper.opacity(0.72))
-                .fixedSize(horizontal: false, vertical: true)
+    private func pageHeader(title: String, subtitle: String? = nil) -> some View {
+        HStack(alignment: .top, spacing: PixelTheme.space12) {
+            VStack(alignment: .leading, spacing: 5) {
+                if !isCompactLayout {
+                    Text("QUEST LOG")
+                        .font(PixelTheme.statFont(size: 11))
+                        .foregroundStyle(PixelTheme.goldBright)
+                }
+                Text(title)
+                    .font(PixelTheme.displayFont(size: isCompactLayout ? 28 : 34))
+                    .foregroundStyle(PixelTheme.paperRaised)
+                if let subtitle {
+                    Text(subtitle)
+                        .foregroundStyle(PixelTheme.paper.opacity(0.72))
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
+
+            Spacer()
+
+            if isCompactLayout {
+                PixelIconButton(
+                    systemImage: "person.crop.circle",
+                    accessibilityLabel: "查看账户与 iCloud 同步状态"
+                ) {
+                    isShowingAccountAndSync = true
+                }
+            }
         }
     }
 

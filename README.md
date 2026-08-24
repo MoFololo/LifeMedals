@@ -6,7 +6,7 @@
 
 ## 产品简介
 
-用户说一句话（比如"明天晚上10点前做两道LeetCode Medium"），AI 生成一份可编辑的"任务契约"（标题、截止时间、验收标准、所属勋章），用户确认后去执行；完成后提交证据（截图/照片），AI 核验通过后获得对应勋章的经验值，并存入可回顾的成就 Library。
+用户说一句话（比如"明天晚上10点前做两道LeetCode Medium"），或上传邮件、syllabus、活动海报等图片，AI 从中生成一份可编辑的"任务契约"（标题、截止时间、验收标准、所属勋章）；用户确认后去执行，完成后提交证据（截图/照片），AI 核验通过后获得对应勋章的经验值，并存入可回顾的成就 Library。图片生成的任务会保留压缩后的来源图，方便之后在任务详情中回看上下文。
 
 ## 核心产品闭环
 
@@ -67,7 +67,7 @@ LifeMedals/
 
 - `BadgeCategory`：默认或自定义勋章类别。
 - `UserBadge`：每个类别独立累计的 EXP 和等级。
-- `TaskContract`：标题、截止时间、锁定的验收标准、1–5 张证据照片计划、所属勋章、XP 奖励和状态。
+- `TaskContract`：标题、截止时间、锁定的验收标准、1–5 张证据照片计划、可选的任务来源图片、所属勋章、XP 奖励和状态。
 - `Evidence`：本地证据图片、提交批次与顺序、提交时间、AI 三态核验结果和解释。
 - `XPLog`：关联任务与勋章的 EXP 变动记录。
 
@@ -90,6 +90,7 @@ LifeMedals/
 - 系统 Sign in with Apple 登录、钥匙串会话保存与撤销状态检查；允许离线进入
 - iCloud 私有数据库自动同步、账户状态和同步事件状态 UI
 - 自然语言输入 → AI 生成任务契约 → 用户可编辑（标题/截止时间/验收标准/所属勋章）→ 确认
+- 邮件、课程资料或活动海报图片 → AI 提取明确下一步 → 保留来源图供任务详情回看
 - 支持四类任务：LeetCode/课程学习、项目开发、投递求职申请、健身/运动
 - 提交截图证据 → AI 核验 → 返回 Verified / Need More Proof / Not Verified
 - 勋章体系：默认几个类别，EXP 累加，等级显示
@@ -182,7 +183,7 @@ static let defaultBaseURL = "https://你的-worker.workers.dev/"
 
 若只想在一次 Xcode 调试会话中临时覆盖地址，可以在 **Product → Scheme → Edit Scheme → Run → Arguments → Environment Variables** 中设置 `LIFEMEDALS_API_BASE_URL`。
 
-Mac/iOS 客户端会自动调用该地址下的 `POST /generate-task` 与 `POST /verify-evidence`。输入草稿使用本机 `AppStorage` 保存；断网或请求失败不会清空，恢复联网后可直接重试。生成结果可以编辑标题、截止时间、验收标准和所属勋章，确认后写入 SwiftData。
+Mac/iOS 客户端会自动调用该地址下的 `POST /generate-task` 与 `POST /verify-evidence`。`generate-task` 接受文字，也接受一张压缩 JPEG 与可选补充说明；图片只在当前请求中转发给 OpenAI，并固定使用 `store: false`。输入草稿使用本机 `AppStorage` 保存；断网或请求失败不会清空，恢复联网后可直接重试。生成结果可以编辑标题、截止时间、验收标准和所属勋章，确认后连同可选来源图片写入 SwiftData。
 
 生成任务契约时，AI 会同时给出 1–5 张证据照片数量及内容描述：1–2 张分别描述每个槽位，3–5 张使用一条整组描述。提交页据此显示单张大正方形、双张独立方框或 3–5 张横向草稿栏。iOS 支持相机、PhotosPicker 与文件选择；macOS 额外支持拖放和 `⌘V`。照片可在提交前预览删除；必须填满任务要求的照片数并明确点击提交，才会保存并调用 AI 核验。同一次提交的照片共享批次 ID，在历史区合并为一行。客户端先把原图转换为最长边不超过 1800 px、单张不超过约 1 MB 的 JPEG 副本，再写入 `Evidence.imageData` 的 SwiftData 外部存储；原始照片不复制进应用。核验失败时，整批本地记录保持 `Pending Verification`，可从任务详情重试。
 

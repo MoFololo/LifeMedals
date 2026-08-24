@@ -274,9 +274,9 @@
 				ENABLE_RESOURCE_ACCESS_CAMERA = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_NSCameraUsageDescription = "用于拍摄任务完成证据；照片只在本机保存，并在核验请求期间临时处理。";
+				INFOPLIST_KEY_NSCameraUsageDescription = "用于拍摄任务来源或完成证据；照片会先压缩，并在生成或核验请求期间临时处理。";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
-				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "用于选择任务完成证据；所选照片会压缩后保存到你的私有数据库。";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "用于选择任务来源或完成证据；所选照片会压缩后保存到你的私有数据库。";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
@@ -322,9 +322,9 @@
 				ENABLE_RESOURCE_ACCESS_CAMERA = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = YES;
-				INFOPLIST_KEY_NSCameraUsageDescription = "用于拍摄任务完成证据；照片只在本机保存，并在核验请求期间临时处理。";
+				INFOPLIST_KEY_NSCameraUsageDescription = "用于拍摄任务来源或完成证据；照片会先压缩，并在生成或核验请求期间临时处理。";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
-				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "用于选择任务完成证据；所选照片会压缩后保存到你的私有数据库。";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "用于选择任务来源或完成证据；所选照片会压缩后保存到你的私有数据库。";
 				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
 				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
 				INFOPLIST_KEY_UILaunchScreen_Generation = YES;

@@ -149,6 +149,8 @@
 
 <!-- 每条记录格式：YYYY-MM-DD | 做了什么 | 涉及文件/commit -->
 
+- 2026-08-23 | 新增图片生成任务：创建页可从照片图库或文件选择邮件、syllabus、社团海报等图片，并可附加文字说明；客户端压缩为 JPEG 后通过 `generate-task` 发送，Worker 使用无状态 Responses API 视觉输入提取一个明确的下一步并保留既有结构化契约；确认保存时将来源图作为 SwiftData 外部字段随任务保存，任务详情可回看。补充图片输入校验、Prompt 构建与端到端 Worker 转发测试；Worker 11 项测试、Wrangler dry-run、macOS 与 iOS Simulator Debug 构建通过 | ContentView.swift, TaskContract.swift, TaskGenerationService.swift, project.pbxproj, worker/src/index.ts, worker/test/usage-gate.test.mjs, README.md, docs/progress.md
+
 - 2026-08-08 | 完成现有页面的 iPhone UI/动画专项审计：每个底部 Tab 使用独立导航栈并恢复账户入口；取消移动端启动自动聚焦，避免键盘遮挡 Tab Bar；任务行在 iOS 仅保留原生 swipeActions；统一约束竖向 ScrollView 的可视宽度，修复任务、契约、详情与勋章页采用 790pt 桌面理想宽度导致的横向裁切；缩小移动端列表边距与任务行信息密度；双图证据槽、证据历史卡、账户弹窗、相机页改为紧凑响应式布局；奖励动画改为 iOS 全屏模态、深色加载背景并支持 Reduce Motion。新增仅 Debug 的页面截图路由，标准 iPhone 模拟器逐页截图通过；iOS/macOS Debug 构建及 Worker 8 项测试通过 | ContentView.swift, PlatformSupport.swift, EvidenceSubmissionView.swift, EvidenceCameraView.swift, AccountSyncView.swift, MedalVisualSystem.swift, MedalTransmutationView.swift, docs/ios-migration-plan.md, docs/progress.md
 
 - 2026-08-08 | 启动并完成 iOS 迁移第一阶段：现有 SwiftUI target 升级为 macOS+iOS 多平台 target；图片压缩改为跨平台 ImageIO，实现 AppKit/UIKit 图片、相机预览和 WKWebView 适配；iPhone 新增底部导航、紧凑顶部栏、响应式契约/证据布局以及拍照、图库、文件入口；macOS 与 iOS Simulator Debug 无签名构建均通过；补充真机、CloudKit、TestFlight 和上架清单 | project.pbxproj, PlatformSupport.swift, ContentView.swift, LoginView.swift, AccountSyncView.swift, EvidenceCameraView.swift, EvidenceImageProcessor.swift, EvidenceSubmissionView.swift, MedalVisualSystem.swift, MedalTransmutationView.swift, README.md, docs/ios-migration-plan.md, docs/progress.md
