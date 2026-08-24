@@ -73,9 +73,9 @@ enum EvidenceImageProcessingError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .unreadableImage:
-            return "无法读取这张图片，请选择其他图片。"
+            return L10n.text("无法读取这张图片，请选择其他图片。")
         case .cannotCompress:
-            return "图片内容过大，无法压缩到安全上传大小，请选择其他图片。"
+            return L10n.text("图片内容过大，无法压缩到安全上传大小，请选择其他图片。")
         }
     }
 }

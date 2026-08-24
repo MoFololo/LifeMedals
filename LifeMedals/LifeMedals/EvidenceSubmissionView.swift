@@ -9,6 +9,8 @@ import SwiftUI
 import UniformTypeIdentifiers
 
 struct EvidenceSubmissionView: View {
+    @Environment(\.locale) private var locale
+
     private struct DraftImage: Identifiable {
         let id = UUID()
         let data: Data
@@ -56,6 +58,7 @@ struct EvidenceSubmissionView: View {
     private let verificationService = EvidenceVerificationService()
 
     var body: some View {
+        let _ = locale.identifier
         VStack(alignment: .leading, spacing: 18) {
             ViewThatFits(in: .horizontal) {
                 evidenceHeader
@@ -339,7 +342,7 @@ struct EvidenceSubmissionView: View {
 
     private var multiImageLayout: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(normalizedImageDescriptions[0])
+            Text(L10n.text(normalizedImageDescriptions[0]))
                 .font(PixelTheme.font(.subheadline))
                 .foregroundStyle(PixelTheme.inkMuted)
                 .fixedSize(horizontal: false, vertical: true)
@@ -390,7 +393,7 @@ struct EvidenceSubmissionView: View {
                     compactFixedImageSlot(index: index)
                 } else {
                     VStack(spacing: 14) {
-                    Text(normalizedImageDescriptions[index])
+                    Text(L10n.text(normalizedImageDescriptions[index]))
                         .font(PixelTheme.font(.subheadline, weight: .medium))
                         .multilineTextAlignment(.center)
                         .fixedSize(horizontal: false, vertical: true)
@@ -460,7 +463,7 @@ struct EvidenceSubmissionView: View {
             Text("照片 \(index + 1)")
                 .font(PixelTheme.font(.caption, weight: .semibold))
 
-            Text(normalizedImageDescriptions[index])
+            Text(L10n.text(normalizedImageDescriptions[index]))
                 .font(PixelTheme.font(.caption2))
                 .foregroundStyle(PixelTheme.inkMuted)
                 .multilineTextAlignment(.center)
@@ -509,7 +512,11 @@ struct EvidenceSubmissionView: View {
                         VStack(spacing: 7) {
                             Image(systemName: "plus")
                                 .font(PixelTheme.font(.title2, weight: .medium))
-                            Text(draftImages.isEmpty ? "添加照片" : "继续添加")
+                            Text(
+                                draftImages.isEmpty
+                                    ? L10n.text("添加照片", english: "Add Photo")
+                                    : L10n.text("继续添加", english: "Add More")
+                            )
                                 .font(PixelTheme.font(.caption))
                         }
                         .foregroundStyle(PixelTheme.inkMuted)
@@ -657,7 +664,7 @@ struct EvidenceSubmissionView: View {
     }
 
     private func evidenceBatchDate(_ batch: EvidenceBatch) -> some View {
-        Text(batch.submittedAt.formatted(date: .abbreviated, time: .shortened))
+        Text(L10n.date(batch.submittedAt, dateStyle: .medium, timeStyle: .short))
             .font(PixelTheme.font(.caption2))
             .foregroundStyle(PixelTheme.inkMuted.opacity(0.72))
     }
@@ -682,13 +689,13 @@ struct EvidenceSubmissionView: View {
     private func verdictPill(_ verdict: EvidenceVerdict) -> some View {
         let presentation: (String, String, Color) = switch verdict {
         case .pending:
-            ("Pending Verification", "hourglass", PixelTheme.selection)
+            (L10n.text("等待核验", english: "Pending Verification"), "hourglass", PixelTheme.selection)
         case .verified:
-            ("Verified", "checkmark.circle.fill", PixelTheme.success)
+            (L10n.text("已完成", english: "Verified"), "checkmark.circle.fill", PixelTheme.success)
         case .needMoreProof:
-            ("Need More Proof", "photo.badge.plus", PixelTheme.gold)
+            (L10n.text("需补充证据", english: "Need More Proof"), "photo.badge.plus", PixelTheme.gold)
         case .notVerified:
-            ("Not Verified", "xmark.circle.fill", PixelTheme.danger)
+            (L10n.text("未通过核验", english: "Not Verified"), "xmark.circle.fill", PixelTheme.danger)
         }
 
         return PixelStatusBadge(title: presentation.0, color: presentation.2)
@@ -699,7 +706,7 @@ struct EvidenceSubmissionView: View {
         HStack(alignment: .top, spacing: 10) {
             Image(systemName: isError ? "exclamationmark.triangle.fill" : "checkmark.circle.fill")
                 .foregroundStyle(isError ? PixelTheme.gold : PixelTheme.success)
-            Text(message)
+            Text(L10n.text(message))
                 .font(PixelTheme.font(.subheadline))
                 .fixedSize(horizontal: false, vertical: true)
             Spacer(minLength: 0)
@@ -806,18 +813,35 @@ struct EvidenceSubmissionView: View {
     }
 
     private var submitButtonTitle: String {
-        if isWorking { return "正在核验" }
-        if isDraftComplete { return "提交 \(requiredImageCount) 张照片" }
-        return "还需添加 \(remainingDraftSlots) 张照片"
+        if isWorking { return L10n.text("正在核验", english: "Verifying") }
+        if isDraftComplete {
+            return L10n.text(
+                "提交 \(requiredImageCount) 张照片",
+                english: "Submit \(requiredImageCount) Photos"
+            )
+        }
+        return L10n.text(
+            "还需添加 \(remainingDraftSlots) 张照片",
+            english: "Add \(remainingDraftSlots) More Photos"
+        )
     }
 
     private var pasteAndDropHint: String {
 #if os(macOS)
         requiredImageCount <= 2
-            ? "可拖放到指定图片框；⌘V 会从第一个空位开始添加截图"
-            : "拖放图片到上方栏框，或按 ⌘V 粘贴截图"
+            ? L10n.text(
+                "可拖放到指定图片框；⌘V 会从第一个空位开始添加截图",
+                english: "Drop images into a specific slot; ⌘V adds screenshots starting at the first empty slot"
+            )
+            : L10n.text(
+                "拖放图片到上方栏框，或按 ⌘V 粘贴截图",
+                english: "Drop images into the slots above, or press ⌘V to paste screenshots"
+            )
 #else
-        "可从照片图库、相机或“文件”中选择证据照片"
+        L10n.text(
+            "可从照片图库、相机或“文件”中选择证据照片",
+            english: "Choose evidence photos from Photos, Camera, or Files"
+        )
 #endif
     }
 
@@ -938,7 +962,10 @@ struct EvidenceSubmissionView: View {
     @MainActor
     private func addDraftImage(_ sourceData: Data, targetSlot: Int) throws {
         guard (0..<requiredImageCount).contains(targetSlot) else {
-            feedbackMessage = "本任务需要提交 \(requiredImageCount) 张照片。"
+            feedbackMessage = L10n.text(
+                "本任务需要提交 \(requiredImageCount) 张照片。",
+                english: "This task requires \(requiredImageCount) photos."
+            )
             feedbackIsError = true
             return
         }
@@ -960,7 +987,10 @@ struct EvidenceSubmissionView: View {
 
     @MainActor
     private func showImportError(_ error: Error) {
-        feedbackMessage = "添加照片失败：\(error.localizedDescription)"
+        feedbackMessage = L10n.text(
+            "添加照片失败：\(error.localizedDescription)",
+            english: "Could not add the photo: \(error.localizedDescription)"
+        )
         feedbackIsError = true
     }
 
@@ -999,7 +1029,10 @@ struct EvidenceSubmissionView: View {
             }
             task.status = previousStatus
             try? modelContext.save()
-            feedbackMessage = "保存证据失败：\(error.localizedDescription)"
+            feedbackMessage = L10n.text(
+                "保存证据失败：\(error.localizedDescription)",
+                english: "Could not save the evidence: \(error.localizedDescription)"
+            )
             feedbackIsError = true
         }
 
@@ -1058,7 +1091,7 @@ struct EvidenceSubmissionView: View {
             if let awardEvent {
                 XPService.publishAward(awardEvent)
             }
-            feedbackMessage = "核验结果已写入本机。"
+            feedbackMessage = L10n.text("核验结果已写入本机。")
             feedbackIsError = false
         } catch {
             for evidence in evidences {

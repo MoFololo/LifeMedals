@@ -239,6 +239,8 @@ struct PixelButtonStyle: ButtonStyle {
 }
 
 struct PixelButton: View {
+    @Environment(\.locale) private var locale
+
     let title: String
     var systemImage: String?
     var tone: Color = PixelTheme.selection
@@ -246,6 +248,7 @@ struct PixelButton: View {
     let action: () -> Void
 
     var body: some View {
+        let _ = locale.identifier
         Button(action: action) {
             HStack(spacing: PixelTheme.space8) {
                 if isLoading {
@@ -253,7 +256,7 @@ struct PixelButton: View {
                 } else if let systemImage {
                     Image(systemName: systemImage)
                 }
-                Text(title)
+                Text(L10n.text(title))
             }
         }
         .buttonStyle(PixelButtonStyle(tone: tone))
@@ -372,11 +375,14 @@ struct PixelProgressBar: View {
 }
 
 struct PixelStatusBadge: View {
+    @Environment(\.locale) private var locale
+
     let title: String
     var color: Color = PixelTheme.selection
 
     var body: some View {
-        Text(title)
+        let _ = locale.identifier
+        Text(L10n.text(title))
             .font(PixelTheme.statFont(size: 11))
             .foregroundStyle(.white)
             .padding(.horizontal, PixelTheme.space8)
@@ -401,21 +407,24 @@ struct PixelDialog<Content: View>: View {
 }
 
 struct PixelSectionHeader: View {
+    @Environment(\.locale) private var locale
+
     let title: String
     var subtitle: String?
 
     var body: some View {
+        let _ = locale.identifier
         VStack(alignment: .leading, spacing: PixelTheme.space4) {
             HStack(spacing: PixelTheme.space8) {
                 Rectangle()
                     .fill(PixelTheme.gold)
                     .frame(width: 4, height: 20)
-                Text(title)
+                Text(L10n.text(title))
                     .font(PixelTheme.displayFont(size: 18))
                     .foregroundStyle(PixelTheme.ink)
             }
             if let subtitle {
-                Text(subtitle)
+                Text(L10n.text(subtitle))
                     .font(PixelTheme.font(.caption))
                     .foregroundStyle(PixelTheme.inkMuted)
             }
@@ -503,16 +512,19 @@ struct PixelSymbolTile: View {
 }
 
 struct PixelNotice: View {
+    @Environment(\.locale) private var locale
+
     let systemImage: String
     let message: String
     var color: Color = PixelTheme.selection
 
     var body: some View {
+        let _ = locale.identifier
         HStack(alignment: .top, spacing: PixelTheme.space12) {
             Image(systemName: systemImage)
                 .font(PixelTheme.font(size: 14, weight: .bold))
                 .foregroundStyle(color)
-            Text(LocalizedStringKey(message))
+            Text(L10n.text(message))
                 .font(PixelTheme.font(.subheadline))
                 .foregroundStyle(PixelTheme.ink)
                 .fixedSize(horizontal: false, vertical: true)

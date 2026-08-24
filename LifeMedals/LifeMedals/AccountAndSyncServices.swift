@@ -90,7 +90,10 @@ final class AppleAccountManager: NSObject, ObservableObject {
         case .failure(let error):
             let authorizationError = error as? ASAuthorizationError
             if authorizationError?.code != .canceled {
-                errorMessage = "Apple 登录未完成：\(error.localizedDescription)"
+                errorMessage = L10n.text(
+                    "Apple 登录未完成：\(error.localizedDescription)",
+                    english: "Apple sign-in did not complete: \(error.localizedDescription)"
+                )
             }
             state = .signedOut
             return false
@@ -194,12 +197,12 @@ final class CloudSyncMonitor: NSObject, ObservableObject {
     var errorMessage: String? { accountErrorMessage ?? syncErrorMessage }
 
     var shortTitle: String {
-        if !LifeMedalsCloud.isEnabledForCurrentBuild { return "本地开发模式" }
-        if isCheckingAccount { return "检查 iCloud" }
-        if isSyncing { return "正在同步" }
-        if errorMessage != nil { return "同步需处理" }
-        if isAvailable { return "iCloud 已连接" }
-        return "仅本机"
+        if !LifeMedalsCloud.isEnabledForCurrentBuild { return L10n.text("本地开发模式") }
+        if isCheckingAccount { return L10n.text("检查 iCloud") }
+        if isSyncing { return L10n.text("正在同步") }
+        if errorMessage != nil { return L10n.text("同步需处理") }
+        if isAvailable { return L10n.text("iCloud 已连接") }
+        return L10n.text("仅本机")
     }
 
     var iconName: String {
@@ -229,7 +232,10 @@ final class CloudSyncMonitor: NSObject, ObservableObject {
             }
         } catch {
             accountStatus = .couldNotDetermine
-            accountErrorMessage = "暂时无法检查 iCloud 账户：\(error.localizedDescription)"
+            accountErrorMessage = L10n.text(
+                "暂时无法检查 iCloud 账户：\(error.localizedDescription)",
+                english: "Could not check the iCloud account: \(error.localizedDescription)"
+            )
         }
         isCheckingAccount = false
     }
@@ -239,15 +245,15 @@ final class CloudSyncMonitor: NSObject, ObservableObject {
         case .available:
             nil
         case .noAccount:
-            "iCloud 账户未登录。请在系统设置中登录 iCloud 后重试。"
+            L10n.text("iCloud 账户未登录。请在系统设置中登录 iCloud 后重试。")
         case .restricted:
-            "这台设备限制了 iCloud 访问，请检查系统或家长控制设置。"
+            L10n.text("这台设备限制了 iCloud 访问，请检查系统或家长控制设置。")
         case .temporarilyUnavailable:
-            "iCloud 账户暂时不可用，请稍后重试。"
+            L10n.text("iCloud 账户暂时不可用，请稍后重试。")
         case .couldNotDetermine:
-            "暂时无法确定 iCloud 账户状态，请检查网络后重试。"
+            L10n.text("暂时无法确定 iCloud 账户状态，请检查网络后重试。")
         @unknown default:
-            "iCloud 当前不可用，请稍后重试。"
+            L10n.text("iCloud 当前不可用，请稍后重试。")
         }
     }
 
@@ -271,7 +277,10 @@ final class CloudSyncMonitor: NSObject, ObservableObject {
             lastSuccessfulSync = event.endDate
             syncErrorMessage = nil
         } else if let error = event.error {
-            syncErrorMessage = "iCloud 同步失败：\(error.localizedDescription)"
+            syncErrorMessage = L10n.text(
+                "iCloud 同步失败：\(error.localizedDescription)",
+                english: "iCloud sync failed: \(error.localizedDescription)"
+            )
         }
     }
 }

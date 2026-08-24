@@ -128,22 +128,25 @@ enum EvidenceVerificationError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .missingConfiguration:
-            return "尚未配置代理地址。证据已保存在本机，配置后可重试核验。"
+            return L10n.text("尚未配置代理地址。证据已保存在本机，配置后可重试核验。")
         case .invalidEvidence:
-            return "证据照片数量与任务要求不一致。"
+            return L10n.text("证据照片数量与任务要求不一致。")
         case .invalidResponse:
-            return "代理返回了无法读取的核验结果，证据仍在本机。"
+            return L10n.text("代理返回了无法读取的核验结果，证据仍在本机。")
         case let .server(statusCode, message):
             if statusCode == 429 {
-                return "核验请求太频繁，证据已保存在本机，请稍后重试。"
+                return L10n.text("核验请求太频繁，证据已保存在本机，请稍后重试。")
             }
             if statusCode == 402 {
-                return "本月 AI 内测预算已用完，证据已保存在本机，可在预算重置后重试。"
+                return L10n.text("本月 AI 内测预算已用完，证据已保存在本机，可在预算重置后重试。")
             }
             if statusCode == 413 {
-                return "证据图片仍然过大，请换一张图片后重试。"
+                return L10n.text("证据图片仍然过大，请换一张图片后重试。")
             }
-            return message ?? "核验请求失败（HTTP \(statusCode)），证据仍在本机。"
+            return message ?? L10n.text(
+                "核验请求失败（HTTP \(statusCode)），证据仍在本机。",
+                english: "Verification failed (HTTP \(statusCode)). The evidence is still saved on this device."
+            )
         }
     }
 }

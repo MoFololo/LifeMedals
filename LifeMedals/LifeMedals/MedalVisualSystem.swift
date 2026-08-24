@@ -36,11 +36,11 @@ struct MedalArtworkConfiguration: Equatable, Sendable {
 /// both SwiftUI and the web-based transmutation animation.
 enum MedalArtworkCatalog {
     private static let builtIn: [BadgeKind: MedalArtworkConfiguration] = [
-        .problemSolver: MedalArtworkConfiguration(
-            bronzeAssetName: "ProblemSolver_Bronze",
-            silverAssetName: "ProblemSolver_Silver",
+        .solver: MedalArtworkConfiguration(
+            bronzeAssetName: "Solver_Bronze",
+            silverAssetName: "Solver_Silver",
             fragmentCount: 73,
-            cacheKey: "problem-solver"
+            cacheKey: "solver"
         ),
         .builder: MedalArtworkConfiguration(
             bronzeAssetName: "Create_Bronze",
@@ -62,7 +62,7 @@ enum MedalArtworkCatalog {
         )
     ]
 
-    /// Custom or legacy categories use the problem-solving family until they
+    /// Custom or legacy categories use the Solver family until they
     /// receive an explicit entry in `builtIn`.
     static func configuration(for categoryName: String?) -> MedalArtworkConfiguration {
         guard
@@ -70,7 +70,7 @@ enum MedalArtworkCatalog {
             let kind = BadgeKind(rawValue: categoryName),
             let configuration = builtIn[kind]
         else {
-            return builtIn[.problemSolver]!
+            return builtIn[.solver]!
         }
         return configuration
     }
@@ -182,21 +182,23 @@ struct MedalFragmentIcon: View {
 }
 
 struct MedalFragmentStatusLabel: View {
+    @Environment(\.locale) private var locale
+
     enum Wording {
         case earned
         case collected
 
         var prefix: String {
             switch self {
-            case .earned: "已获得"
-            case .collected: "已收集"
+            case .earned: L10n.text("已获得", english: "Earned")
+            case .collected: L10n.text("已收集", english: "Collected")
             }
         }
 
         var suffix: String {
             switch self {
-            case .earned: "白银碎片"
-            case .collected: "碎片"
+            case .earned: L10n.text("白银碎片", english: "Silver Fragments")
+            case .collected: L10n.text("碎片", english: "Fragments")
             }
         }
     }
@@ -215,6 +217,7 @@ struct MedalFragmentStatusLabel: View {
     }
 
     var body: some View {
+        let _ = locale.identifier
         HStack(spacing: 7) {
             Text("\(wording.prefix) \(fragmentCount)/\(total) \(wording.suffix)")
                 .font(PixelTheme.statFont(size: 13))

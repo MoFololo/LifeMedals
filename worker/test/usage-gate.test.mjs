@@ -198,7 +198,7 @@ test("validates task contracts with count-aware evidence descriptions", () => {
       "第一道 LeetCode 题的 Accepted 截图。",
       "第二道 LeetCode 题的 Accepted 截图。",
     ],
-    suggested_badge: "Problem Solver",
+    suggested_badge: "Solver",
     estimated_hours: 0.5,
   };
 

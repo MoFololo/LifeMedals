@@ -7,9 +7,9 @@ enum TaskDeadlinePreset: String, CaseIterable, Hashable, Codable, Sendable {
 
     var title: String {
         switch self {
-        case .today: "今天"
-        case .tomorrow: "明天"
-        case .thisWeekend: "这周末"
+        case .today: L10n.text("今天", english: "Today")
+        case .tomorrow: L10n.text("明天", english: "Tomorrow")
+        case .thisWeekend: L10n.text("这周末", english: "This Weekend")
         }
     }
 }
@@ -17,6 +17,7 @@ enum TaskDeadlinePreset: String, CaseIterable, Hashable, Codable, Sendable {
 /// A deliberately small deadline selector. The task screen owns the calendar
 /// calculation and turns the selected preset into 23:59 on the target day.
 struct DeadlinePresetWheelPicker: View {
+    @Environment(\.locale) private var locale
     @Binding var selection: TaskDeadlinePreset?
     @State private var scrollPosition: TaskDeadlinePreset?
 
@@ -26,6 +27,7 @@ struct DeadlinePresetWheelPicker: View {
     }
 
     var body: some View {
+        let _ = locale.identifier
         ZStack {
             PixelCornerShape(step: 3)
                 .fill(PixelTheme.paperRaised)
@@ -95,7 +97,7 @@ struct DeadlinePresetWheelPicker: View {
         .overlay { PixelCornerShape().stroke(PixelTheme.gold.opacity(0.62), lineWidth: 1) }
         .accessibilityElement(children: .ignore)
         .accessibilityLabel("截止日期")
-        .accessibilityValue(selection?.title ?? "未选择")
+        .accessibilityValue(selection?.title ?? L10n.text("未选择", english: "Not Selected"))
     }
 
     private func commitSelection(_ preset: TaskDeadlinePreset) {

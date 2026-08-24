@@ -8,7 +8,7 @@
 import Foundation
 import SwiftData
 
-/// 勋章类别（如 Problem Solver / Builder / Athlete...），支持用户自定义新增。
+/// 勋章类别（如 Solver / Builder / Athlete...），支持用户自定义新增。
 @Model
 final class BadgeCategory {
     /// CloudKit doesn't support database-enforced uniqueness. UUIDs remain the

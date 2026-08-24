@@ -7,6 +7,7 @@ struct ContentView: View {
     @EnvironmentObject private var syncMonitor: CloudSyncMonitor
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.locale) private var locale
 
     private let onSignOut: () -> Void
 
@@ -269,6 +270,8 @@ struct ContentView: View {
     @State private var reminderAuthorization = ReminderAuthorizationState.notDetermined
     @State private var reminderFeedback: String?
     @State private var reminderFeedbackIsError = false
+    @State private var isReminderStatusDismissed = false
+    @GestureState private var reminderBannerTranslation: CGFloat = 0
     @State private var selectedTaskTab = TaskListTab.unfinished
     @State private var selectedLibraryBadge: String?
     @State private var medalAnimationPresentation: XPAwardEvent?
@@ -286,13 +289,14 @@ struct ContentView: View {
     @State private var draftEvidenceRequirement = ""
     @State private var draftEvidenceImageCount = 1
     @State private var draftEvidenceImageDescriptions: [String] = []
-    @State private var draftBadge = "Problem Solver"
+    @State private var draftBadge = BadgeKind.solver.rawValue
     @State private var draftXP = 10
 
     private let generationService = TaskGenerationService()
     private let notificationService = TaskNotificationService()
 
     var body: some View {
+        let _ = locale.identifier
         platformRoot
             .macOSMinimumWindowSize(width: 920, height: 680)
             .preferredColorScheme(.light)
@@ -303,6 +307,7 @@ struct ContentView: View {
             .animation(reduceMotion ? nil : .smooth(duration: 0.32), value: savedMessage)
             .onAppear {
                 notificationService.configureForegroundPresentation()
+                migrateLegacySolverCategoriesIfNeeded()
 #if DEBUG
                 applyDebugLaunchScenario()
 #endif
@@ -313,6 +318,14 @@ struct ContentView: View {
                     focusTaskInput()
                 } else {
                     isTaskInputFocused = false
+                }
+            }
+            .onChange(of: reminderAuthorization) { _, _ in
+                isReminderStatusDismissed = false
+            }
+            .onChange(of: reminderFeedback) { _, feedback in
+                if feedback != nil {
+                    isReminderStatusDismissed = false
                 }
             }
             .task {
@@ -648,7 +661,7 @@ struct ContentView: View {
             generationAction
 
             if let sourceImageError {
-                Text(sourceImageError)
+                Text(L10n.text(sourceImageError))
                     .font(PixelTheme.font(.caption))
                     .foregroundStyle(PixelTheme.danger)
                     .fixedSize(horizontal: false, vertical: true)
@@ -675,7 +688,7 @@ struct ContentView: View {
     @ViewBuilder
     private var generationError: some View {
         if let errorMessage {
-            Text(errorMessage)
+            Text(L10n.text(errorMessage))
                 .font(PixelTheme.font(.caption))
                 .foregroundStyle(PixelTheme.danger)
                 .fixedSize(horizontal: false, vertical: true)
@@ -843,7 +856,7 @@ struct ContentView: View {
                                             .frame(width: 20, height: 20)
                                             .background(PixelTheme.selection, in: PixelCornerShape(step: 2))
                                     }
-                                    Text(description)
+                                    Text(L10n.text(description))
                                         .font(PixelTheme.font(.subheadline))
                                         .foregroundStyle(PixelTheme.inkMuted)
                                         .fixedSize(horizontal: false, vertical: true)
@@ -1147,7 +1160,7 @@ struct ContentView: View {
             .frame(width: isCompactLayout ? 44 : 52, height: isCompactLayout ? 44 : 52)
 
             VStack(alignment: .leading, spacing: 6) {
-                Text(task.title)
+                Text(L10n.text(task.title))
                     .font(PixelTheme.font(.headline))
                     .foregroundStyle(PixelTheme.ink)
                     .lineLimit(2)
@@ -1164,7 +1177,10 @@ struct ContentView: View {
                             systemImage: task.deadline <= now ? "clock.badge.exclamationmark" : "clock"
                         )
                         Text("·")
-                        Text(task.badgeCategory.map { badgeDisplayName($0.name) } ?? "未分类")
+                        Text(
+                            task.badgeCategory.map { badgeDisplayName($0.name) }
+                                ?? L10n.text("未分类", english: "Uncategorized")
+                        )
                     }
                 }
             }
@@ -1288,7 +1304,7 @@ struct ContentView: View {
                             .overlay { PixelCornerShape(step: 2).stroke(PixelTheme.gold.opacity(0.7), lineWidth: 1) }
                     }
 
-                    Text(task.evidenceRequirement)
+                    Text(L10n.text(task.evidenceRequirement))
                         .font(PixelTheme.font(.body))
                         .foregroundStyle(PixelTheme.ink)
                         .lineSpacing(5)
@@ -1302,7 +1318,11 @@ struct ContentView: View {
                         Label("需要 \(task.requiredEvidenceImageCount) 张照片", systemImage: "photo.stack")
                             .font(PixelTheme.font(.subheadline, weight: .semibold))
                         ForEach(Array(task.evidenceImageDescriptions.enumerated()), id: \.offset) { index, description in
-                            Text(task.requiredEvidenceImageCount <= 2 ? "\(index + 1). \(description)" : description)
+                            Text(
+                                task.requiredEvidenceImageCount <= 2
+                                    ? "\(index + 1). \(L10n.text(description))"
+                                    : L10n.text(description)
+                            )
                                 .font(PixelTheme.font(.subheadline))
                                 .foregroundStyle(PixelTheme.inkMuted)
                                 .fixedSize(horizontal: false, vertical: true)
@@ -1312,7 +1332,12 @@ struct ContentView: View {
                     Divider()
                         .opacity(0.45)
 
-                    Text("创建于 \(task.createdAt.formatted(date: .long, time: .shortened))")
+                    Text(
+                        L10n.text(
+                            "创建于 \(L10n.date(task.createdAt, dateStyle: .long, timeStyle: .short))",
+                            english: "Created \(L10n.date(task.createdAt, dateStyle: .long, timeStyle: .short))"
+                        )
+                    )
                         .font(PixelTheme.font(.caption))
                         .foregroundStyle(PixelTheme.inkMuted.opacity(0.72))
                 }
@@ -1344,7 +1369,7 @@ struct ContentView: View {
 
     private func taskDetailTitle(_ task: TaskContract) -> some View {
         VStack(alignment: .leading, spacing: 7) {
-            Text(task.title)
+            Text(L10n.text(task.title))
                 .font(PixelTheme.displayFont(size: isCompactLayout ? 28 : 34))
                 .foregroundStyle(PixelTheme.paperRaised)
                 .fixedSize(horizontal: false, vertical: true)
@@ -1493,7 +1518,10 @@ struct ContentView: View {
                     emptyState(
                         icon: "clock.arrow.circlepath",
                         title: "还没有历史任务",
-                        message: "完成一项属于「\(badgeDisplayName(badge))」的任务后，会出现在这里，方便随时回顾证据截图。"
+                        message: L10n.text(
+                            "完成一项属于「\(badgeDisplayName(badge))」的任务后，会出现在这里，方便随时回顾证据截图。",
+                            english: "Complete a \(badgeDisplayName(badge)) task and it will appear here for easy review of its evidence."
+                        )
                     )
                 } else {
                     LazyVStack(spacing: 14) {
@@ -1521,11 +1549,11 @@ struct ContentView: View {
             VStack(alignment: .leading, spacing: 12) {
                 HStack(alignment: .top) {
                     VStack(alignment: .leading, spacing: 5) {
-                        Text(task.title)
+                        Text(L10n.text(task.title))
                             .font(PixelTheme.font(.headline))
                             .foregroundStyle(PixelTheme.ink)
                             .lineLimit(2)
-                        Text(task.createdAt.formatted(date: .abbreviated, time: .shortened))
+                        Text(L10n.date(task.createdAt, dateStyle: .medium, timeStyle: .short))
                             .font(PixelTheme.font(.caption))
                             .foregroundStyle(PixelTheme.inkMuted)
                     }
@@ -1816,8 +1844,14 @@ struct ContentView: View {
                 creationPhase = .composing
                 creationInputMode = .text
                 savedMessage = syncMonitor.isAvailable
-                    ? "“\(title)”已保存，正在等待 iCloud 同步"
-                    : "“\(title)”已保存到本机"
+                    ? L10n.text(
+                        "“\(title)”已保存，正在等待 iCloud 同步",
+                        english: "“\(title)” was saved and is waiting for iCloud sync"
+                    )
+                    : L10n.text(
+                        "“\(title)”已保存到本机",
+                        english: "“\(title)” was saved on this device"
+                    )
             }
             focusTaskInput()
 
@@ -1828,7 +1862,10 @@ struct ContentView: View {
                 }
             }
         } catch {
-            errorMessage = "保存失败：\(error.localizedDescription)"
+            errorMessage = L10n.text(
+                "保存失败：\(error.localizedDescription)",
+                english: "Could not save: \(error.localizedDescription)"
+            )
         }
     }
 
@@ -1863,7 +1900,12 @@ struct ContentView: View {
 
     private func deleteTask(_ task: TaskContract) {
         modelContext.delete(task)
-        persistTaskChange(successMessage: "“\(task.title)”已删除")
+        persistTaskChange(
+            successMessage: L10n.text(
+                "“\(task.title)”已删除",
+                english: "“\(task.title)” was deleted"
+            )
+        )
     }
 
     private func persistTaskChange(successMessage: String) {
@@ -1880,12 +1922,55 @@ struct ContentView: View {
                 }
             }
         } catch {
-            reminderFeedback = "任务更新失败：\(error.localizedDescription)"
+            reminderFeedback = L10n.text(
+                "任务更新失败：\(error.localizedDescription)",
+                english: "Could not update the task: \(error.localizedDescription)"
+            )
             reminderFeedbackIsError = true
         }
     }
 
     // MARK: - Helpers
+
+    private func migrateLegacySolverCategoriesIfNeeded() {
+        let legacyName = BadgeKind.legacySolverName
+        let legacyCategories = badgeCategories.filter { $0.name == legacyName }
+        guard !legacyCategories.isEmpty else { return }
+
+        let solverName = BadgeKind.solver.rawValue
+        let targetCategory = badgeCategories.first { $0.name == solverName } ?? legacyCategories[0]
+        let categoriesToMerge = badgeCategories.filter {
+            $0.name == solverName || $0.name == legacyName
+        }
+        let combinedXP = categoriesToMerge.reduce(0) { total, category in
+            total + (category.userBadge?.currentXP ?? 0)
+        }
+
+        targetCategory.name = solverName
+
+        let targetUserBadge: UserBadge
+        if let existingBadge = targetCategory.userBadge {
+            targetUserBadge = existingBadge
+        } else {
+            targetUserBadge = UserBadge(category: targetCategory)
+            targetCategory.userBadge = targetUserBadge
+            modelContext.insert(targetUserBadge)
+        }
+        targetUserBadge.currentXP = combinedXP
+        targetUserBadge.level = BadgeRank.rank(forCumulativeXP: combinedXP).rawValue
+
+        for duplicateCategory in categoriesToMerge where duplicateCategory.id != targetCategory.id {
+            for task in duplicateCategory.taskContracts ?? [] {
+                task.badgeCategory = targetCategory
+            }
+            for log in duplicateCategory.xpLogs ?? [] {
+                log.badgeCategory = targetCategory
+            }
+            modelContext.delete(duplicateCategory)
+        }
+
+        try? modelContext.save()
+    }
 
     private func topLevelPage<Content: View>(
         _ page: AppPage,
@@ -1952,7 +2037,7 @@ struct ContentView: View {
             draftXP = 20
             creationPhase = .reviewing
         case "task-detail":
-            let category = badgeCategories.first ?? BadgeCategory(name: BadgeKind.problemSolver.rawValue)
+            let category = badgeCategories.first ?? BadgeCategory(name: BadgeKind.solver.rawValue)
             if badgeCategories.isEmpty {
                 let userBadge = UserBadge(category: category)
                 category.userBadge = userBadge
@@ -1974,7 +2059,7 @@ struct ContentView: View {
             selectedPage = .tasks
         case "award":
             medalAnimationPresentation = XPAwardEvent(
-                categoryName: BadgeKind.problemSolver.rawValue,
+                categoryName: BadgeKind.solver.rawValue,
                 amount: 80,
                 previousXP: 420,
                 currentXP: 500,
@@ -2043,13 +2128,11 @@ struct ContentView: View {
 
         switch days {
         case 0:
-            return "今日"
+            return L10n.text("今日", english: "Today")
         case 1:
-            return "明日"
+            return L10n.text("明日", english: "Tomorrow")
         default:
-            let components = calendar.dateComponents([.month, .day], from: deadline)
-            guard let month = components.month, let day = components.day else { return "" }
-            return "\(month)月\(day)日"
+            return L10n.monthAndDay(deadline)
         }
     }
 
@@ -2109,15 +2192,15 @@ struct ContentView: View {
 
     private func taskListStatusTitle(for task: TaskContract, now: Date) -> String {
         if task.status != .verified, task.deadline <= now {
-            return "已逾期"
+            return L10n.text("已逾期")
         }
 
         return switch task.status {
-        case .pending: "待完成"
-        case .awaitingVerification: "等待核验"
-        case .verified: "已完成"
-        case .needMoreProof: "需补充证据"
-        case .notVerified: "未通过核验"
+        case .pending: L10n.text("待完成")
+        case .awaitingVerification: L10n.text("等待核验")
+        case .verified: L10n.text("已完成")
+        case .needMoreProof: L10n.text("需补充证据")
+        case .notVerified: L10n.text("未通过核验")
         }
     }
 
@@ -2137,19 +2220,19 @@ struct ContentView: View {
     private func statusPill(for task: TaskContract) -> some View {
         let presentation: (title: String, icon: String, color: Color)
         if task.status != .verified, task.deadline <= .now {
-            presentation = ("已逾期", "exclamationmark.circle.fill", PixelTheme.danger)
+            presentation = (L10n.text("已逾期"), "exclamationmark.circle.fill", PixelTheme.danger)
         } else {
             presentation = switch task.status {
             case .pending:
-                ("待完成", "circle.dashed", PixelTheme.selection)
+                (L10n.text("待完成"), "circle.dashed", PixelTheme.selection)
             case .awaitingVerification:
-                ("等待核验", "hourglass", PixelTheme.selection)
+                (L10n.text("等待核验"), "hourglass", PixelTheme.selection)
             case .verified:
-                ("已完成", "checkmark.circle.fill", PixelTheme.success)
+                (L10n.text("已完成"), "checkmark.circle.fill", PixelTheme.success)
             case .needMoreProof:
-                ("需补充证据", "photo.badge.plus", PixelTheme.gold)
+                (L10n.text("需补充证据"), "photo.badge.plus", PixelTheme.gold)
             case .notVerified:
-                ("未通过核验", "xmark.circle.fill", PixelTheme.danger)
+                (L10n.text("未通过核验"), "xmark.circle.fill", PixelTheme.danger)
             }
         }
 
@@ -2159,21 +2242,63 @@ struct ContentView: View {
 
     @ViewBuilder
     private var reminderStatusBanner: some View {
-        if let reminderFeedback {
-            statusBanner(
-                icon: reminderFeedbackIsError ? "bell.slash.fill" : "bell.badge.fill",
-                message: reminderFeedback,
-                color: reminderFeedbackIsError ? PixelTheme.gold : PixelTheme.success
-            )
-        } else {
-            switch reminderAuthorization {
-            case .authorized:
-                statusBanner(icon: "bell.badge.fill", message: "截止提醒已开启；未来任务会在截止时间发送系统通知。", color: PixelTheme.success)
-            case .denied:
-                statusBanner(icon: "bell.slash.fill", message: "系统通知已关闭。任务仍会保存在本机；可在系统设置中为 LifeMedals 开启通知。", color: PixelTheme.gold)
-            case .notDetermined:
-                statusBanner(icon: "bell", message: "保存未来任务时，系统会询问是否允许截止提醒。", color: PixelTheme.selection)
+        if !isReminderStatusDismissed {
+            Group {
+                if let reminderFeedback {
+                    statusBanner(
+                        icon: reminderFeedbackIsError ? "bell.slash.fill" : "bell.badge.fill",
+                        message: reminderFeedback,
+                        color: reminderFeedbackIsError ? PixelTheme.gold : PixelTheme.success
+                    )
+                } else {
+                    switch reminderAuthorization {
+                    case .authorized:
+                        statusBanner(
+                            icon: "bell.badge.fill",
+                            message: L10n.text(
+                                "截止提醒已开启；未来任务会在截止时间发送系统通知。",
+                                english: "Deadline reminders are on. Future tasks will send a system notification at their deadline."
+                            ),
+                            color: PixelTheme.success
+                        )
+                    case .denied:
+                        statusBanner(icon: "bell.slash.fill", message: "系统通知已关闭。任务仍会保存在本机；可在系统设置中为 LifeMedals 开启通知。", color: PixelTheme.gold)
+                    case .notDetermined:
+                        statusBanner(icon: "bell", message: "保存未来任务时，系统会询问是否允许截止提醒。", color: PixelTheme.selection)
+                    }
+                }
             }
+            .offset(x: reminderBannerTranslation)
+            .opacity(reminderBannerOpacity)
+            .contentShape(Rectangle())
+            .onTapGesture(perform: dismissReminderStatus)
+            .gesture(reminderBannerDismissGesture)
+            .accessibilityAction(named: Text("关闭"), dismissReminderStatus)
+            .transition(.move(edge: .trailing).combined(with: .opacity))
+        }
+    }
+
+    private var reminderBannerOpacity: Double {
+        max(0.35, 1 - Double(abs(reminderBannerTranslation) / 180))
+    }
+
+    private var reminderBannerDismissGesture: some Gesture {
+        DragGesture(minimumDistance: 12)
+            .updating($reminderBannerTranslation) { value, translation, _ in
+                guard abs(value.translation.width) > abs(value.translation.height) else { return }
+                translation = value.translation.width
+            }
+            .onEnded { value in
+                guard abs(value.translation.width) > abs(value.translation.height) else { return }
+                if abs(value.predictedEndTranslation.width) > 90 {
+                    dismissReminderStatus()
+                }
+            }
+    }
+
+    private func dismissReminderStatus() {
+        withAnimation(.snappy(duration: 0.25)) {
+            isReminderStatusDismissed = true
         }
     }
 
@@ -2217,7 +2342,10 @@ struct ContentView: View {
             case .authorized:
                 statusBanner(
                     icon: "bell.badge.fill",
-                    message: "将在 \(deadlineDisplayText(task.deadline)) 发送本地通知。",
+                    message: L10n.text(
+                        "将在 \(deadlineDisplayText(task.deadline)) 发送本地通知。",
+                        english: "A local notification will be sent on \(deadlineDisplayText(task.deadline))."
+                    ),
                     color: PixelTheme.success
                 )
             case .denied:
@@ -2247,7 +2375,10 @@ struct ContentView: View {
                     reminderFeedbackIsError = true
                 }
             } catch {
-                reminderFeedback = "任务已保存，但提醒安排失败：\(error.localizedDescription)"
+                reminderFeedback = L10n.text(
+                    "任务已保存，但提醒安排失败：\(error.localizedDescription)",
+                    english: "The task was saved, but its reminder could not be scheduled: \(error.localizedDescription)"
+                )
                 reminderFeedbackIsError = true
             }
         }
@@ -2262,7 +2393,10 @@ struct ContentView: View {
         do {
             reminderAuthorization = try await notificationService.synchronize(reminders)
         } catch {
-            reminderFeedback = "已读取本地任务，但恢复截止提醒失败：\(error.localizedDescription)"
+            reminderFeedback = L10n.text(
+                "已读取本地任务，但恢复截止提醒失败：\(error.localizedDescription)",
+                english: "Local tasks were loaded, but deadline reminders could not be restored: \(error.localizedDescription)"
+            )
             reminderFeedbackIsError = true
         }
     }
@@ -2280,11 +2414,14 @@ struct ContentView: View {
         if let urlError = error as? URLError {
             switch urlError.code {
             case .notConnectedToInternet, .networkConnectionLost:
-                return "当前没有网络，输入已保存在本机。联网后点击重试即可。"
+                return L10n.text("当前没有网络，输入已保存在本机。联网后点击重试即可。")
             case .timedOut:
-                return "请求超时，输入仍在。请稍后重试。"
+                return L10n.text("请求超时，输入仍在。请稍后重试。")
             default:
-                return "网络请求失败，输入仍在：\(urlError.localizedDescription)"
+                return L10n.text(
+                    "网络请求失败，输入仍在：\(urlError.localizedDescription)",
+                    english: "The network request failed. Your input is still here: \(urlError.localizedDescription)"
+                )
             }
         }
         return error.localizedDescription
@@ -2368,7 +2505,7 @@ struct ContentView: View {
             HStack(spacing: 10) {
                 Image(systemName: "checkmark.circle.fill")
                     .foregroundStyle(PixelTheme.success)
-                Text(message)
+                Text(L10n.text(message))
                     .font(PixelTheme.font(.subheadline, weight: .semibold))
                     .foregroundStyle(PixelTheme.ink)
             }

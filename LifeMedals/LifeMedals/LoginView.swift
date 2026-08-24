@@ -2,12 +2,14 @@ import AuthenticationServices
 import SwiftUI
 
 struct LoginView: View {
+    @Environment(\.locale) private var locale
     @EnvironmentObject private var accountManager: AppleAccountManager
     @EnvironmentObject private var syncMonitor: CloudSyncMonitor
 
     var onContinue: () -> Void
 
     var body: some View {
+        let _ = locale.identifier
         ZStack {
             PixelBackground()
 
@@ -65,7 +67,7 @@ struct LoginView: View {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(syncStatusTitle)
                                     .font(PixelTheme.font(.subheadline, weight: .semibold))
-                                Text(syncStatusDetail)
+                                Text(L10n.text(syncStatusDetail))
                                     .font(PixelTheme.font(.caption))
                                     .foregroundStyle(PixelTheme.inkMuted)
                             }
@@ -92,7 +94,11 @@ struct LoginView: View {
                     }
 
                     if let errorMessage = accountManager.errorMessage {
-                        Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
+                        Label {
+                            Text(L10n.text(errorMessage))
+                        } icon: {
+                            Image(systemName: "exclamationmark.triangle.fill")
+                        }
                             .font(PixelTheme.font(.caption))
                             .foregroundStyle(PixelTheme.danger)
                             .fixedSize(horizontal: false, vertical: true)

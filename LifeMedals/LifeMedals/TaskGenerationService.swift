@@ -135,7 +135,7 @@ struct TaskGenerationService: Sendable {
             GenerateTaskRequest(
                 text: text,
                 timezone: TimeZone.current.identifier,
-                locale: Locale.current.identifier,
+                locale: AppLanguage.current.locale.identifier,
                 sourceImage: sourceImageData.map {
                     ImagePayload(mimeType: "image/jpeg", base64Data: $0.base64EncodedString())
                 }
@@ -182,20 +182,23 @@ enum TaskGenerationError: LocalizedError {
     var errorDescription: String? {
         switch self {
         case .missingConfiguration:
-            return "尚未配置代理地址。请在 Xcode 构建配置中设置 LIFEMEDALS_API_BASE_URL。"
+            return L10n.text("尚未配置代理地址。请在 Xcode 构建配置中设置 LIFEMEDALS_API_BASE_URL。")
         case .invalidResponse:
-            return "代理返回了无法读取的数据，请稍后重试。"
+            return L10n.text("代理返回了无法读取的数据，请稍后重试。")
         case let .server(statusCode, message):
             if statusCode == 429 {
-                return "请求太频繁，请稍后再试。"
+                return L10n.text("请求太频繁，请稍后再试。")
             }
             if statusCode == 402 {
-                return "本月 AI 内测预算已用完，请等待预算重置。"
+                return L10n.text("本月 AI 内测预算已用完，请等待预算重置。")
             }
             if statusCode == 413 {
-                return "照片已自动压缩，但当前 AI 服务仍使用旧版上传限制。请更新服务后重试。"
+                return L10n.text("照片已自动压缩，但当前 AI 服务仍使用旧版上传限制。请更新服务后重试。")
             }
-            return message ?? "代理请求失败（HTTP \(statusCode)）。"
+            return message ?? L10n.text(
+                "代理请求失败（HTTP \(statusCode)）。",
+                english: "The service request failed (HTTP \(statusCode))."
+            )
         }
     }
 }

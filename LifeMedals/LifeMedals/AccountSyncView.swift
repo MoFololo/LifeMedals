@@ -4,12 +4,14 @@ import SwiftUI
 struct AccountSyncView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.locale) private var locale
     @EnvironmentObject private var accountManager: AppleAccountManager
     @EnvironmentObject private var syncMonitor: CloudSyncMonitor
 
     var onSignOut: () -> Void
 
     var body: some View {
+        let _ = locale.identifier
         ZStack {
             PixelBackground()
 
@@ -59,14 +61,22 @@ struct AccountSyncView: View {
             .pixelSurface(fill: PixelTheme.paper, border: PixelTheme.gold, step: 4, hasShadow: true)
 
             if let message = syncMonitor.errorMessage {
-                Label(message, systemImage: "exclamationmark.triangle.fill")
+                Label {
+                    Text(L10n.text(message))
+                } icon: {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                }
                     .font(PixelTheme.font(.subheadline))
                     .foregroundStyle(PixelTheme.goldBright)
                     .fixedSize(horizontal: false, vertical: true)
             }
 
             if let message = accountManager.errorMessage {
-                Label(message, systemImage: "person.crop.circle.badge.exclamationmark")
+                Label {
+                    Text(L10n.text(message))
+                } icon: {
+                    Image(systemName: "person.crop.circle.badge.exclamationmark")
+                }
                     .font(PixelTheme.font(.subheadline))
                     .foregroundStyle(PixelTheme.goldBright)
                     .fixedSize(horizontal: false, vertical: true)
@@ -184,7 +194,7 @@ struct AccountSyncView: View {
             return L10n.text("正在上传或下载更改…", english: "Uploading or downloading changes…")
         }
         if let date = syncMonitor.lastSuccessfulSync {
-            let formattedDate = date.formatted(date: .abbreviated, time: .shortened)
+            let formattedDate = L10n.date(date, dateStyle: .medium, timeStyle: .short)
             return L10n.text("最近完成：\(formattedDate)", english: "Last completed: \(formattedDate)")
         }
         if syncMonitor.isAvailable {
@@ -236,7 +246,7 @@ struct AccountSyncView: View {
 
             VStack(alignment: .leading, spacing: 3) {
                 Text(LocalizedStringKey(title)).font(PixelTheme.font(.headline))
-                Text(detail)
+                Text(L10n.text(detail))
                     .font(PixelTheme.font(.subheadline))
                     .foregroundStyle(PixelTheme.inkMuted)
             }

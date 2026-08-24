@@ -293,6 +293,7 @@ struct MedalTransmutationView: MedalTransmutationRepresentable {
 struct MedalAwardAnimationOverlay: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.locale) private var locale
 
     let event: XPAwardEvent
     var containerSize: CGSize? = nil
@@ -320,6 +321,7 @@ struct MedalAwardAnimationOverlay: View {
     }
 
     var body: some View {
+        let _ = locale.identifier
         GeometryReader { proxy in
             let availableSize = containerSize ?? proxy.size
             let inset: CGFloat = horizontalSizeClass == .compact ? 12 : 28
@@ -370,10 +372,27 @@ struct MedalAwardAnimationOverlay: View {
 
                 HStack(spacing: 12) {
                     VStack(alignment: .leading, spacing: 3) {
-                        Text(toProgress >= 1 ? "100% · 白银勋章" : "\(Int((toProgress * 100).rounded()))% · 青铜勋章")
+                        Text(
+                            toProgress >= 1
+                                ? L10n.text("100% · 白银勋章", english: "100% · Silver Medal")
+                                : L10n.text(
+                                    "\(Int((toProgress * 100).rounded()))% · 青铜勋章",
+                                    english: "\(Int((toProgress * 100).rounded()))% · Bronze Medal"
+                                )
+                        )
                             .font(PixelTheme.font(.headline))
                             .foregroundStyle(.white)
-                        Text(toProgress >= 1 ? "淬炼完成，白银真身已经显露" : "已拥有 \(fragmentCount) / \(totalFragmentCount) 块甲片")
+                        Text(
+                            toProgress >= 1
+                                ? L10n.text(
+                                    "淬炼完成，白银真身已经显露",
+                                    english: "Forging complete—the Silver medal is revealed"
+                                )
+                                : L10n.text(
+                                    "已拥有 \(fragmentCount) / \(totalFragmentCount) 块甲片",
+                                    english: "\(fragmentCount) / \(totalFragmentCount) armor fragments collected"
+                                )
+                        )
                             .font(PixelTheme.font(.caption))
                             .foregroundStyle(.white.opacity(0.6))
                     }
@@ -403,8 +422,11 @@ struct MedalAwardAnimationOverlay: View {
         VStack(alignment: .leading, spacing: 5) {
             Text(
                 toProgress >= 1
-                    ? "白银觉醒"
-                    : "\(BadgeKind.displayName(for: event.categoryName))正在铸造"
+                    ? L10n.text("白银觉醒", english: "Silver Awakening")
+                    : L10n.text(
+                        "\(BadgeKind.displayName(for: event.categoryName))正在铸造",
+                        english: "\(BadgeKind.displayName(for: event.categoryName)) is being forged"
+                    )
             )
                 .font(PixelTheme.font(.title2, weight: .bold))
                 .foregroundStyle(.white)
@@ -420,7 +442,9 @@ struct MedalAwardAnimationOverlay: View {
             onDismiss()
         } label: {
             Label(
-                isFinished ? "关闭" : "跳过动画",
+                isFinished
+                    ? L10n.text("关闭", english: "Close")
+                    : L10n.text("跳过动画", english: "Skip Animation"),
                 systemImage: isFinished ? "xmark" : "forward.end.fill"
             )
                 .font(PixelTheme.font(.subheadline, weight: .semibold))
@@ -430,7 +454,11 @@ struct MedalAwardAnimationOverlay: View {
                 .pixelSurface(fill: PixelTheme.paperRaised, border: PixelTheme.gold, step: 3)
         }
         .buttonStyle(.plain)
-        .help(isFinished ? "关闭" : "跳过动画")
+        .help(
+            isFinished
+                ? L10n.text("关闭", english: "Close")
+                : L10n.text("跳过动画", english: "Skip Animation")
+        )
     }
 }
 

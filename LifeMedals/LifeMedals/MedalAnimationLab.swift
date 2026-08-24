@@ -167,7 +167,7 @@ private struct ErodingMedalView: View {
     }
 
     private func medalImage(rank: BadgeRank) -> some View {
-        MedalArtworkView(categoryName: BadgeKind.problemSolver.rawValue, rank: rank)
+        MedalArtworkView(categoryName: BadgeKind.solver.rawValue, rank: rank)
     }
 }
 

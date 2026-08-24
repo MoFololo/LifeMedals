@@ -16,6 +16,7 @@ import UIKit
 struct EvidenceCameraView: View {
     @Environment(\.dismiss) private var dismiss
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
+    @Environment(\.locale) private var locale
     @StateObject private var controller: EvidenceCameraController
     private let title: String
     private let detail: String
@@ -31,16 +32,17 @@ struct EvidenceCameraView: View {
     }
 
     var body: some View {
+        let _ = locale.identifier
         ZStack {
             PixelBackground()
 
             VStack(spacing: 18) {
                 HStack {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(title)
+                        Text(L10n.text(title))
                             .font(PixelTheme.displayFont(size: 26))
                             .foregroundStyle(PixelTheme.paperRaised)
-                        Text(detail)
+                        Text(L10n.text(detail))
                             .font(PixelTheme.font(.subheadline))
                             .foregroundStyle(PixelTheme.paper.opacity(0.72))
                     }
@@ -93,7 +95,7 @@ struct EvidenceCameraView: View {
                                     .font(PixelTheme.font(size: 38, weight: .bold))
                                     .foregroundStyle(PixelTheme.gold)
                             }
-                            Text(controller.message)
+                            Text(L10n.text(controller.message))
                                 .multilineTextAlignment(.center)
                                 .foregroundStyle(PixelTheme.inkMuted)
                                 .frame(maxWidth: 420)
@@ -110,7 +112,11 @@ struct EvidenceCameraView: View {
                 )
 
                 if let errorMessage = controller.errorMessage {
-                    Label(errorMessage, systemImage: "exclamationmark.triangle.fill")
+                    Label {
+                        Text(L10n.text(errorMessage))
+                    } icon: {
+                        Image(systemName: "exclamationmark.triangle.fill")
+                    }
                         .font(PixelTheme.font(.subheadline))
                         .foregroundStyle(PixelTheme.goldBright)
                 }
@@ -237,7 +243,10 @@ private final class EvidenceCameraController: NSObject, ObservableObject, AVCapt
             guard let self else { return }
             isCapturing = false
             if let error {
-                errorMessage = "拍摄失败：\(error.localizedDescription)"
+                errorMessage = L10n.text(
+                    "拍摄失败：\(error.localizedDescription)",
+                    english: "Capture failed: \(error.localizedDescription)"
+                )
                 return
             }
             guard let data else {
