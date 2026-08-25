@@ -2,6 +2,74 @@ import PhotosUI
 import SwiftUI
 import SwiftData
 
+private struct PixelTaskCompletionBox: View {
+    let isComplete: Bool
+    let borderColor: Color
+    let accessibilityTitle: String
+    let size: CGFloat
+
+    var body: some View {
+        ZStack {
+            Rectangle()
+                .fill(PixelTheme.background.opacity(0.24))
+                .offset(x: 2, y: 2)
+
+            Rectangle()
+                .fill(isComplete ? PixelTheme.success : PixelTheme.paperRaised)
+
+            Rectangle()
+                .stroke(isComplete ? PixelTheme.success : borderColor, lineWidth: PixelTheme.borderWidth)
+
+            if isComplete {
+                PixelCheckmark()
+                    .fill(Color.white)
+                    .padding(size >= 24 ? 4 : 3)
+            } else {
+                Rectangle()
+                    .stroke(PixelTheme.paper.opacity(0.8), lineWidth: 1)
+                    .padding(3)
+            }
+        }
+        .frame(width: size, height: size)
+        .accessibilityElement(children: .ignore)
+        .accessibilityLabel(accessibilityTitle)
+    }
+}
+
+/// A chunky grid-built checkmark that stays crisp beside the app's pixel font.
+private struct PixelCheckmark: Shape {
+    private static let filledCells: [(column: Int, row: Int)] = [
+        (6, 0), (7, 0),
+        (5, 1), (6, 1), (7, 1),
+        (0, 2), (1, 2), (4, 2), (5, 2), (6, 2),
+        (0, 3), (1, 3), (2, 3), (3, 3), (4, 3), (5, 3),
+        (1, 4), (2, 4), (3, 4), (4, 4),
+        (2, 5), (3, 5)
+    ]
+
+    func path(in rect: CGRect) -> Path {
+        let unit = min(rect.width / 8, rect.height / 6)
+        let width = unit * 8
+        let height = unit * 6
+        let originX = rect.midX - width / 2
+        let originY = rect.midY - height / 2
+        var path = Path()
+
+        for cell in Self.filledCells {
+            path.addRect(
+                CGRect(
+                    x: originX + CGFloat(cell.column) * unit,
+                    y: originY + CGFloat(cell.row) * unit,
+                    width: unit,
+                    height: unit
+                )
+            )
+        }
+
+        return path
+    }
+}
+
 struct ContentView: View {
     @EnvironmentObject private var accountManager: AppleAccountManager
     @EnvironmentObject private var syncMonitor: CloudSyncMonitor
@@ -1340,10 +1408,7 @@ struct ContentView: View {
             Spacer()
 
             VStack(alignment: .trailing, spacing: 9) {
-                Text(taskListStatusTitle(for: task, now: now))
-                    .font(PixelTheme.font(.caption, weight: .semibold))
-                    .foregroundStyle(taskListStatusColor(for: task, now: now))
-                    .lineLimit(1)
+                taskListCompletionBox(for: task, now: now)
                 Text(
                     task.isSubtask
                         ? L10n.text("任务组奖励", english: "Group reward")
@@ -1371,11 +1436,6 @@ struct ContentView: View {
         let isExpanded = !collapsedTaskGroupIDs.contains(task.id)
 
         return HStack(spacing: isCompactLayout ? 10 : 14) {
-            Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                .font(PixelTheme.font(.subheadline, weight: .bold))
-                .foregroundStyle(PixelTheme.selection)
-                .frame(width: 18)
-
             MedalArtworkView(
                 categoryName: task.badgeCategory?.name,
                 rank: task.badgeCategory?.userBadge?.rank ?? .bronze
@@ -1405,19 +1465,23 @@ struct ContentView: View {
 
             Spacer(minLength: 8)
 
-            VStack(alignment: .trailing, spacing: 7) {
-                Text("\(completedCount)/\(childTasks.count)")
-                    .font(PixelTheme.statFont(size: isCompactLayout ? 14 : 16))
-                    .foregroundStyle(task.status == .verified ? PixelTheme.success : PixelTheme.selection)
-                Text(taskListStatusTitle(for: task, now: now))
-                    .font(PixelTheme.font(.caption2, weight: .semibold))
-                    .foregroundStyle(taskListStatusColor(for: task, now: now))
-                    .lineLimit(1)
-                if !isCompactLayout {
-                    Text("+\(task.xpReward) EXP")
-                        .font(PixelTheme.font(.caption, weight: .bold))
-                        .foregroundStyle(PixelTheme.brown)
+            HStack(spacing: isCompactLayout ? 8 : 12) {
+                VStack(alignment: .trailing, spacing: 7) {
+                    Text("\(completedCount)/\(childTasks.count)")
+                        .font(PixelTheme.statFont(size: isCompactLayout ? 14 : 16))
+                        .foregroundStyle(task.status == .verified ? PixelTheme.success : PixelTheme.selection)
+                    taskListCompletionBox(for: task, now: now)
+                    if !isCompactLayout {
+                        Text("+\(task.xpReward) EXP")
+                            .font(PixelTheme.font(.caption, weight: .bold))
+                            .foregroundStyle(PixelTheme.brown)
+                    }
                 }
+
+                Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                    .font(PixelTheme.font(.subheadline, weight: .bold))
+                    .foregroundStyle(PixelTheme.selection)
+                    .frame(width: 18)
             }
         }
         .padding(isCompactLayout ? 14 : 18)
@@ -2653,17 +2717,25 @@ struct ContentView: View {
         }
     }
 
-    private func taskListStatusColor(for task: TaskContract, now: Date) -> Color {
+    private func taskListCompletionBox(for task: TaskContract, now: Date) -> some View {
+        let borderColor: Color
         if task.status != .verified, task.deadline <= now {
-            return PixelTheme.danger
+            borderColor = PixelTheme.danger
+        } else {
+            borderColor = switch task.status {
+            case .pending, .awaitingVerification: PixelTheme.inkMuted
+            case .verified: PixelTheme.success
+            case .needMoreProof: PixelTheme.gold
+            case .notVerified: PixelTheme.danger
+            }
         }
 
-        return switch task.status {
-        case .pending, .awaitingVerification: PixelTheme.selection
-        case .verified: PixelTheme.success
-        case .needMoreProof: PixelTheme.gold
-        case .notVerified: PixelTheme.danger
-        }
+        return PixelTaskCompletionBox(
+            isComplete: task.status == .verified,
+            borderColor: borderColor,
+            accessibilityTitle: taskListStatusTitle(for: task, now: now),
+            size: isCompactLayout ? 22 : 24
+        )
     }
 
     private func statusPill(for task: TaskContract) -> some View {
