@@ -88,7 +88,7 @@ test("health identifies the deployed Worker release", async () => {
   const body = await response.json();
 
   assert.equal(response.status, 200);
-  assert.equal(body.release, "2026-08-25-task-groups-1");
+  assert.equal(body.release, "2026-08-25-scheduled-email-proof-1");
   assert.equal(response.headers.get("X-LifeMedals-Release"), body.release);
 });
 
@@ -133,6 +133,35 @@ test("allows visible personal information during evidence verification", () => {
   assert.match(request.instructions, /Temporary testing exception/);
   assert.match(request.instructions, /hide, blur, redact, crop out, omit/);
   assert.match(request.instructions, /printed name is visible text, not biometric identification/i);
+});
+
+test("treats a confirmed scheduled email as completed without accepting a draft", () => {
+  const generationRequest = buildTaskGenerationOpenAIRequest(
+    {
+      text: "Write and send my professor an email tomorrow morning.",
+      timezone: "America/New_York",
+      locale: "en-US",
+    },
+    "test-model",
+  );
+  const verificationRequest = buildEvidenceVerificationOpenAIRequest(
+    {
+      ...validEvidenceBody,
+      evidence_requirement: "Show that the email to the professor was sent.",
+      evidence_image_descriptions: [
+        "Show the recipient, message body, and sent or scheduled-send confirmation.",
+      ],
+    },
+    "test-model",
+  );
+
+  assert.match(generationRequest.instructions, /confirmed scheduled-send state counts as completion/i);
+  assert.match(generationRequest.instructions, /Never require the user to wait for the future send time/i);
+  assert.match(verificationRequest.instructions, /confirmed scheduled send counts as completed and is equivalent to sent/i);
+  assert.match(verificationRequest.instructions, /scheduled time is in the future/i);
+  assert.match(verificationRequest.instructions, /intended recipient, the substantive message body/i);
+  assert.match(verificationRequest.instructions, /draft or compose view alone/i);
+  assert.match(verificationRequest.instructions, /unconfirmed Schedule Send menu/i);
 });
 
 test("generate-task forwards the source image without storing response state", async (t) => {
