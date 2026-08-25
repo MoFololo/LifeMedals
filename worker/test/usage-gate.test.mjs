@@ -80,6 +80,18 @@ const validImageTaskBody = {
   },
 };
 
+test("health identifies the deployed Worker release", async () => {
+  const response = await worker.fetch(
+    new Request("https://example.test/health"),
+    { OPENAI_API_KEY: "test-only", GLOBAL_USAGE_GATE: {} },
+  );
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(body.release, "2026-08-25-visible-personal-info-test-1");
+  assert.equal(response.headers.get("X-LifeMedals-Release"), body.release);
+});
+
 test("validates image task input and requires text or an image", () => {
   assert.equal(validateGenerateTaskInput(validImageTaskBody), null);
   assert.equal(validateGenerateTaskInput({ ...validImageTaskBody, text: "" }), null);
@@ -106,6 +118,19 @@ test("builds a stateless vision request for task generation", () => {
   assert.equal(request.input[0].content[1].type, "input_image");
   assert.match(request.input[0].content[1].image_url, /^data:image\/jpeg;base64,/);
   assert.match(request.instructions, /single clearest actionable next step/);
+  assert.match(request.instructions, /names, email addresses, phone numbers/);
+  assert.match(request.instructions, /never cause redaction, omission, refusal/);
+  assert.doesNotMatch(request.instructions, /privacy-conscious/);
+});
+
+test("allows visible personal information during evidence verification", () => {
+  const request = buildEvidenceVerificationOpenAIRequest(validEvidenceBody, "test-model");
+
+  assert.match(request.instructions, /names, email addresses, phone numbers/);
+  assert.match(request.instructions, /must never lower the verdict/);
+  assert.match(request.instructions, /Temporary testing exception/);
+  assert.match(request.instructions, /hide, blur, redact, crop out, omit/);
+  assert.match(request.instructions, /printed name is visible text, not biometric identification/i);
 });
 
 test("generate-task forwards the source image without storing response state", async (t) => {
@@ -325,4 +350,45 @@ test("verify-evidence forwards images statelessly and returns the three-state re
     verdict: "need_more_proof",
     explanation: "截图相关，但还需显示第二道题的 Accepted 状态。",
   });
+});
+
+test("verify-evidence exposes the upstream refusal reason for testing", async (t) => {
+  const originalFetch = globalThis.fetch;
+  globalThis.fetch = async () => Response.json({
+    status: "completed",
+    output: [
+      {
+        type: "message",
+        content: [
+          {
+            type: "refusal",
+            refusal: "Example refusal involving visible contact information.",
+          },
+        ],
+      },
+    ],
+  });
+  t.after(() => {
+    globalThis.fetch = originalFetch;
+  });
+
+  const response = await worker.fetch(
+    new Request("https://example.test/verify-evidence", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(validEvidenceBody),
+    }),
+    {
+      OPENAI_API_KEY: "test-only",
+      GLOBAL_USAGE_GATE: {
+        idFromName: () => "global-id",
+        get: () => ({ fetch: async () => Response.json({ allowed: true }) }),
+      },
+    },
+  );
+  const body = await response.json();
+
+  assert.equal(response.status, 422);
+  assert.equal(body.error.code, "request_refused");
+  assert.match(body.error.message, /Example refusal involving visible contact information/);
 });

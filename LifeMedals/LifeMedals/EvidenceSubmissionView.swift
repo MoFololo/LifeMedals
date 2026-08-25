@@ -40,6 +40,8 @@ struct EvidenceSubmissionView: View {
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Bindable var task: TaskContract
+    let onVerificationStarted: () -> Void
+    let onVerificationFinished: (EvidenceVerdict?) -> Void
 
     @State private var selectedPhotos: [PhotosPickerItem] = []
     @State private var draftImages: [DraftImage] = []
@@ -56,6 +58,16 @@ struct EvidenceSubmissionView: View {
     @FocusState private var isDraftAreaFocused: Bool
 
     private let verificationService = EvidenceVerificationService()
+
+    init(
+        task: TaskContract,
+        onVerificationStarted: @escaping () -> Void = {},
+        onVerificationFinished: @escaping (EvidenceVerdict?) -> Void = { _ in }
+    ) {
+        self.task = task
+        self.onVerificationStarted = onVerificationStarted
+        self.onVerificationFinished = onVerificationFinished
+    }
 
     var body: some View {
         let _ = locale.identifier
@@ -350,33 +362,35 @@ struct EvidenceSubmissionView: View {
             bulkDraftImageArea
 
             HStack(spacing: 12) {
-                    PhotosPicker(
-                        selection: $selectedPhotos,
-                        maxSelectionCount: remainingDraftSlots,
-                        matching: .images
-                    ) {
-                        Label("照片图库", systemImage: "photo.on.rectangle")
-                            .font(PixelTheme.font(.subheadline, weight: .semibold))
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 12)
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(isWorking || remainingDraftSlots == 0)
-                    .foregroundStyle(.white)
-                    .pixelSurface(fill: PixelTheme.selection, border: PixelTheme.gold, step: 3)
+                PhotosPicker(
+                    selection: $selectedPhotos,
+                    maxSelectionCount: remainingDraftSlots,
+                    matching: .images
+                ) {
+                    Label("照片图库", systemImage: "photo.on.rectangle")
+                        .font(PixelTheme.font(.subheadline, weight: .semibold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                }
+                .buttonStyle(.plain)
+                .disabled(isWorking || remainingDraftSlots == 0)
+                .foregroundStyle(.white)
+                .pixelSurface(fill: PixelTheme.selection, border: PixelTheme.gold, step: 3)
 
-                    Button {
-                        presentFileImporter(targetSlot: nil)
-                    } label: {
-                        Label("选择本地文件", systemImage: "folder")
-                            .font(PixelTheme.font(.subheadline, weight: .semibold))
-                            .frame(maxWidth: .infinity)
-                            .padding(.vertical, 12)
-                    }
-                    .buttonStyle(.plain)
-                    .disabled(isWorking || remainingDraftSlots == 0)
-                    .foregroundStyle(PixelTheme.ink)
-                    .pixelSurface(fill: PixelTheme.paperRaised, border: PixelTheme.gold, step: 3)
+#if os(macOS)
+                Button {
+                    presentFileImporter(targetSlot: nil)
+                } label: {
+                    Label("选择本地文件", systemImage: "folder")
+                        .font(PixelTheme.font(.subheadline, weight: .semibold))
+                        .frame(maxWidth: .infinity)
+                        .padding(.vertical, 12)
+                }
+                .buttonStyle(.plain)
+                .disabled(isWorking || remainingDraftSlots == 0)
+                .foregroundStyle(PixelTheme.ink)
+                .pixelSurface(fill: PixelTheme.paperRaised, border: PixelTheme.gold, step: 3)
+#endif
             }
         }
     }
@@ -414,6 +428,7 @@ struct EvidenceSubmissionView: View {
                         .foregroundStyle(.white)
                         .pixelSurface(fill: PixelTheme.selection, border: PixelTheme.gold, step: 2)
 
+#if os(macOS)
                         Button {
                             presentFileImporter(targetSlot: index)
                         } label: {
@@ -426,6 +441,7 @@ struct EvidenceSubmissionView: View {
                         .disabled(isWorking)
                         .foregroundStyle(PixelTheme.ink)
                         .pixelSurface(fill: PixelTheme.paperRaised, border: PixelTheme.gold, step: 2)
+#endif
                     }
                     }
                     .padding(.horizontal, 22)
@@ -482,6 +498,7 @@ struct EvidenceSubmissionView: View {
                 .pixelSurface(fill: PixelTheme.selection, border: PixelTheme.gold, step: 2)
                 .accessibilityLabel("为照片 \(index + 1) 从图库选择")
 
+#if os(macOS)
                 Button {
                     presentFileImporter(targetSlot: index)
                 } label: {
@@ -493,6 +510,7 @@ struct EvidenceSubmissionView: View {
                 .foregroundStyle(PixelTheme.ink)
                 .pixelSurface(fill: PixelTheme.paperRaised, border: PixelTheme.gold, step: 2)
                 .accessibilityLabel("为照片 \(index + 1) 选择文件")
+#endif
             }
         }
         .padding(10)
@@ -506,33 +524,27 @@ struct EvidenceSubmissionView: View {
                 }
 
                 if remainingDraftSlots > 0 {
-                    Button {
-                        presentFileImporter(targetSlot: nil)
-                    } label: {
-                        VStack(spacing: 7) {
-                            Image(systemName: "plus")
-                                .font(PixelTheme.font(.title2, weight: .medium))
-                            Text(
-                                draftImages.isEmpty
-                                    ? L10n.text("添加照片", english: "Add Photo")
-                                    : L10n.text("继续添加", english: "Add More")
-                            )
-                                .font(PixelTheme.font(.caption))
-                        }
-                        .foregroundStyle(PixelTheme.inkMuted)
-                        .frame(width: Self.thumbnailSize.width, height: Self.thumbnailSize.height)
-                        .background(PixelTheme.paperRaised)
-                        .overlay {
-                            PixelCornerShape(step: 3)
-                                .stroke(
-                                    PixelTheme.gold.opacity(0.58),
-                                    style: StrokeStyle(lineWidth: 1.2, dash: [6, 5])
-                                )
-                        }
+#if os(iOS)
+                    PhotosPicker(
+                        selection: $selectedPhotos,
+                        maxSelectionCount: remainingDraftSlots,
+                        matching: .images
+                    ) {
+                        bulkAddPhotoLabel
                     }
                     .buttonStyle(.plain)
                     .disabled(isWorking)
                     .accessibilityLabel("添加照片，还可添加 \(remainingDraftSlots) 张")
+#else
+                    Button {
+                        presentFileImporter(targetSlot: nil)
+                    } label: {
+                        bulkAddPhotoLabel
+                    }
+                    .buttonStyle(.plain)
+                    .disabled(isWorking)
+                    .accessibilityLabel("添加照片，还可添加 \(remainingDraftSlots) 张")
+#endif
                 }
             }
             .padding(2)
@@ -554,6 +566,29 @@ struct EvidenceSubmissionView: View {
         .contentShape(PixelCornerShape())
         .onTapGesture {
             isDraftAreaFocused = true
+        }
+    }
+
+    private var bulkAddPhotoLabel: some View {
+        VStack(spacing: 7) {
+            Image(systemName: "plus")
+                .font(PixelTheme.font(.title2, weight: .medium))
+            Text(
+                draftImages.isEmpty
+                    ? L10n.text("添加照片", english: "Add Photo")
+                    : L10n.text("继续添加", english: "Add More")
+            )
+                .font(PixelTheme.font(.caption))
+        }
+        .foregroundStyle(PixelTheme.inkMuted)
+        .frame(width: Self.thumbnailSize.width, height: Self.thumbnailSize.height)
+        .background(PixelTheme.paperRaised)
+        .overlay {
+            PixelCornerShape(step: 3)
+                .stroke(
+                    PixelTheme.gold.opacity(0.58),
+                    style: StrokeStyle(lineWidth: 1.2, dash: [6, 5])
+                )
         }
     }
 
@@ -839,8 +874,8 @@ struct EvidenceSubmissionView: View {
             )
 #else
         L10n.text(
-            "可从照片图库、相机或“文件”中选择证据照片",
-            english: "Choose evidence photos from Photos, Camera, or Files"
+            "可从照片图库选择，或直接拍摄证据照片",
+            english: "Choose evidence photos from Photos or take them with the camera"
         )
 #endif
     }
@@ -998,8 +1033,14 @@ struct EvidenceSubmissionView: View {
     private func submitDraftEvidence() async {
         guard !isWorking, isDraftComplete else { return }
 
+        onVerificationStarted()
         isWorking = true
         feedbackMessage = nil
+        var verificationVerdict: EvidenceVerdict?
+        defer {
+            isWorking = false
+            onVerificationFinished(verificationVerdict)
+        }
         let previousStatus = task.status
         let submittedImages = draftImages.sorted { $0.slotIndex < $1.slotIndex }
         let submissionBatchID = UUID()
@@ -1022,7 +1063,7 @@ struct EvidenceSubmissionView: View {
             task.status = .awaitingVerification
             try modelContext.save()
             draftImages.removeAll()
-            await verify(insertedEvidences)
+            verificationVerdict = await verify(insertedEvidences)
         } catch {
             for evidence in insertedEvidences {
                 modelContext.delete(evidence)
@@ -1036,7 +1077,6 @@ struct EvidenceSubmissionView: View {
             feedbackIsError = true
         }
 
-        isWorking = false
     }
 
     @MainActor
@@ -1044,16 +1084,21 @@ struct EvidenceSubmissionView: View {
         guard !isWorking else { return }
         guard let pendingBatch = evidenceBatches.first(where: { $0.verdict == .pending }) else { return }
 
+        onVerificationStarted()
         isWorking = true
         feedbackMessage = nil
+        var verificationVerdict: EvidenceVerdict?
+        defer {
+            isWorking = false
+            onVerificationFinished(verificationVerdict)
+        }
         task.status = .awaitingVerification
         try? modelContext.save()
-        await verify(pendingBatch.evidences)
-        isWorking = false
+        verificationVerdict = await verify(pendingBatch.evidences)
     }
 
     @MainActor
-    private func verify(_ evidences: [Evidence]) async {
+    private func verify(_ evidences: [Evidence]) async -> EvidenceVerdict? {
         let orderedEvidences = evidences.sorted { ($0.submissionIndex ?? 0) < ($1.submissionIndex ?? 0) }
         let images = orderedEvidences.compactMap(\.imageData)
 
@@ -1065,16 +1110,19 @@ struct EvidenceSubmissionView: View {
                 imageData: images
             )
 
+            let resolvedVerdict: EvidenceVerdict
+            switch result.verdict {
+            case .verified:
+                resolvedVerdict = .verified
+            case .needMoreProof:
+                resolvedVerdict = .needMoreProof
+            case .notVerified:
+                resolvedVerdict = .notVerified
+            }
+
             for evidence in evidences {
                 evidence.explanation = result.explanation
-                switch result.verdict {
-                case .verified:
-                    evidence.verdict = .verified
-                case .needMoreProof:
-                    evidence.verdict = .needMoreProof
-                case .notVerified:
-                    evidence.verdict = .notVerified
-                }
+                evidence.verdict = resolvedVerdict
             }
 
             var awardEvent: XPAwardEvent?
@@ -1093,6 +1141,7 @@ struct EvidenceSubmissionView: View {
             }
             feedbackMessage = L10n.text("核验结果已写入本机。")
             feedbackIsError = false
+            return resolvedVerdict
         } catch {
             for evidence in evidences {
                 evidence.verdict = .pending
@@ -1101,6 +1150,7 @@ struct EvidenceSubmissionView: View {
             try? modelContext.save()
             feedbackMessage = error.localizedDescription
             feedbackIsError = true
+            return nil
         }
     }
 }

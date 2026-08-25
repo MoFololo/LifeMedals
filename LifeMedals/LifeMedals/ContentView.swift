@@ -44,6 +44,18 @@ struct ContentView: View {
         case reviewing
     }
 
+    private struct EvidenceVerificationPresentation: Equatable {
+        enum Phase: Equatable {
+            case verifying
+            case completed
+        }
+
+        let taskID: UUID
+        let taskTitle: String
+        let xpReward: Int
+        var phase: Phase
+    }
+
     private enum TaskCreationInputMode: String, CaseIterable, Identifiable {
         case text
         case image
@@ -275,6 +287,8 @@ struct ContentView: View {
     @State private var selectedTaskTab = TaskListTab.unfinished
     @State private var selectedLibraryBadge: String?
     @State private var medalAnimationPresentation: XPAwardEvent?
+    @State private var deferredMedalAnimationPresentation: XPAwardEvent?
+    @State private var evidenceVerificationPresentation: EvidenceVerificationPresentation?
     @State private var isShowingSettings = false
     @State private var selectedSourcePhoto: PhotosPickerItem?
     @State private var draftSourceImageData: Data?
@@ -336,8 +350,12 @@ struct ContentView: View {
                 guard event.currentXP > event.previousXP else { return }
                 guard event.previousXP < BadgeRank.silver.cumulativeXPThreshold else { return }
 
-                withAnimation(.smooth(duration: 0.3)) {
-                    medalAnimationPresentation = event
+                if evidenceVerificationPresentation != nil {
+                    deferredMedalAnimationPresentation = event
+                } else {
+                    withAnimation(.smooth(duration: 0.3)) {
+                        medalAnimationPresentation = event
+                    }
                 }
             }
             .sheet(isPresented: $isShowingSettings) {
@@ -378,6 +396,16 @@ struct ContentView: View {
                 saveConfirmation(message: savedMessage)
                     .transition(.move(edge: .top).combined(with: .opacity))
                     .zIndex(10)
+            }
+
+            if let evidenceVerificationPresentation {
+                PixelEvidenceVerificationOverlay(
+                    isCompleted: evidenceVerificationPresentation.phase == .completed,
+                    taskTitle: evidenceVerificationPresentation.taskTitle,
+                    xpReward: evidenceVerificationPresentation.xpReward
+                )
+                .transition(.opacity.combined(with: .scale(scale: 0.97)))
+                .zIndex(15)
             }
 
 #if os(macOS)
@@ -1218,9 +1246,26 @@ struct ContentView: View {
         actions: [TaskRowAction],
         onSelect: @escaping () -> Void
     ) -> some View {
+#if os(iOS)
+        Button(action: onSelect) {
+            taskRow(task, now: now)
+        }
+        .buttonStyle(.plain)
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            ForEach(actions) { action in
+                Button(role: action.kind == .delete ? .destructive : nil) {
+                    action.perform()
+                } label: {
+                    Label(action.title, systemImage: action.icon)
+                }
+                .tint(action.tint)
+            }
+        }
+#else
         PixelSwipeActionRow(actions: actions, onSelect: onSelect) {
             taskRow(task, now: now)
         }
+#endif
     }
 
     private func taskDetailPage(_ task: TaskContract) -> some View {
@@ -1344,7 +1389,15 @@ struct ContentView: View {
                 .padding(22)
                 .pixelSurface(fill: PixelTheme.paperRaised, border: PixelTheme.gold, step: 4, hasShadow: true)
 
-                EvidenceSubmissionView(task: task)
+                EvidenceSubmissionView(
+                    task: task,
+                    onVerificationStarted: {
+                        beginEvidenceVerification(for: task)
+                    },
+                    onVerificationFinished: { verdict in
+                        finishEvidenceVerification(for: task, verdict: verdict)
+                    }
+                )
                 taskReminderDetail(for: task)
             }
             .padding(.horizontal, pageHorizontalInset)
@@ -1873,6 +1926,56 @@ struct ContentView: View {
         withAnimation(.smooth(duration: 0.4)) {
             taskDetailOrigin = .taskList
             selectedTask = task
+        }
+    }
+
+    private func beginEvidenceVerification(for task: TaskContract) {
+        withAnimation(reduceMotion ? nil : .smooth(duration: 0.22)) {
+            evidenceVerificationPresentation = EvidenceVerificationPresentation(
+                taskID: task.id,
+                taskTitle: L10n.text(task.title),
+                xpReward: task.xpReward,
+                phase: .verifying
+            )
+        }
+    }
+
+    private func finishEvidenceVerification(for task: TaskContract, verdict: EvidenceVerdict?) {
+        guard evidenceVerificationPresentation?.taskID == task.id else { return }
+
+        guard verdict == .verified else {
+            withAnimation(reduceMotion ? nil : .smooth(duration: 0.2)) {
+                evidenceVerificationPresentation = nil
+            }
+            return
+        }
+
+        withAnimation(reduceMotion ? nil : .snappy(duration: 0.28)) {
+            evidenceVerificationPresentation?.phase = .completed
+        }
+
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(reduceMotion ? 0.9 : 1.45))
+            guard
+                evidenceVerificationPresentation?.taskID == task.id,
+                evidenceVerificationPresentation?.phase == .completed
+            else { return }
+
+            withAnimation(reduceMotion ? nil : .smooth(duration: 0.38)) {
+                selectedPage = .tasks
+                selectedTaskTab = .completed
+                selectedTask = nil
+                taskDetailOrigin = .taskList
+                evidenceVerificationPresentation = nil
+            }
+
+            if let deferredEvent = deferredMedalAnimationPresentation {
+                deferredMedalAnimationPresentation = nil
+                try? await Task.sleep(for: .milliseconds(180))
+                withAnimation(reduceMotion ? nil : .smooth(duration: 0.3)) {
+                    medalAnimationPresentation = deferredEvent
+                }
+            }
         }
     }
 
@@ -2516,6 +2619,155 @@ struct ContentView: View {
             Spacer()
         }
         .padding(.top, 82)
+    }
+}
+
+private struct PixelEvidenceVerificationOverlay: View {
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    let isCompleted: Bool
+    let taskTitle: String
+    let xpReward: Int
+
+    private let pixelOffsets: [CGSize] = [
+        CGSize(width: 0, height: -42),
+        CGSize(width: 30, height: -30),
+        CGSize(width: 42, height: 0),
+        CGSize(width: 30, height: 30),
+        CGSize(width: 0, height: 42),
+        CGSize(width: -30, height: 30),
+        CGSize(width: -42, height: 0),
+        CGSize(width: -30, height: -30)
+    ]
+
+    var body: some View {
+        ZStack {
+            Color.black.opacity(0.68)
+                .ignoresSafeArea()
+
+            VStack(spacing: PixelTheme.space24) {
+                verificationGlyph
+
+                VStack(spacing: PixelTheme.space8) {
+                    Text(
+                        isCompleted
+                            ? L10n.text("任务完成", english: "Quest Complete")
+                            : L10n.text("证据鉴定中", english: "Verifying Evidence")
+                    )
+                        .font(PixelTheme.displayFont(size: 26))
+                        .foregroundStyle(isCompleted ? PixelTheme.success : PixelTheme.ink)
+
+                    Text(taskTitle)
+                        .font(PixelTheme.font(.headline))
+                        .foregroundStyle(PixelTheme.ink)
+                        .multilineTextAlignment(.center)
+                        .lineLimit(2)
+
+                    Text(
+                        isCompleted
+                            ? L10n.text(
+                                "证据核验通过，获得 +\(xpReward) EXP\n正在返回已完成任务…",
+                                english: "Evidence verified. +\(xpReward) EXP earned.\nReturning to completed tasks…"
+                            )
+                            : L10n.text(
+                                "公会鉴定师正在核对锁定的验收标准…",
+                                english: "The guild appraiser is checking the locked requirements…"
+                            )
+                    )
+                        .font(PixelTheme.font(.subheadline))
+                        .foregroundStyle(PixelTheme.inkMuted)
+                        .multilineTextAlignment(.center)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+
+                verificationPips
+            }
+            .padding(.horizontal, 28)
+            .padding(.vertical, 32)
+            .frame(maxWidth: 360)
+            .pixelSurface(
+                fill: PixelTheme.paperRaised,
+                border: isCompleted ? PixelTheme.success : PixelTheme.goldBright,
+                step: 6,
+                hasShadow: true
+            )
+            .padding(.horizontal, 24)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(
+            isCompleted
+                ? L10n.text("任务完成，正在返回已完成任务", english: "Quest complete, returning to completed tasks")
+                : L10n.text("正在核验证据", english: "Verifying evidence")
+        )
+    }
+
+    @ViewBuilder
+    private var verificationGlyph: some View {
+        if isCompleted {
+            ZStack {
+                PixelCornerShape(step: 5)
+                    .fill(PixelTheme.success)
+                    .frame(width: 104, height: 104)
+                    .shadow(color: PixelTheme.background.opacity(0.8), radius: 0, x: 5, y: 5)
+
+                Image(systemName: "checkmark")
+                    .font(PixelTheme.font(size: 48, weight: .bold))
+                    .foregroundStyle(.white)
+            }
+            .transition(.scale(scale: 0.72).combined(with: .opacity))
+        } else {
+            TimelineView(.animation(minimumInterval: 0.12, paused: reduceMotion)) { context in
+                let activePixel = reduceMotion
+                    ? 0
+                    : Int(context.date.timeIntervalSinceReferenceDate * 8) % pixelOffsets.count
+
+                ZStack {
+                    PixelCornerShape(step: 5)
+                        .fill(PixelTheme.backgroundRaised)
+                        .frame(width: 104, height: 104)
+                        .overlay { PixelCornerShape(step: 5).stroke(PixelTheme.gold, lineWidth: 2) }
+
+                    Image(systemName: "photo.badge.checkmark")
+                        .font(PixelTheme.font(size: 34, weight: .bold))
+                        .foregroundStyle(PixelTheme.paperRaised)
+
+                    ForEach(pixelOffsets.indices, id: \.self) { index in
+                        Rectangle()
+                            .fill(index == activePixel ? PixelTheme.goldBright : PixelTheme.gold.opacity(0.28))
+                            .frame(width: index == activePixel ? 12 : 8, height: index == activePixel ? 12 : 8)
+                            .offset(pixelOffsets[index])
+                    }
+                }
+                .frame(width: 120, height: 120)
+            }
+            .transition(.opacity)
+        }
+    }
+
+    private var verificationPips: some View {
+        TimelineView(.animation(minimumInterval: 0.16, paused: reduceMotion || isCompleted)) { context in
+            let litPips = isCompleted
+                ? 8
+                : reduceMotion
+                    ? 4
+                    : (Int(context.date.timeIntervalSinceReferenceDate * 6) % 8) + 1
+
+            HStack(spacing: PixelTheme.space4) {
+                ForEach(0..<8, id: \.self) { index in
+                    Rectangle()
+                        .fill(
+                            index < litPips
+                                ? (isCompleted ? PixelTheme.success : PixelTheme.selectionBright)
+                                : PixelTheme.background.opacity(0.16)
+                        )
+                        .frame(maxWidth: .infinity)
+                        .frame(height: 12)
+                }
+            }
+            .padding(3)
+            .overlay { Rectangle().stroke(PixelTheme.ink, lineWidth: 2) }
+        }
+        .frame(height: 18)
     }
 }
 
