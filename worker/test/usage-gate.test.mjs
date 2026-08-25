@@ -88,7 +88,7 @@ test("health identifies the deployed Worker release", async () => {
   const body = await response.json();
 
   assert.equal(response.status, 200);
-  assert.equal(body.release, "2026-08-25-visible-personal-info-test-1");
+  assert.equal(body.release, "2026-08-25-task-groups-1");
   assert.equal(response.headers.get("X-LifeMedals-Release"), body.release);
 });
 
@@ -117,7 +117,9 @@ test("builds a stateless vision request for task generation", () => {
   assert.match(request.input[0].content[0].text, /帮我提取最重要的下一步/);
   assert.equal(request.input[0].content[1].type, "input_image");
   assert.match(request.input[0].content[1].image_url, /^data:image\/jpeg;base64,/);
-  assert.match(request.instructions, /single clearest actionable next step/);
+  assert.match(request.instructions, /extract every independent executable action/);
+  assert.match(request.instructions, /heading such as Next Steps.*not a child task/);
+  assert.match(request.instructions, /own objective, lightweight evidence requirement/);
   assert.match(request.instructions, /names, email addresses, phone numbers/);
   assert.match(request.instructions, /never cause redaction, omission, refusal/);
   assert.doesNotMatch(request.instructions, /privacy-conscious/);
@@ -141,6 +143,7 @@ test("generate-task forwards the source image without storing response state", a
     return Response.json({
       status: "completed",
       output_text: JSON.stringify({
+        kind: "single_task",
         title: "报名校园摄影社",
         deadline: "2026-08-24T23:59:00-04:00",
         deadline_preset: "tomorrow",
@@ -149,6 +152,7 @@ test("generate-task forwards the source image without storing response state", a
         evidence_image_descriptions: ["显示报名成功状态的页面截图。"],
         suggested_badge: "Career",
         estimated_hours: 0.25,
+        children: [],
       }),
     });
   };
@@ -214,6 +218,7 @@ test("builds a stateless vision request around the locked requirement", () => {
 
 test("validates task contracts with count-aware evidence descriptions", () => {
   const baseContract = {
+    kind: "single_task",
     title: "完成两道 LeetCode",
     deadline: "2026-08-01T22:00:00+08:00",
     deadline_preset: "this_weekend",
@@ -225,6 +230,7 @@ test("validates task contracts with count-aware evidence descriptions", () => {
     ],
     suggested_badge: "Solver",
     estimated_hours: 0.5,
+    children: [],
   };
 
   assert.equal(isTaskContract(baseContract), true);
@@ -254,6 +260,44 @@ test("validates task contracts with count-aware evidence descriptions", () => {
   );
   assert.equal(
     isTaskContract({ ...baseContract, estimated_hours: 1.1 }),
+    false,
+  );
+});
+
+test("validates task groups and requires child-specific evidence plans", () => {
+  const child = (title) => ({
+    title,
+    evidence_requirement: `Show completion of ${title}.`,
+    evidence_image_count: 1,
+    evidence_image_descriptions: [`Completion result for ${title}.`],
+    estimated_hours: 0.25,
+  });
+  const group = {
+    kind: "task_group",
+    title: "Complete all Next Steps",
+    deadline: "2026-08-25T23:59:00-04:00",
+    deadline_preset: "tomorrow",
+    evidence_requirement: "",
+    evidence_image_count: 0,
+    evidence_image_descriptions: [],
+    suggested_badge: "Solver",
+    estimated_hours: 0.5,
+    children: [child("Complete the survey"), child("Join Piazza")],
+  };
+
+  assert.equal(isTaskContract(group), true);
+  assert.equal(isTaskContract({ ...group, children: [] }), false);
+  // The client deliberately degrades a one-child group to a normal task.
+  assert.equal(isTaskContract({ ...group, children: [child("Only action")] }), true);
+  assert.equal(
+    isTaskContract({
+      ...group,
+      children: [child("Complete the survey"), { ...child("Join Piazza"), evidence_requirement: "" }],
+    }),
+    false,
+  );
+  assert.equal(
+    isTaskContract({ ...group, evidence_requirement: "Parent should not require proof" }),
     false,
   );
 });

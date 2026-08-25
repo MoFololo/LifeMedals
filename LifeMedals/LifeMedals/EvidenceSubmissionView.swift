@@ -1129,7 +1129,11 @@ struct EvidenceSubmissionView: View {
             switch result.verdict {
             case .verified:
                 task.status = .verified
-                awardEvent = XPService.awardXP(for: task, in: modelContext)
+                if task.isSubtask {
+                    awardEvent = try TaskGroupService.reconcileParent(for: task, in: modelContext)
+                } else {
+                    awardEvent = XPService.awardXP(for: task, in: modelContext)
+                }
             case .needMoreProof:
                 task.status = .needMoreProof
             case .notVerified:
@@ -1143,6 +1147,9 @@ struct EvidenceSubmissionView: View {
             feedbackIsError = false
             return resolvedVerdict
         } catch {
+            // Roll back parent status, XPLog, badge totals, and evidence verdicts
+            // together if the final atomic save fails.
+            modelContext.rollback()
             for evidence in evidences {
                 evidence.verdict = .pending
             }

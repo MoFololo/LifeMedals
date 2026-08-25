@@ -44,6 +44,23 @@ struct ContentView: View {
         case reviewing
     }
 
+    private struct TaskChildDraft: Identifiable {
+        let id = UUID()
+        var title: String
+        var evidenceRequirement: String
+        var evidenceImageCount: Int
+        var evidenceImageDescriptions: [String]
+        var xpReward: Int
+
+        init(_ child: GeneratedTaskChild) {
+            title = child.title
+            evidenceRequirement = child.evidenceRequirement
+            evidenceImageCount = child.evidenceImageCount
+            evidenceImageDescriptions = child.evidenceImageDescriptions
+            xpReward = child.suggestedXP
+        }
+    }
+
     private struct EvidenceVerificationPresentation: Equatable {
         enum Phase: Equatable {
             case verifying
@@ -53,6 +70,8 @@ struct ContentView: View {
         let taskID: UUID
         let taskTitle: String
         let xpReward: Int
+        let isSubtask: Bool
+        let completesTaskGroup: Bool
         var phase: Phase
     }
 
@@ -285,6 +304,8 @@ struct ContentView: View {
     @State private var isReminderStatusDismissed = false
     @GestureState private var reminderBannerTranslation: CGFloat = 0
     @State private var selectedTaskTab = TaskListTab.unfinished
+    /// Absence means expanded, so newly created and synced groups default open.
+    @State private var collapsedTaskGroupIDs: Set<UUID> = []
     @State private var selectedLibraryBadge: String?
     @State private var medalAnimationPresentation: XPAwardEvent?
     @State private var deferredMedalAnimationPresentation: XPAwardEvent?
@@ -305,6 +326,7 @@ struct ContentView: View {
     @State private var draftEvidenceImageDescriptions: [String] = []
     @State private var draftBadge = BadgeKind.solver.rawValue
     @State private var draftXP = 10
+    @State private var draftChildren: [TaskChildDraft] = []
 
     private let generationService = TaskGenerationService()
     private let notificationService = TaskNotificationService()
@@ -402,7 +424,9 @@ struct ContentView: View {
                 PixelEvidenceVerificationOverlay(
                     isCompleted: evidenceVerificationPresentation.phase == .completed,
                     taskTitle: evidenceVerificationPresentation.taskTitle,
-                    xpReward: evidenceVerificationPresentation.xpReward
+                    xpReward: evidenceVerificationPresentation.xpReward,
+                    isSubtask: evidenceVerificationPresentation.isSubtask,
+                    completesTaskGroup: evidenceVerificationPresentation.completesTaskGroup
                 )
                 .transition(.opacity.combined(with: .scale(scale: 0.97)))
                 .zIndex(15)
@@ -870,31 +894,76 @@ struct ContentView: View {
                         }
                     }
 
-                    contractField("证据照片") {
-                        VStack(alignment: .leading, spacing: 10) {
-                            Label("需要 \(draftEvidenceImageCount) 张照片", systemImage: "photo.stack")
-                                .font(PixelTheme.font(.subheadline, weight: .semibold))
+                    if isDraftTaskGroup {
+                        contractField(L10n.text(
+                            "识别到 \(draftChildren.count) 个子任务",
+                            english: "\(draftChildren.count) subtasks found"
+                        )) {
+                            VStack(spacing: 12) {
+                                ForEach($draftChildren) { $child in
+                                    VStack(alignment: .leading, spacing: 9) {
+                                        HStack(alignment: .firstTextBaseline, spacing: 9) {
+                                            Text("\((draftChildren.firstIndex(where: { $0.id == child.id }) ?? 0) + 1)")
+                                                .font(PixelTheme.statFont(size: 11))
+                                                .foregroundStyle(.white)
+                                                .frame(width: 22, height: 22)
+                                                .background(PixelTheme.selection, in: PixelCornerShape(step: 2))
+                                            TextField("子任务标题", text: $child.title, axis: .vertical)
+                                                .textFieldStyle(.plain)
+                                                .font(PixelTheme.font(.headline))
+                                                .lineLimit(1...3)
+                                        }
 
-                            ForEach(Array(draftEvidenceImageDescriptions.enumerated()), id: \.offset) { index, description in
-                                HStack(alignment: .top, spacing: 8) {
-                                    if draftEvidenceImageCount <= 2 {
-                                        Text("\(index + 1)")
-                                            .font(PixelTheme.statFont(size: 11))
-                                            .foregroundStyle(.white)
-                                            .frame(width: 20, height: 20)
-                                            .background(PixelTheme.selection, in: PixelCornerShape(step: 2))
-                                    }
-                                    Text(L10n.text(description))
-                                        .font(PixelTheme.font(.subheadline))
+                                        TextField("该子任务的验收标准", text: $child.evidenceRequirement, axis: .vertical)
+                                            .textFieldStyle(.plain)
+                                            .font(PixelTheme.font(.subheadline))
+                                            .foregroundStyle(PixelTheme.inkMuted)
+                                            .lineLimit(2...5)
+
+                                        Label(
+                                            L10n.text(
+                                                "需要 \(child.evidenceImageCount) 张照片 · 约 +\(child.xpReward) EXP 工作量",
+                                                english: "\(child.evidenceImageCount) photo(s) · about +\(child.xpReward) EXP of effort"
+                                            ),
+                                            systemImage: "photo.stack"
+                                        )
+                                        .font(PixelTheme.font(.caption))
                                         .foregroundStyle(PixelTheme.inkMuted)
-                                        .fixedSize(horizontal: false, vertical: true)
+                                    }
+                                    .padding(14)
+                                    .frame(maxWidth: .infinity, alignment: .leading)
+                                    .background(PixelTheme.paperRaised, in: PixelCornerShape())
+                                    .overlay { PixelCornerShape().stroke(PixelTheme.gold.opacity(0.62), lineWidth: 1) }
                                 }
                             }
                         }
-                        .padding(14)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                        .background(PixelTheme.paperRaised, in: PixelCornerShape())
-                        .overlay { PixelCornerShape().stroke(PixelTheme.gold.opacity(0.62), lineWidth: 1) }
+                    } else {
+                        contractField("证据照片") {
+                            VStack(alignment: .leading, spacing: 10) {
+                                Label("需要 \(draftEvidenceImageCount) 张照片", systemImage: "photo.stack")
+                                    .font(PixelTheme.font(.subheadline, weight: .semibold))
+
+                                ForEach(Array(draftEvidenceImageDescriptions.enumerated()), id: \.offset) { index, description in
+                                    HStack(alignment: .top, spacing: 8) {
+                                        if draftEvidenceImageCount <= 2 {
+                                            Text("\(index + 1)")
+                                                .font(PixelTheme.statFont(size: 11))
+                                                .foregroundStyle(.white)
+                                                .frame(width: 20, height: 20)
+                                                .background(PixelTheme.selection, in: PixelCornerShape(step: 2))
+                                        }
+                                        Text(L10n.text(description))
+                                            .font(PixelTheme.font(.subheadline))
+                                            .foregroundStyle(PixelTheme.inkMuted)
+                                            .fixedSize(horizontal: false, vertical: true)
+                                    }
+                                }
+                            }
+                            .padding(14)
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .background(PixelTheme.paperRaised, in: PixelCornerShape())
+                            .overlay { PixelCornerShape().stroke(PixelTheme.gold.opacity(0.62), lineWidth: 1) }
+                        }
                     }
 
                     Button(action: saveTask) {
@@ -930,10 +999,24 @@ struct ContentView: View {
 
     private var contractReviewTitle: some View {
         VStack(alignment: .leading, spacing: 5) {
-            Text("确认任务契约")
+            Text(
+                isDraftTaskGroup
+                    ? L10n.text("确认任务组", english: "Review Task Group")
+                    : L10n.text("确认任务契约", english: "Review Task Contract")
+            )
                 .font(PixelTheme.displayFont(size: 32))
                 .foregroundStyle(PixelTheme.paperRaised)
-            Text("确认截止日期和证据照片后，即可开始执行。")
+            Text(
+                isDraftTaskGroup
+                    ? L10n.text(
+                        "已识别 \(draftChildren.count) 项；确认主任务与每项验收标准后即可保存。",
+                        english: "\(draftChildren.count) actions found. Review the group and each acceptance criterion before saving."
+                    )
+                    : L10n.text(
+                        "确认截止日期和证据照片后，即可开始执行。",
+                        english: "Review the deadline and evidence photos before starting."
+                    )
+            )
                 .foregroundStyle(PixelTheme.paper.opacity(0.72))
         }
     }
@@ -951,8 +1034,11 @@ struct ContentView: View {
     }
 
     private var taskTitleContractField: some View {
-        contractField("任务标题") {
-            TextField("任务标题", text: $draftTitle)
+        let fieldTitle = isDraftTaskGroup
+            ? L10n.text("主任务标题", english: "Main task title")
+            : L10n.text("任务标题", english: "Task title")
+        return contractField(fieldTitle) {
+            TextField(fieldTitle, text: $draftTitle)
                 .textFieldStyle(.plain)
                 .font(PixelTheme.font(.title3, weight: .medium))
                 .frame(maxWidth: .infinity)
@@ -1050,16 +1136,52 @@ struct ContentView: View {
             } else {
                 ForEach(selectedTasks) { task in
                     let actions = taskRowActions(for: task)
-                    adaptiveTaskRow(
-                        task: task,
-                        now: now,
-                        actions: actions,
-                        onSelect: { openTask(task) }
-                    )
+                    if task.isTaskGroup {
+                        adaptiveTaskGroupRow(
+                            task: task,
+                            now: now,
+                            actions: actions,
+                            onSelect: { toggleTaskGroup(task) }
+                        )
                         .clipShape(PixelCornerShape())
                         .listRowBackground(Color.clear)
                         .listRowSeparator(.hidden)
                         .listRowInsets(EdgeInsets(top: 7, leading: pageHorizontalInset, bottom: 7, trailing: pageHorizontalInset))
+
+                        if !collapsedTaskGroupIDs.contains(task.id) {
+                            ForEach(children(of: task)) { child in
+                                adaptiveTaskRow(
+                                    task: child,
+                                    now: now,
+                                    actions: taskRowActions(for: child),
+                                    onSelect: { openTask(child) }
+                                )
+                                .clipShape(PixelCornerShape())
+                                .listRowBackground(Color.clear)
+                                .listRowSeparator(.hidden)
+                                .listRowInsets(
+                                    EdgeInsets(
+                                        top: 5,
+                                        leading: pageHorizontalInset + (isCompactLayout ? 24 : 38),
+                                        bottom: 5,
+                                        trailing: pageHorizontalInset
+                                    )
+                                )
+                                .transition(.opacity.combined(with: .move(edge: .top)))
+                            }
+                        }
+                    } else {
+                        adaptiveTaskRow(
+                            task: task,
+                            now: now,
+                            actions: actions,
+                            onSelect: { openTask(task) }
+                        )
+                            .clipShape(PixelCornerShape())
+                            .listRowBackground(Color.clear)
+                            .listRowSeparator(.hidden)
+                            .listRowInsets(EdgeInsets(top: 7, leading: pageHorizontalInset, bottom: 7, trailing: pageHorizontalInset))
+                    }
                 }
             }
         }
@@ -1222,7 +1344,11 @@ struct ContentView: View {
                     .font(PixelTheme.font(.caption, weight: .semibold))
                     .foregroundStyle(taskListStatusColor(for: task, now: now))
                     .lineLimit(1)
-                Text("+\(task.xpReward) EXP")
+                Text(
+                    task.isSubtask
+                        ? L10n.text("任务组奖励", english: "Group reward")
+                        : "+\(task.xpReward) EXP"
+                )
                     .font(PixelTheme.font(.subheadline, weight: .bold))
                     .foregroundStyle(PixelTheme.brown)
                 if !isCompactLayout {
@@ -1237,6 +1363,79 @@ struct ContentView: View {
         .contentShape(PixelCornerShape())
         .pixelSurface(fill: PixelTheme.paper, border: PixelTheme.gold, step: 4, hasShadow: true)
         .accessibilityHint("查看任务契约详情")
+    }
+
+    private func taskGroupRow(_ task: TaskContract, now: Date) -> some View {
+        let childTasks = children(of: task)
+        let completedCount = childTasks.filter { $0.status == .verified }.count
+        let isExpanded = !collapsedTaskGroupIDs.contains(task.id)
+
+        return HStack(spacing: isCompactLayout ? 10 : 14) {
+            Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
+                .font(PixelTheme.font(.subheadline, weight: .bold))
+                .foregroundStyle(PixelTheme.selection)
+                .frame(width: 18)
+
+            MedalArtworkView(
+                categoryName: task.badgeCategory?.name,
+                rank: task.badgeCategory?.userBadge?.rank ?? .bronze
+            )
+            .frame(width: isCompactLayout ? 42 : 50, height: isCompactLayout ? 42 : 50)
+
+            VStack(alignment: .leading, spacing: 6) {
+                Text(L10n.text(task.title))
+                    .font(PixelTheme.font(.headline))
+                    .foregroundStyle(PixelTheme.ink)
+                    .lineLimit(3)
+                    .layoutPriority(1)
+
+                Label(
+                    deadlineDisplayText(task.deadline, relativeTo: now),
+                    systemImage: task.deadline <= now && task.status != .verified
+                        ? "clock.badge.exclamationmark"
+                        : "clock"
+                )
+                .font(PixelTheme.font(.caption))
+                .foregroundStyle(
+                    task.deadline <= now && task.status != .verified
+                        ? PixelTheme.danger
+                        : PixelTheme.inkMuted
+                )
+            }
+
+            Spacer(minLength: 8)
+
+            VStack(alignment: .trailing, spacing: 7) {
+                Text("\(completedCount)/\(childTasks.count)")
+                    .font(PixelTheme.statFont(size: isCompactLayout ? 14 : 16))
+                    .foregroundStyle(task.status == .verified ? PixelTheme.success : PixelTheme.selection)
+                Text(taskListStatusTitle(for: task, now: now))
+                    .font(PixelTheme.font(.caption2, weight: .semibold))
+                    .foregroundStyle(taskListStatusColor(for: task, now: now))
+                    .lineLimit(1)
+                if !isCompactLayout {
+                    Text("+\(task.xpReward) EXP")
+                        .font(PixelTheme.font(.caption, weight: .bold))
+                        .foregroundStyle(PixelTheme.brown)
+                }
+            }
+        }
+        .padding(isCompactLayout ? 14 : 18)
+        .foregroundStyle(PixelTheme.ink)
+        .contentShape(PixelCornerShape())
+        .pixelSurface(fill: PixelTheme.paper, border: PixelTheme.gold, step: 4, hasShadow: true)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(
+            L10n.text(
+                "\(task.title)，已完成 \(completedCount)/\(childTasks.count)，\(isExpanded ? "已展开" : "已收起")",
+                english: "\(task.title), \(completedCount) of \(childTasks.count) completed, \(isExpanded ? "expanded" : "collapsed")"
+            )
+        )
+        .accessibilityHint(
+            isExpanded
+                ? L10n.text("收起子任务", english: "Collapse subtasks")
+                : L10n.text("展开子任务", english: "Expand subtasks")
+        )
     }
 
     @ViewBuilder
@@ -1264,6 +1463,35 @@ struct ContentView: View {
 #else
         PixelSwipeActionRow(actions: actions, onSelect: onSelect) {
             taskRow(task, now: now)
+        }
+#endif
+    }
+
+    @ViewBuilder
+    private func adaptiveTaskGroupRow(
+        task: TaskContract,
+        now: Date,
+        actions: [TaskRowAction],
+        onSelect: @escaping () -> Void
+    ) -> some View {
+#if os(iOS)
+        Button(action: onSelect) {
+            taskGroupRow(task, now: now)
+        }
+        .buttonStyle(.plain)
+        .swipeActions(edge: .trailing, allowsFullSwipe: false) {
+            ForEach(actions) { action in
+                Button(role: action.kind == .delete ? .destructive : nil) {
+                    action.perform()
+                } label: {
+                    Label(action.title, systemImage: action.icon)
+                }
+                .tint(action.tint)
+            }
+        }
+#else
+        PixelSwipeActionRow(actions: actions, onSelect: onSelect) {
+            taskGroupRow(task, now: now)
         }
 #endif
     }
@@ -1308,7 +1536,9 @@ struct ContentView: View {
                     }
                     detailCard(
                         title: "完成奖励",
-                        value: "+\(task.xpReward) EXP",
+                        value: task.isSubtask
+                            ? L10n.text("计入主任务奖励", english: "Included in the group reward")
+                            : "+\(task.xpReward) EXP",
                         icon: "sparkles",
                         tint: PixelTheme.gold
                     )
@@ -1531,7 +1761,11 @@ struct ContentView: View {
         let rank = userBadge?.rank ?? .bronze
         let currentXP = userBadge?.currentXP ?? 0
         let historyTasks = taskContracts
-            .filter { $0.badgeCategory?.name == badge && $0.status == .verified }
+            .filter {
+                $0.badgeCategory?.name == badge &&
+                    $0.status == .verified &&
+                    !$0.isTaskGroup
+            }
             .sorted { $0.createdAt > $1.createdAt }
 
         return ScrollView {
@@ -1615,7 +1849,11 @@ struct ContentView: View {
 
                     VStack(alignment: .trailing, spacing: 7) {
                         statusPill(for: task)
-                        Text("+\(task.xpReward) EXP")
+                        Text(
+                            task.isSubtask
+                                ? L10n.text("计入任务组奖励", english: "Included in group reward")
+                                : "+\(task.xpReward) EXP"
+                        )
                             .font(PixelTheme.font(.caption, weight: .bold))
                             .foregroundStyle(PixelTheme.brown)
                     }
@@ -1830,6 +2068,9 @@ struct ContentView: View {
                     ? contract.suggestedBadge
                     : Self.badgeOptions[0]
                 draftXP = contract.suggestedXP
+                draftChildren = contract.kind == .taskGroup
+                    ? contract.children.map(TaskChildDraft.init)
+                    : []
                 draftContractSourceImageData = sourceImageData
 
                 withAnimation(.smooth(duration: 0.46)) {
@@ -1845,9 +2086,14 @@ struct ContentView: View {
     private func saveTask() {
         let title = draftTitle.trimmingCharacters(in: .whitespacesAndNewlines)
         let requirement = draftEvidenceRequirement.trimmingCharacters(in: .whitespacesAndNewlines)
+        let wasTaskGroup = isDraftTaskGroup
         guard
             !title.isEmpty,
-            !requirement.isEmpty,
+            (isDraftTaskGroup || !requirement.isEmpty),
+            draftChildren.allSatisfy({
+                !$0.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+                    !$0.evidenceRequirement.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            }),
             let draftDeadlinePreset
         else { return }
 
@@ -1870,26 +2116,63 @@ struct ContentView: View {
                 modelContext.insert(userBadge)
             }
 
-            let task = TaskContract(
-                title: title,
-                deadline: deadline,
-                evidenceRequirement: requirement,
-                evidenceImageCount: draftEvidenceImageCount,
-                evidenceImageDescriptions: draftEvidenceImageDescriptions,
-                xpReward: draftXP,
-                sourceImageData: draftContractSourceImageData,
-                badgeCategory: category
-            )
-            modelContext.insert(task)
+            let savedTasks: [TaskContract]
+            if wasTaskGroup {
+                let parent = TaskContract(
+                    title: title,
+                    deadline: deadline,
+                    evidenceRequirement: "",
+                    evidenceImageCount: 1,
+                    evidenceImageDescriptions: [],
+                    xpReward: draftXP,
+                    hierarchyRole: .group,
+                    sourceImageData: draftContractSourceImageData,
+                    badgeCategory: category
+                )
+                modelContext.insert(parent)
+
+                let children = draftChildren.enumerated().map { index, draft in
+                    TaskContract(
+                        title: draft.title.trimmingCharacters(in: .whitespacesAndNewlines),
+                        deadline: deadline,
+                        evidenceRequirement: draft.evidenceRequirement.trimmingCharacters(in: .whitespacesAndNewlines),
+                        evidenceImageCount: draft.evidenceImageCount,
+                        evidenceImageDescriptions: draft.evidenceImageDescriptions,
+                        xpReward: draft.xpReward,
+                        hierarchyRole: .child,
+                        parentTaskID: parent.id,
+                        childOrder: index,
+                        badgeCategory: category
+                    )
+                }
+                children.forEach(modelContext.insert)
+                savedTasks = children
+            } else {
+                let task = TaskContract(
+                    title: title,
+                    deadline: deadline,
+                    evidenceRequirement: requirement,
+                    evidenceImageCount: draftEvidenceImageCount,
+                    evidenceImageDescriptions: draftEvidenceImageDescriptions,
+                    xpReward: draftXP,
+                    sourceImageData: draftContractSourceImageData,
+                    badgeCategory: category
+                )
+                modelContext.insert(task)
+                savedTasks = [task]
+            }
             try modelContext.save()
-            scheduleReminderAfterSave(
-                LocalTaskReminder(taskID: task.id, title: task.title, deadline: task.deadline)
-            )
+            for task in savedTasks {
+                scheduleReminderAfterSave(
+                    LocalTaskReminder(taskID: task.id, title: task.title, deadline: task.deadline)
+                )
+            }
 
             taskInput = ""
             selectedSourcePhoto = nil
             draftSourceImageData = nil
             draftContractSourceImageData = nil
+            draftChildren = []
             imageTaskNote = ""
             sourceImageError = nil
             errorMessage = nil
@@ -1898,12 +2181,18 @@ struct ContentView: View {
                 creationInputMode = .text
                 savedMessage = syncMonitor.isAvailable
                     ? L10n.text(
-                        "“\(title)”已保存，正在等待 iCloud 同步",
-                        english: "“\(title)” was saved and is waiting for iCloud sync"
+                        wasTaskGroup
+                            ? "“\(title)”任务组已保存，正在等待 iCloud 同步"
+                            : "“\(title)”已保存，正在等待 iCloud 同步",
+                        english: wasTaskGroup
+                            ? "The “\(title)” task group was saved and is waiting for iCloud sync"
+                            : "“\(title)” was saved and is waiting for iCloud sync"
                     )
                     : L10n.text(
-                        "“\(title)”已保存到本机",
-                        english: "“\(title)” was saved on this device"
+                        wasTaskGroup ? "“\(title)”任务组已保存到本机" : "“\(title)”已保存到本机",
+                        english: wasTaskGroup
+                            ? "The “\(title)” task group was saved on this device"
+                            : "“\(title)” was saved on this device"
                     )
             }
             focusTaskInput()
@@ -1915,6 +2204,7 @@ struct ContentView: View {
                 }
             }
         } catch {
+            modelContext.rollback()
             errorMessage = L10n.text(
                 "保存失败：\(error.localizedDescription)",
                 english: "Could not save: \(error.localizedDescription)"
@@ -1930,11 +2220,21 @@ struct ContentView: View {
     }
 
     private func beginEvidenceVerification(for task: TaskContract) {
+        let parent = task.parentTaskID.flatMap { parentID in
+            taskContracts.first { $0.id == parentID && $0.isTaskGroup }
+        }
+        let siblingTasks = parent.map(children(of:)) ?? []
+        let completesTaskGroup = task.isSubtask &&
+            !siblingTasks.isEmpty &&
+            siblingTasks.filter { $0.id != task.id }.allSatisfy { $0.status == .verified }
+
         withAnimation(reduceMotion ? nil : .smooth(duration: 0.22)) {
             evidenceVerificationPresentation = EvidenceVerificationPresentation(
                 taskID: task.id,
                 taskTitle: L10n.text(task.title),
-                xpReward: task.xpReward,
+                xpReward: completesTaskGroup ? (parent?.xpReward ?? 0) : (task.isSubtask ? 0 : task.xpReward),
+                isSubtask: task.isSubtask,
+                completesTaskGroup: completesTaskGroup,
                 phase: .verifying
             )
         }
@@ -1963,7 +2263,12 @@ struct ContentView: View {
 
             withAnimation(reduceMotion ? nil : .smooth(duration: 0.38)) {
                 selectedPage = .tasks
-                selectedTaskTab = .completed
+                if evidenceVerificationPresentation?.isSubtask == true,
+                   evidenceVerificationPresentation?.completesTaskGroup == false {
+                    selectedTaskTab = task.deadline <= .now ? .overdue : .unfinished
+                } else {
+                    selectedTaskTab = .completed
+                }
                 selectedTask = nil
                 taskDetailOrigin = .taskList
                 evidenceVerificationPresentation = nil
@@ -2002,20 +2307,30 @@ struct ContentView: View {
     }
 
     private func deleteTask(_ task: TaskContract) {
-        modelContext.delete(task)
-        persistTaskChange(
-            successMessage: L10n.text(
-                "“\(task.title)”已删除",
-                english: "“\(task.title)” was deleted"
-            )
-        )
-    }
-
-    private func persistTaskChange(successMessage: String) {
         do {
+            var awardEvent: XPAwardEvent?
+            if task.isTaskGroup {
+                children(of: task).forEach(modelContext.delete)
+                collapsedTaskGroupIDs.remove(task.id)
+            }
+            modelContext.delete(task)
+
+            if let parentID = task.parentTaskID {
+                awardEvent = try TaskGroupService.reconcileParent(
+                    id: parentID,
+                    in: modelContext,
+                    excludingChildID: task.id
+                )
+            }
             try modelContext.save()
+            if let awardEvent {
+                XPService.publishAward(awardEvent)
+            }
             withAnimation(.smooth(duration: 0.3)) {
-                savedMessage = successMessage
+                savedMessage = L10n.text(
+                    "“\(task.title)”已删除",
+                    english: "“\(task.title)” was deleted"
+                )
             }
             Task {
                 await restoreTaskReminders()
@@ -2025,6 +2340,7 @@ struct ContentView: View {
                 }
             }
         } catch {
+            modelContext.rollback()
             reminderFeedback = L10n.text(
                 "任务更新失败：\(error.localizedDescription)",
                 english: "Could not update the task: \(error.localizedDescription)"
@@ -2192,8 +2508,16 @@ struct ContentView: View {
 
     private var canSaveDraft: Bool {
         !draftTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-            !draftEvidenceRequirement.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+            (isDraftTaskGroup || !draftEvidenceRequirement.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) &&
+            (!isDraftTaskGroup || draftChildren.allSatisfy {
+                !$0.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+                    !$0.evidenceRequirement.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+            }) &&
             draftDeadlinePreset.map { taskDeadline(for: $0, relativeTo: .now) > Date.now } == true
+    }
+
+    private var isDraftTaskGroup: Bool {
+        draftChildren.count >= 2
     }
 
     private func taskDeadline(for preset: TaskDeadlinePreset, relativeTo date: Date) -> Date {
@@ -2240,7 +2564,8 @@ struct ContentView: View {
     }
 
     private var pendingTasks: [TaskContract] {
-        activeTaskContracts
+        taskContracts
+            .filter { !$0.isTaskGroup }
             .filter { $0.status != .verified }
             .sorted {
                 if ($0.deadline < .now) != ($1.deadline < .now) {
@@ -2251,7 +2576,28 @@ struct ContentView: View {
     }
 
     private var activeTaskContracts: [TaskContract] {
+        taskContracts.filter { !$0.isSubtask }
+    }
+
+    private func children(of parent: TaskContract) -> [TaskContract] {
         taskContracts
+            .filter { $0.isSubtask && $0.parentTaskID == parent.id }
+            .sorted { lhs, rhs in
+                let leftOrder = lhs.childOrder ?? .max
+                let rightOrder = rhs.childOrder ?? .max
+                if leftOrder != rightOrder { return leftOrder < rightOrder }
+                return lhs.createdAt < rhs.createdAt
+            }
+    }
+
+    private func toggleTaskGroup(_ task: TaskContract) {
+        withAnimation(reduceMotion ? nil : .snappy(duration: 0.24)) {
+            if collapsedTaskGroupIDs.contains(task.id) {
+                collapsedTaskGroupIDs.remove(task.id)
+            } else {
+                collapsedTaskGroupIDs.insert(task.id)
+            }
+        }
     }
 
     private func tasks(in tab: TaskListTab, now: Date) -> [TaskContract] {
@@ -2273,11 +2619,11 @@ struct ContentView: View {
                         return lhs.deadline < rhs.deadline
                     }
                 case .completed:
-                    let lhsCompletedAt = (lhs.evidences ?? [])
+                    let lhsCompletedAt = lhs.groupCompletedAt ?? (lhs.evidences ?? [])
                         .filter { $0.verdict == .verified }
                         .map(\.submittedAt)
                         .max() ?? lhs.createdAt
-                    let rhsCompletedAt = (rhs.evidences ?? [])
+                    let rhsCompletedAt = rhs.groupCompletedAt ?? (rhs.evidences ?? [])
                         .filter { $0.verdict == .verified }
                         .map(\.submittedAt)
                         .max() ?? rhs.createdAt
@@ -2628,6 +2974,8 @@ private struct PixelEvidenceVerificationOverlay: View {
     let isCompleted: Bool
     let taskTitle: String
     let xpReward: Int
+    let isSubtask: Bool
+    let completesTaskGroup: Bool
 
     private let pixelOffsets: [CGSize] = [
         CGSize(width: 0, height: -42),
@@ -2651,7 +2999,7 @@ private struct PixelEvidenceVerificationOverlay: View {
                 VStack(spacing: PixelTheme.space8) {
                     Text(
                         isCompleted
-                            ? L10n.text("任务完成", english: "Quest Complete")
+                            ? completionTitle
                             : L10n.text("证据鉴定中", english: "Verifying Evidence")
                     )
                         .font(PixelTheme.displayFont(size: 26))
@@ -2665,10 +3013,7 @@ private struct PixelEvidenceVerificationOverlay: View {
 
                     Text(
                         isCompleted
-                            ? L10n.text(
-                                "证据核验通过，获得 +\(xpReward) EXP\n正在返回已完成任务…",
-                                english: "Evidence verified. +\(xpReward) EXP earned.\nReturning to completed tasks…"
-                            )
+                            ? completionMessage
                             : L10n.text(
                                 "公会鉴定师正在核对锁定的验收标准…",
                                 english: "The guild appraiser is checking the locked requirements…"
@@ -2698,6 +3043,35 @@ private struct PixelEvidenceVerificationOverlay: View {
             isCompleted
                 ? L10n.text("任务完成，正在返回已完成任务", english: "Quest complete, returning to completed tasks")
                 : L10n.text("正在核验证据", english: "Verifying evidence")
+        )
+    }
+
+    private var completionTitle: String {
+        if completesTaskGroup {
+            return L10n.text("所有子任务已完成", english: "All Subtasks Complete")
+        }
+        if isSubtask {
+            return L10n.text("子任务完成", english: "Subtask Complete")
+        }
+        return L10n.text("任务完成", english: "Quest Complete")
+    }
+
+    private var completionMessage: String {
+        if completesTaskGroup {
+            return L10n.text(
+                "任务组已完成，获得 +\(xpReward) EXP\n正在返回已完成任务…",
+                english: "The task group is complete. +\(xpReward) EXP earned.\nReturning to completed tasks…"
+            )
+        }
+        if isSubtask {
+            return L10n.text(
+                "证据核验通过，主任务进度已更新。",
+                english: "Evidence verified. The group progress has been updated."
+            )
+        }
+        return L10n.text(
+            "证据核验通过，获得 +\(xpReward) EXP\n正在返回已完成任务…",
+            english: "Evidence verified. +\(xpReward) EXP earned.\nReturning to completed tasks…"
         )
     }
 

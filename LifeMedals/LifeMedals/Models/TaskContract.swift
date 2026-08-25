@@ -17,6 +17,13 @@ enum TaskStatus: String, Codable {
     case notVerified
 }
 
+/// Only one level of grouping is supported. Optional storage keeps every
+/// task created before task groups compatible with lightweight migration.
+enum TaskHierarchyRole: String, Codable {
+    case group
+    case child
+}
+
 /// 任务契约：标题、截止时间、锁定的验收标准、所属勋章、XP 奖励和状态。
 ///
 /// - Important: `evidenceRequirement` 一旦用户确认任务，即为锁定值，
@@ -36,6 +43,14 @@ final class TaskContract {
     var createdAt: Date = Date.now
     /// Nil means the task is active. Optional storage keeps existing local stores migration-compatible.
     var archivedAt: Date?
+    /// Nil means this is a legacy/standalone task.
+    var hierarchyRoleRawValue: String?
+    /// Stable identifier avoids a CloudKit-sensitive self relationship.
+    var parentTaskID: UUID?
+    /// Stable source order for children. Nil for standalone tasks and groups.
+    var childOrder: Int?
+    /// Parent containers have no evidence, so this records their completion time.
+    var groupCompletedAt: Date?
     /// App-owned compressed copy of the image that was used to generate this task.
     /// Optional external storage keeps text-created tasks and existing stores migration-compatible.
     @Attribute(.externalStorage) var sourceImageData: Data?
@@ -55,6 +70,19 @@ final class TaskContract {
 
     var isArchived: Bool {
         archivedAt != nil
+    }
+
+    var hierarchyRole: TaskHierarchyRole? {
+        get { hierarchyRoleRawValue.flatMap(TaskHierarchyRole.init(rawValue:)) }
+        set { hierarchyRoleRawValue = newValue?.rawValue }
+    }
+
+    var isTaskGroup: Bool {
+        hierarchyRole == .group && parentTaskID == nil
+    }
+
+    var isSubtask: Bool {
+        hierarchyRole == .child && parentTaskID != nil
     }
 
     var requiredEvidenceImageCount: Int {
@@ -90,6 +118,10 @@ final class TaskContract {
         status: TaskStatus = .pending,
         createdAt: Date = .now,
         archivedAt: Date? = nil,
+        hierarchyRole: TaskHierarchyRole? = nil,
+        parentTaskID: UUID? = nil,
+        childOrder: Int? = nil,
+        groupCompletedAt: Date? = nil,
         sourceImageData: Data? = nil,
         badgeCategory: BadgeCategory? = nil
     ) {
@@ -109,6 +141,10 @@ final class TaskContract {
         self.statusRawValue = status.rawValue
         self.createdAt = createdAt
         self.archivedAt = archivedAt
+        self.hierarchyRoleRawValue = hierarchyRole?.rawValue
+        self.parentTaskID = hierarchyRole == .child ? parentTaskID : nil
+        self.childOrder = hierarchyRole == .child ? childOrder : nil
+        self.groupCompletedAt = hierarchyRole == .group ? groupCompletedAt : nil
         self.sourceImageData = sourceImageData
         self.badgeCategory = badgeCategory
     }

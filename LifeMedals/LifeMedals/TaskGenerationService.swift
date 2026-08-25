@@ -22,7 +22,52 @@ enum LifeMedalsAPIConfiguration {
     }
 }
 
+enum GeneratedTaskKind: String, Decodable, Sendable {
+    case singleTask = "single_task"
+    case taskGroup = "task_group"
+}
+
+struct GeneratedTaskChild: Decodable, Identifiable, Sendable {
+    let id = UUID()
+    let title: String
+    let evidenceRequirement: String
+    let evidenceImageCount: Int
+    let evidenceImageDescriptions: [String]
+    let estimatedHours: Double
+
+    var suggestedXP: Int {
+        XPRules.xp(forEstimatedHours: estimatedHours)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case title
+        case evidenceRequirement = "evidence_requirement"
+        case evidenceImageCount = "evidence_image_count"
+        case evidenceImageDescriptions = "evidence_image_descriptions"
+        case estimatedHours = "estimated_hours"
+    }
+
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        title = (try? container.decode(String.self, forKey: .title)) ?? ""
+        let rawRequirement = (try? container.decode(String.self, forKey: .evidenceRequirement)) ?? ""
+        evidenceRequirement = GeneratedTaskContract.normalizedRequirement(rawRequirement)
+        evidenceImageCount = GeneratedTaskContract.normalizedEvidenceCount(
+            (try? container.decode(Int.self, forKey: .evidenceImageCount)) ?? 1
+        )
+        evidenceImageDescriptions = GeneratedTaskContract.normalizedDescriptions(
+            (try? container.decode([String].self, forKey: .evidenceImageDescriptions)) ?? [],
+            count: evidenceImageCount,
+            requirement: evidenceRequirement
+        )
+        estimatedHours = GeneratedTaskContract.normalizedHours(
+            (try? container.decode(Double.self, forKey: .estimatedHours)) ?? 0.25
+        )
+    }
+}
+
 struct GeneratedTaskContract: Decodable, Sendable {
+    let kind: GeneratedTaskKind
     let title: String
     let deadline: String
     let deadlinePreset: TaskDeadlinePreset?
@@ -35,9 +80,11 @@ struct GeneratedTaskContract: Decodable, Sendable {
     /// `XPRules`), so task rewards follow one consistent, product-owned rule.
     let estimatedHours: Double
     let suggestedXP: Int
+    let children: [GeneratedTaskChild]
 
     enum CodingKeys: String, CodingKey {
         case title
+        case kind
         case deadline
         case deadlinePreset = "deadline_preset"
         case evidenceRequirement = "evidence_requirement"
@@ -46,37 +93,109 @@ struct GeneratedTaskContract: Decodable, Sendable {
         case suggestedBadge = "suggested_badge"
         case estimatedHours = "estimated_hours"
         case suggestedXP = "suggested_xp"
+        case children
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        title = try container.decode(String.self, forKey: .title)
-        deadline = try container.decode(String.self, forKey: .deadline)
-        deadlinePreset = try container.decodeIfPresent(TaskDeadlinePreset.self, forKey: .deadlinePreset)
-        evidenceRequirement = try container.decode(String.self, forKey: .evidenceRequirement)
-        suggestedBadge = try container.decode(String.self, forKey: .suggestedBadge)
+        let rootTitle = ((try? container.decode(String.self, forKey: .title)) ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
+        deadline = (try? container.decode(String.self, forKey: .deadline)) ?? ""
+        deadlinePreset = try? container.decode(TaskDeadlinePreset.self, forKey: .deadlinePreset)
+        suggestedBadge = (try? container.decode(String.self, forKey: .suggestedBadge)) ?? BadgeKind.solver.rawValue
+
+        let decodedChildren = (try? container.decode([GeneratedTaskChild].self, forKey: .children)) ?? []
+        var seenTitles = Set<String>()
+        let validChildren = decodedChildren.filter { child in
+            let trimmedTitle = child.title.trimmingCharacters(in: .whitespacesAndNewlines)
+            guard !trimmedTitle.isEmpty else { return false }
+            let comparisonKey = trimmedTitle
+                .folding(options: [.caseInsensitive, .diacriticInsensitive], locale: nil)
+                .replacingOccurrences(of: #"\s+"#, with: " ", options: .regularExpression)
+            return seenTitles.insert(comparisonKey).inserted
+        }
+
+        // Trust the actions more than the discriminator so an otherwise valid
+        // AI list is never collapsed because of one malformed `kind` value.
+        if validChildren.count >= 2 {
+            kind = .taskGroup
+            title = rootTitle.isEmpty ? "Complete all tasks" : rootTitle
+            evidenceRequirement = ""
+            evidenceImageCount = 0
+            evidenceImageDescriptions = []
+            children = validChildren
+        } else {
+            kind = .singleTask
+            children = []
+            if let onlyChild = validChildren.first {
+                // A one-child group is a normal task, using the child's own
+                // evidence plan rather than the empty parent container plan.
+                title = onlyChild.title.trimmingCharacters(in: .whitespacesAndNewlines)
+                evidenceRequirement = onlyChild.evidenceRequirement
+                evidenceImageCount = onlyChild.evidenceImageCount
+                evidenceImageDescriptions = onlyChild.evidenceImageDescriptions
+            } else {
+                title = rootTitle
+                evidenceRequirement = Self.normalizedRequirement(
+                    (try? container.decode(String.self, forKey: .evidenceRequirement)) ?? ""
+                )
+                evidenceImageCount = Self.normalizedEvidenceCount(
+                    (try? container.decode(Int.self, forKey: .evidenceImageCount)) ?? 1
+                )
+                evidenceImageDescriptions = Self.normalizedDescriptions(
+                    (try? container.decode([String].self, forKey: .evidenceImageDescriptions)) ?? [],
+                    count: evidenceImageCount,
+                    requirement: evidenceRequirement
+                )
+            }
+        }
 
         // Tolerate the previously deployed Worker (which returned a direct
         // suggested_xp) while it is being upgraded to estimate hours instead.
-        if let hours = try container.decodeIfPresent(Double.self, forKey: .estimatedHours) {
-            estimatedHours = hours
-            suggestedXP = XPRules.xp(forEstimatedHours: hours)
+        if let onlyChild = validChildren.first, kind == .singleTask {
+            estimatedHours = onlyChild.estimatedHours
+            suggestedXP = onlyChild.suggestedXP
+        } else if let hours = try? container.decode(Double.self, forKey: .estimatedHours) {
+            estimatedHours = Self.normalizedHours(hours)
+            suggestedXP = XPRules.xp(forEstimatedHours: estimatedHours)
         } else {
-            let legacyXP = try container.decode(Int.self, forKey: .suggestedXP)
-            estimatedHours = Double(legacyXP) / Double(XPRules.xpPerHour)
-            suggestedXP = legacyXP
+            let legacyXP = max((try? container.decode(Int.self, forKey: .suggestedXP)) ?? 25, 0)
+            estimatedHours = Self.normalizedHours(Double(legacyXP) / Double(XPRules.xpPerHour))
+            suggestedXP = XPRules.xp(forEstimatedHours: estimatedHours)
         }
+    }
 
-        // Tolerate the previously deployed Worker while it is being upgraded.
-        let decodedCount = try container.decodeIfPresent(Int.self, forKey: .evidenceImageCount) ?? 1
-        evidenceImageCount = min(max(decodedCount, 1), 5)
-        let decodedDescriptions = try container.decodeIfPresent(
-            [String].self,
-            forKey: .evidenceImageDescriptions
-        ) ?? []
-        evidenceImageDescriptions = decodedDescriptions.isEmpty
-            ? [evidenceRequirement]
-            : decodedDescriptions
+    static func normalizedRequirement(_ value: String) -> String {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        return trimmed.isEmpty
+            ? "Submit a photo that clearly shows this task is complete."
+            : trimmed
+    }
+
+    static func normalizedEvidenceCount(_ value: Int) -> Int {
+        min(max(value, 1), 5)
+    }
+
+    static func normalizedDescriptions(
+        _ values: [String],
+        count: Int,
+        requirement: String
+    ) -> [String] {
+        let valid = values
+            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+            .filter { !$0.isEmpty }
+        if count > 2 {
+            return [valid.first ?? requirement]
+        }
+        return (0..<count).map { index in
+            valid.indices.contains(index) ? valid[index] : requirement
+        }
+    }
+
+    static func normalizedHours(_ value: Double) -> Double {
+        guard value.isFinite else { return 0.25 }
+        let clamped = min(max(value, 0.25), 8)
+        return (clamped * 4).rounded() / 4
     }
 
     var parsedDeadline: Date? {
