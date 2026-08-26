@@ -8,12 +8,31 @@
 
 /* Begin PBXFileReference section */
 		010B3C2F301A052D0006060B /* LifeMedals.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = LifeMedals.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		DDA200012F00000100000001 /* LifeMedalsTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = LifeMedalsTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
+
+/* Begin PBXFileSystemSynchronizedBuildFileExceptionSet section */
+		DDA100012F00000100000001 /* Exceptions for "LifeMedals" folder in "LifeMedals" target */ = {
+			isa = PBXFileSystemSynchronizedBuildFileExceptionSet;
+			membershipExceptions = (
+				Info.plist,
+			);
+			target = 010B3C2E301A052D0006060B /* LifeMedals */;
+		};
+/* End PBXFileSystemSynchronizedBuildFileExceptionSet section */
 
 /* Begin PBXFileSystemSynchronizedRootGroup section */
 		010B3C31301A052D0006060B /* LifeMedals */ = {
 			isa = PBXFileSystemSynchronizedRootGroup;
+			exceptions = (
+				DDA100012F00000100000001 /* Exceptions for "LifeMedals" folder in "LifeMedals" target */,
+			);
 			path = LifeMedals;
+			sourceTree = "<group>";
+		};
+		DDA200022F00000100000002 /* LifeMedalsTests */ = {
+			isa = PBXFileSystemSynchronizedRootGroup;
+			path = LifeMedalsTests;
 			sourceTree = "<group>";
 		};
 /* End PBXFileSystemSynchronizedRootGroup section */
@@ -26,13 +45,31 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		DDA200032F00000100000003 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXFrameworksBuildPhase section */
+
+/* Begin PBXContainerItemProxy section */
+		DDA200062F00000100000006 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 010B3C27301A052D0006060B /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 010B3C2E301A052D0006060B;
+			remoteInfo = LifeMedals;
+		};
+/* End PBXContainerItemProxy section */
 
 /* Begin PBXGroup section */
 		010B3C26301A052D0006060B = {
 			isa = PBXGroup;
 			children = (
 				010B3C31301A052D0006060B /* LifeMedals */,
+				DDA200022F00000100000002 /* LifeMedalsTests */,
 				010B3C30301A052D0006060B /* Products */,
 			);
 			sourceTree = "<group>";
@@ -41,6 +78,7 @@
 			isa = PBXGroup;
 			children = (
 				010B3C2F301A052D0006060B /* LifeMedals.app */,
+				DDA200012F00000100000001 /* LifeMedalsTests.xctest */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -70,6 +108,29 @@
 			productReference = 010B3C2F301A052D0006060B /* LifeMedals.app */;
 			productType = "com.apple.product-type.application";
 		};
+		DDA200082F00000100000008 /* LifeMedalsTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = DDA200092F00000100000009 /* Build configuration list for PBXNativeTarget "LifeMedalsTests" */;
+			buildPhases = (
+				DDA200042F00000100000004 /* Sources */,
+				DDA200032F00000100000003 /* Frameworks */,
+				DDA200052F00000100000005 /* Resources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				DDA200072F00000100000007 /* PBXTargetDependency */,
+			);
+			fileSystemSynchronizedGroups = (
+				DDA200022F00000100000002 /* LifeMedalsTests */,
+			);
+			name = LifeMedalsTests;
+			packageProductDependencies = (
+			);
+			productName = LifeMedalsTests;
+			productReference = DDA200012F00000100000001 /* LifeMedalsTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -82,14 +143,30 @@
 				TargetAttributes = {
 					010B3C2E301A052D0006060B = {
 						CreatedOnToolsVersion = 26.6;
+						SystemCapabilities = {
+							com.apple.CloudKit = {
+								enabled = 1;
+							};
+							com.apple.Push = {
+								enabled = 1;
+							};
+							com.apple.SignInWithApple = {
+								enabled = 1;
+							};
+						};
+					};
+					DDA200082F00000100000008 = {
+						CreatedOnToolsVersion = 26.6;
+						TestTargetID = 010B3C2E301A052D0006060B;
 					};
 				};
 			};
 			buildConfigurationList = 010B3C2A301A052D0006060B /* Build configuration list for PBXProject "LifeMedals" */;
-			developmentRegion = en;
+			developmentRegion = "zh-Hans";
 			hasScannedForEncodings = 0;
 			knownRegions = (
 				en,
+				"zh-Hans",
 				Base,
 			);
 			mainGroup = 010B3C26301A052D0006060B;
@@ -102,12 +179,20 @@
 			projectRoot = "";
 			targets = (
 				010B3C2E301A052D0006060B /* LifeMedals */,
+				DDA200082F00000100000008 /* LifeMedalsTests */,
 			);
 		};
 /* End PBXProject section */
 
 /* Begin PBXResourcesBuildPhase section */
 		010B3C2D301A052D0006060B /* Resources */ = {
+			isa = PBXResourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		DDA200052F00000100000005 /* Resources */ = {
 			isa = PBXResourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -124,7 +209,22 @@
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
+		DDA200042F00000100000004 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
 /* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		DDA200072F00000100000007 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = 010B3C2E301A052D0006060B /* LifeMedals */;
+			targetProxy = DDA200062F00000100000006 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
 
 /* Begin XCBuildConfiguration section */
 		010B3C38301A05300006060B /* Debug */ = {
@@ -260,9 +360,19 @@
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
 				ENABLE_PREVIEWS = YES;
+				ENABLE_RESOURCE_ACCESS_CAMERA = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
-				GENERATE_INFOPLIST_FILE = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = LifeMedals/Info.plist;
+				INFOPLIST_KEY_NSCameraUsageDescription = "用于拍摄任务来源或完成证据；照片会先压缩，并在生成或核验请求期间临时处理。";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "用于选择任务来源或完成证据；所选照片会压缩后保存到你的私有数据库。";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = UIInterfaceOrientationPortrait;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -271,12 +381,17 @@
 				PRODUCT_BUNDLE_IDENTIFIER = noorg.LifeMedals;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
+				SDKROOT = auto;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
+				SUPPORTS_MACCATALYST = NO;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "LIFEMEDALS_LOCAL_DEVELOPMENT $(inherited)";
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
 			};
 			name = Debug;
 		};
@@ -285,6 +400,7 @@
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
+				CODE_SIGN_ENTITLEMENTS = LifeMedals/LifeMedals.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
 				CURRENT_PROJECT_VERSION = 1;
@@ -293,9 +409,19 @@
 				ENABLE_HARDENED_RUNTIME = YES;
 				ENABLE_OUTGOING_NETWORK_CONNECTIONS = YES;
 				ENABLE_PREVIEWS = YES;
+				ENABLE_RESOURCE_ACCESS_CAMERA = YES;
 				ENABLE_USER_SELECTED_FILES = readonly;
-				GENERATE_INFOPLIST_FILE = YES;
+				GENERATE_INFOPLIST_FILE = NO;
+				INFOPLIST_FILE = LifeMedals/Info.plist;
+				INFOPLIST_KEY_NSCameraUsageDescription = "用于拍摄任务来源或完成证据；照片会先压缩，并在生成或核验请求期间临时处理。";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
+				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "用于选择任务来源或完成证据；所选照片会压缩后保存到你的私有数据库。";
+				INFOPLIST_KEY_UIApplicationSceneManifest_Generation = YES;
+				INFOPLIST_KEY_UIApplicationSupportsIndirectInputEvents = YES;
+				INFOPLIST_KEY_UILaunchScreen_Generation = YES;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations = UIInterfaceOrientationPortrait;
+				INFOPLIST_KEY_UISupportedInterfaceOrientations_iPad = UIInterfaceOrientationPortrait;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
 					"@executable_path/../Frameworks",
@@ -304,12 +430,58 @@
 				PRODUCT_BUNDLE_IDENTIFIER = noorg.LifeMedals;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
+				SDKROOT = auto;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
+				SUPPORTS_MACCATALYST = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+			};
+			name = Release;
+		};
+		DDA2000A2F0000010000000A /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = VKZW7QSYT3;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				MACOSX_DEPLOYMENT_TARGET = 26.2;
+				PRODUCT_BUNDLE_IDENTIFIER = noorg.LifeMedalsTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = auto;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/LifeMedals.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/LifeMedals";
+			};
+			name = Debug;
+		};
+		DDA2000B2F0000010000000B /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				BUNDLE_LOADER = "$(TEST_HOST)";
+				CODE_SIGN_STYLE = Automatic;
+				DEVELOPMENT_TEAM = VKZW7QSYT3;
+				GENERATE_INFOPLIST_FILE = YES;
+				IPHONEOS_DEPLOYMENT_TARGET = 26.0;
+				MACOSX_DEPLOYMENT_TARGET = 26.2;
+				PRODUCT_BUNDLE_IDENTIFIER = noorg.LifeMedalsTests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = auto;
+				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
+				SWIFT_APPROACHABLE_CONCURRENCY = YES;
+				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
+				SWIFT_VERSION = 5.0;
+				TARGETED_DEVICE_FAMILY = "1,2";
+				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/LifeMedals.app/$(BUNDLE_EXECUTABLE_FOLDER_PATH)/LifeMedals";
 			};
 			name = Release;
 		};
@@ -330,6 +502,15 @@
 			buildConfigurations = (
 				010B3C3B301A05300006060B /* Debug */,
 				010B3C3C301A05300006060B /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		DDA200092F00000100000009 /* Build configuration list for PBXNativeTarget "LifeMedalsTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				DDA2000A2F0000010000000A /* Debug */,
+				DDA2000B2F0000010000000B /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;

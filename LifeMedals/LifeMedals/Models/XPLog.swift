@@ -11,9 +11,9 @@ import SwiftData
 /// 每次 EXP 变动记录，关联任务和勋章，用于周报与历史回顾。
 @Model
 final class XPLog {
-    @Attribute(.unique) var id: UUID
-    var amount: Int
-    var timestamp: Date
+    var id: UUID = UUID()
+    var amount: Int = 0
+    var timestamp: Date = Date.now
 
     var taskContract: TaskContract?
     var badgeCategory: BadgeCategory?
