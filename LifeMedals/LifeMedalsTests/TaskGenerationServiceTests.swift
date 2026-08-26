@@ -77,14 +77,12 @@ final class TaskGenerationServiceTests: XCTestCase {
           "suggested_badge":"Solver",
           "estimated_hours":1,
           "monster_tag":"coding.leetcode",
-          "monster_display_name":"Algorithm Imp",
           "monster_match_kind":"existing",
           "children":[]
         }
         """#)
 
         XCTAssertEqual(contract.monsterTag, "coding.leetcode")
-        XCTAssertEqual(contract.monsterDisplayName, "Algorithm Imp")
         XCTAssertEqual(contract.monsterMatchKind, .existing)
     }
 
@@ -132,7 +130,6 @@ final class TaskGenerationServiceTests: XCTestCase {
           "evidence_image_descriptions":["Completion result"],
           "estimated_hours":0.25,
           "monster_tag":"\(monsterTag)",
-          "monster_display_name":"Quest Creature",
           "monster_match_kind":"existing"
         }
         """

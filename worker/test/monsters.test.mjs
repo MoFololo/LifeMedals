@@ -4,12 +4,14 @@ import assert from "node:assert/strict";
 import {
   buildMonsterConceptOpenAIRequest,
   buildMonsterPrompt,
+  buildSpeciesId,
   decodeImageBase64,
   handleMonsterAsset,
   isCurrentMonsterConcept,
   normalizeGeneratedTaskMonsters,
   requestMonsterConcept,
   requestMonsterImage,
+  speciesDescriptionFromCanonicalTag,
   validateMonsterConcept,
   validateEnsureMonsterInput,
   validateQueueMessage,
@@ -34,14 +36,12 @@ const validConcept = {
 test("validates and normalizes an ensure-monster request", () => {
   assert.deepEqual(validateEnsureMonsterInput({
     canonical_tag: "  Coding.LeetCode ",
-    display_name: " Algorithm Imp ",
     badge_kind: "Solver",
     level: 3,
   }), {
     ok: true,
     value: {
       canonicalTag: "coding.leetcode",
-      displayName: "Algorithm Imp",
       badgeKind: "Solver",
       level: 3,
     },
@@ -55,7 +55,6 @@ test("validates and normalizes an ensure-monster request", () => {
   }).ok, false);
   assert.equal(validateEnsureMonsterInput({
     canonical_tag: "private_person_alice",
-    display_name: "Alice's Monster",
     badge_kind: "Solver",
     level: 10,
   }).ok, false);
@@ -63,14 +62,22 @@ test("validates and normalizes an ensure-monster request", () => {
 
 test("validates queue messages with a bounded level and style", () => {
   assert.deepEqual(validateQueueMessage({
-    speciesId: "species-1",
+    speciesId: "species-solver-leetcode",
     targetLevel: 9,
     styleVersion: "pixel-v1",
-  }), { speciesId: "species-1", targetLevel: 9, styleVersion: "pixel-v1" });
+  }), { speciesId: "species-solver-leetcode", targetLevel: 9, styleVersion: "pixel-v1" });
   assert.throws(
-    () => validateQueueMessage({ speciesId: "species-1", targetLevel: 0, styleVersion: "../bad" }),
+    () => validateQueueMessage({ speciesId: crypto.randomUUID(), targetLevel: 1, styleVersion: "pixel-v1" }),
     /Invalid queue message/,
   );
+});
+
+test("builds categorized species IDs from the simplest English description", () => {
+  assert.equal(speciesDescriptionFromCanonicalTag("communication.send_email", "Career"), "email");
+  assert.equal(buildSpeciesId("communication.send_email", "Career"), "species-career-email");
+  assert.equal(buildSpeciesId("gaming.close_console", "Life"), "species-life-console");
+  assert.equal(buildSpeciesId("career.job_search", "Career"), "species-career-jobsearch");
+  assert.doesNotMatch(buildSpeciesId("gaming.console", "Life"), /^[a-f0-9-]{36}$/);
 });
 
 test("normalizes descriptors and removes the group-root monster", async () => {
@@ -83,36 +90,34 @@ test("normalizes descriptors and removes the group-root monster", async () => {
       {
         title: "Solve a problem",
         monster_tag: "Coding.LeetCode",
-        monster_display_name: "Wrong Name",
         monster_match_kind: "new",
       },
       {
         title: "Read a book",
         monster_tag: "reading.book",
-        monster_display_name: "Book Moth",
         monster_match_kind: "existing",
       },
     ],
   }, {});
 
   assert.equal(contract.monster_tag, null);
-  assert.equal(contract.monster_display_name, null);
+  assert.equal("monster_display_name" in contract, false);
   assert.equal(contract.monster_match_kind, null);
   assert.deepEqual(
-    contract.children.map((child) => [child.monster_tag, child.monster_display_name, child.monster_match_kind]),
+    contract.children.map((child) => [child.monster_tag, child.monster_match_kind]),
     [
-      ["coding.leetcode", "Wrong Name", "existing"],
-      ["reading.book", "Book Moth", "new"],
+      ["coding.leetcode", "existing"],
+      ["reading.book", "new"],
     ],
   );
 });
 
-test("uses D1 as the authority for an existing species name", async () => {
+test("uses D1 as the authority for an existing species taxonomy", async () => {
   const database = {
     prepare: () => ({
       bind: () => ({
         all: async () => ({
-          results: [{ canonical_tag: "reading.book", display_name: "Archive Moth" }],
+          results: [{ canonical_tag: "reading.book" }],
         }),
       }),
     }),
@@ -120,19 +125,40 @@ test("uses D1 as the authority for an existing species name", async () => {
   const contract = await normalizeGeneratedTaskMonsters({
     kind: "single_task",
     monster_tag: "reading.book",
-    monster_display_name: "Book Moth",
     monster_match_kind: "new",
     children: [],
   }, { MONSTER_DB: database });
 
-  assert.equal(contract.monster_display_name, "Archive Moth");
+  assert.equal("monster_display_name" in contract, false);
+  assert.equal(contract.monster_match_kind, "existing");
+});
+
+test("resolves an AI-generated English tag through an English alias", async () => {
+  const database = {
+    prepare: (sql) => ({
+      bind: () => ({
+        all: async () => ({
+          results: sql.includes("FROM monster_aliases")
+            ? [{ alias: "email", canonical_tag: "communication.send_email" }]
+            : [],
+        }),
+      }),
+    }),
+  };
+  const contract = await normalizeGeneratedTaskMonsters({
+    kind: "single_task",
+    monster_tag: "communication.email",
+    monster_match_kind: "new",
+    children: [],
+  }, { MONSTER_DB: database });
+
+  assert.equal(contract.monster_tag, "communication.send_email");
   assert.equal(contract.monster_match_kind, "existing");
 });
 
 test("builds a private-data-free concept request tied to the category", () => {
   const request = buildMonsterConceptOpenAIRequest({
     canonical_tag: "coding.leetcode",
-    display_name: "Algorithm Imp",
     badge_kind: "Solver",
   }, {
     OPENAI_MODEL: "test-model",
@@ -142,6 +168,7 @@ test("builds a private-data-free concept request tied to the category", () => {
   assert.equal(request.model, "test-model");
   assert.equal(request.store, false);
   assert.match(request.input, /coding\.leetcode/);
+  assert.doesNotMatch(request.input, /SPECIES_NAME/);
   assert.match(request.instructions, /strong visual metaphor/i);
   assert.match(request.instructions, /logical 48 by 48 pixel sprite/i);
   assert.match(request.instructions, /chunky square pixel clusters/i);
@@ -167,7 +194,6 @@ test("validates and requests a structured monster concept", async (t) => {
 
   const result = await requestMonsterConcept({
     canonical_tag: "coding.leetcode",
-    display_name: "Algorithm Imp",
     badge_kind: "Solver",
   }, { OPENAI_API_KEY: "test-only", OPENAI_MODEL: "test-model" });
 
@@ -198,12 +224,12 @@ test("invalidates stored concepts when the concept prompt version changes", () =
 test("builds a stable evolution prompt without user task content", () => {
   const prompt = buildMonsterPrompt({
     canonical_tag: "coding.leetcode",
-    display_name: "Algorithm Imp",
     badge_kind: "Solver",
     visual_dna_json: JSON.stringify(validConcept),
   }, 3, "grotesque-pixel-v1", { MONSTER_PROMPT_VERSION: "monster-image-v3" });
 
   assert.match(prompt, /coding\.leetcode/);
+  assert.doesNotMatch(prompt, /Species name:/i);
   assert.match(prompt, /evolution level 3 of 9/i);
   assert.match(prompt, /Preserve the exact same face, body plan, palette/i);
   assert.match(prompt, /logical 48 by 48 pixel canvas/i);

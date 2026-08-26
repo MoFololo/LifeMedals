@@ -1175,14 +1175,12 @@ struct EvidenceSubmissionView: View {
     private func refreshMonsterArtworkBeforeDiscovery() async {
         guard
             let canonicalTag = task.monsterTag,
-            let displayName = task.monsterDisplayName,
             let level = task.monsterLevel,
             let badgeKind = task.badgeCategory?.name
         else { return }
 
         guard let snapshot = try? await monsterVariantService.ensureVariant(
             canonicalTag: canonicalTag,
-            displayName: displayName,
             badgeKind: badgeKind,
             level: level
         ) else { return }

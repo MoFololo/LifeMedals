@@ -8,7 +8,6 @@ import SwiftData
 final class MonsterDiscovery {
     var id: UUID = UUID()
     var canonicalTag: String = ""
-    var displayName: String = ""
     var level: Int = 1
     var badgeKindRawValue: String = ""
     var variantID: String?
@@ -24,7 +23,6 @@ final class MonsterDiscovery {
     init(
         id: UUID = UUID(),
         canonicalTag: String,
-        displayName: String,
         level: Int,
         badgeKindRawValue: String,
         variantID: String? = nil,
@@ -36,7 +34,6 @@ final class MonsterDiscovery {
     ) {
         self.id = id
         self.canonicalTag = canonicalTag
-        self.displayName = displayName
         self.level = min(max(level, 1), 9)
         self.badgeKindRawValue = badgeKindRawValue
         self.variantID = variantID

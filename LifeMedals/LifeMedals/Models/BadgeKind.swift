@@ -15,6 +15,7 @@ enum BadgeKind: String, CaseIterable, Identifiable, Codable, Sendable {
     case builder = "Builder"
     case career = "Career"
     case athlete = "Athlete"
+    case life = "Life"
 
     var id: String { rawValue }
 
@@ -24,6 +25,7 @@ enum BadgeKind: String, CaseIterable, Identifiable, Codable, Sendable {
         case .builder: L10n.text("创造勋章", english: "Creator")
         case .career: L10n.text("职业勋章", english: "Career")
         case .athlete: L10n.text("运动勋章", english: "Athlete")
+        case .life: L10n.text("生活勋章", english: "Life")
         }
     }
 

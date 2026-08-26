@@ -17,9 +17,37 @@ const CONCEPT_LEASE_MS = 2 * 60_000;
 const ENQUEUE_STALE_MS = 5 * 60_000;
 
 const CANONICAL_TAG_PATTERN = /^[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)+$/;
-const DISPLAY_NAME_PATTERN = /^[\p{L}\p{N}][\p{L}\p{N} _-]{0,59}$/u;
-const BADGE_KINDS = new Set(["Solver", "Builder", "Career", "Athlete"]);
+const SPECIES_ID_PATTERN = /^species-(?:solver|builder|career|athlete|life)-[a-z0-9]+$/;
+const ENGLISH_ALIAS_PATTERN = /^[a-z0-9]+(?:[ _-][a-z0-9]+)*$/;
+const BADGE_KINDS = new Set(["Solver", "Builder", "Career", "Athlete", "Life"]);
 const VARIANT_STATUSES = new Set(["pending", "generating", "ready", "failed"]);
+const GENERIC_ACTION_WORDS = new Set([
+  "build",
+  "check",
+  "close",
+  "complete",
+  "configure",
+  "create",
+  "disable",
+  "do",
+  "enable",
+  "finish",
+  "make",
+  "open",
+  "out",
+  "play",
+  "send",
+  "set",
+  "start",
+  "stop",
+  "submit",
+  "switch",
+  "take",
+  "toggle",
+  "turn",
+  "update",
+  "write",
+]);
 
 const MONSTER_CONCEPT_SCHEMA = {
   type: "object",
@@ -72,19 +100,6 @@ export const SEED_MONSTER_TAGS = new Set([
   "chores.take_out_trash",
   "chores.household",
 ]);
-
-const FALLBACK_DISPLAY_NAMES = {
-  "coding.leetcode": "Algorithm Imp",
-  "coding.project": "Forge Sprite",
-  "coding.practice": "Puzzle Imp",
-  "study.statistics": "Stat Wisp",
-  "study.learning": "Study Wisp",
-  "fitness.workout": "Training Brute",
-  "communication.send_email": "Mail Bat",
-  "communication.career": "Courier Wisp",
-  "chores.take_out_trash": "Trash Slime",
-  "chores.household": "Chore Slime",
-};
 
 class MonsterServiceError extends Error {
   constructor(status, code, message, retryable = false) {
@@ -327,7 +342,6 @@ export async function processMonsterGeneration(rawMessage, env) {
     `SELECT
        id,
        canonical_tag,
-       display_name,
        badge_kind,
        visual_dna_json,
        style_version,
@@ -508,7 +522,7 @@ export function validateEnsureMonsterInput(body) {
   if (!isPlainObject(body)) {
     return { ok: false, error: "Request body must be a JSON object." };
   }
-  const allowedKeys = new Set(["canonical_tag", "display_name", "badge_kind", "level"]);
+  const allowedKeys = new Set(["canonical_tag", "badge_kind", "level"]);
   if (Object.keys(body).some((key) => !allowedKeys.has(key))) {
     return { ok: false, error: "Request body contains unsupported fields." };
   }
@@ -518,10 +532,6 @@ export function validateEnsureMonsterInput(body) {
     return { ok: false, error: "canonical_tag is invalid." };
   }
 
-  const displayName = typeof body.display_name === "string" ? body.display_name.trim() : "";
-  if (!DISPLAY_NAME_PATTERN.test(displayName)) {
-    return { ok: false, error: "display_name contains unsupported characters or length." };
-  }
   if (!BADGE_KINDS.has(body.badge_kind)) {
     return { ok: false, error: "badge_kind is invalid." };
   }
@@ -533,7 +543,6 @@ export function validateEnsureMonsterInput(body) {
     ok: true,
     value: {
       canonicalTag,
-      displayName,
       badgeKind: body.badge_kind,
       level: body.level,
     },
@@ -544,8 +553,7 @@ export function validateQueueMessage(body) {
   if (
     !isPlainObject(body) ||
     typeof body.speciesId !== "string" ||
-    body.speciesId.length === 0 ||
-    body.speciesId.length > 100 ||
+    !SPECIES_ID_PATTERN.test(body.speciesId) ||
     !Number.isInteger(body.targetLevel) ||
     body.targetLevel < 1 ||
     body.targetLevel > 9 ||
@@ -568,8 +576,8 @@ export async function normalizeGeneratedTaskMonsters(contract, env) {
 
   if (normalized.kind === "task_group") {
     normalized.monster_tag = null;
-    normalized.monster_display_name = null;
     normalized.monster_match_kind = null;
+    delete normalized.monster_display_name;
     normalized.children = Array.isArray(normalized.children)
       ? normalized.children.map((child) => {
           const next = normalizeGeneratedMonsterDescriptor(child);
@@ -592,7 +600,7 @@ export async function normalizeGeneratedTaskMonsters(contract, env) {
   for (const descriptor of descriptors) {
     const species = storedSpecies.get(descriptor.monster_tag);
     if (species) {
-      descriptor.monster_display_name = species.display_name;
+      descriptor.monster_tag = species.canonical_tag;
       descriptor.monster_match_kind = "existing";
     } else if (isValidCanonicalTag(descriptor.monster_tag)) {
       descriptor.monster_match_kind = SEED_MONSTER_TAGS.has(descriptor.monster_tag)
@@ -631,7 +639,6 @@ export function buildMonsterConceptOpenAIRequest(species, env = {}) {
     ].join("\n"),
     input: [
       `CANONICAL_CATEGORY_TAG\n${species.canonical_tag}`,
-      `SPECIES_NAME\n${species.display_name}`,
       `BADGE_FAMILY\n${species.badge_kind}`,
     ].join("\n\n"),
     text: {
@@ -876,7 +883,6 @@ export function buildMonsterPrompt(species, level, styleVersion, env = {}) {
   return [
     "Create one original family-friendly collectible grotesque pixel monster sprite for the LifeMedals iOS app.",
     `Canonical species tag: ${species.canonical_tag}.`,
-    `Species name: ${species.display_name}.`,
     `Badge family: ${species.badge_kind}.`,
     `AI-authored stable species concept: ${JSON.stringify(visualDNA)}.`,
     progression,
@@ -1014,28 +1020,38 @@ async function findOrCreateSpecies(env, input) {
   if (species) return species;
 
   const now = new Date().toISOString();
-  const speciesId = crypto.randomUUID();
+  const speciesId = await availableSpeciesId(
+    env.MONSTER_DB,
+    input.canonicalTag,
+    input.badgeKind,
+  );
   await env.MONSTER_DB.prepare(
     `INSERT OR IGNORE INTO monster_species (
        id,
        canonical_tag,
-       display_name,
        badge_kind,
        visual_dna_json,
        style_version,
        created_at,
        updated_at
-     ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
+     ) VALUES (?, ?, ?, ?, ?, ?, ?)`,
   ).bind(
     speciesId,
     input.canonicalTag,
-    input.displayName,
     input.badgeKind,
     JSON.stringify(deriveVisualDNA(input.canonicalTag, input.badgeKind)),
     readNonEmptyString(env.MONSTER_STYLE_VERSION, DEFAULT_STYLE_VERSION),
     now,
     now,
   ).run();
+
+  const alias = englishAliasFromCanonicalTag(input.canonicalTag);
+  if (alias) {
+    await env.MONSTER_DB.prepare(
+      `INSERT OR IGNORE INTO monster_aliases (alias, species_id, created_at)
+       VALUES (?, ?, ?)`,
+    ).bind(alias, speciesId, now).run();
+  }
 
   species = await findSpeciesByCanonicalTag(env.MONSTER_DB, input.canonicalTag);
   if (!species) {
@@ -1051,7 +1067,7 @@ async function findOrCreateSpecies(env, input) {
 
 async function findSpeciesByCanonicalTag(database, canonicalTag) {
   return database.prepare(
-    `SELECT id, canonical_tag, display_name, badge_kind, visual_dna_json, style_version
+    `SELECT id, canonical_tag, badge_kind, visual_dna_json, style_version
      FROM monster_species
      WHERE canonical_tag = ? COLLATE NOCASE
      LIMIT 1`,
@@ -1065,12 +1081,37 @@ async function findSpeciesByCanonicalTags(database, canonicalTags) {
   const placeholders = canonicalTags.map(() => "?").join(", ");
   try {
     const result = await database.prepare(
-      `SELECT canonical_tag, display_name
+      `SELECT canonical_tag
        FROM monster_species
        WHERE canonical_tag IN (${placeholders})`,
     ).bind(...canonicalTags).all();
     for (const row of result.results || []) {
       species.set(row.canonical_tag, row);
+    }
+
+    const unresolvedTags = canonicalTags.filter((tag) => !species.has(tag));
+    const aliasToTags = new Map();
+    for (const tag of unresolvedTags) {
+      const alias = englishAliasFromCanonicalTag(tag);
+      if (!alias) continue;
+      const tags = aliasToTags.get(alias) || [];
+      tags.push(tag);
+      aliasToTags.set(alias, tags);
+    }
+    const aliases = [...aliasToTags.keys()];
+    if (aliases.length > 0) {
+      const aliasPlaceholders = aliases.map(() => "?").join(", ");
+      const aliasResult = await database.prepare(
+        `SELECT a.alias, s.canonical_tag
+         FROM monster_aliases a
+         JOIN monster_species s ON s.id = a.species_id
+         WHERE a.alias IN (${aliasPlaceholders})`,
+      ).bind(...aliases).all();
+      for (const row of aliasResult.results || []) {
+        for (const tag of aliasToTags.get(row.alias) || []) {
+          species.set(tag, row);
+        }
+      }
     }
   } catch {
     // Task generation remains available if the optional catalog lookup fails.
@@ -1248,13 +1289,7 @@ function normalizeGeneratedMonsterDescriptor(value) {
   const descriptor = isPlainObject(value) ? { ...value } : {};
   const canonicalTag = normalizeCanonicalTag(descriptor.monster_tag);
   descriptor.monster_tag = canonicalTag;
-
-  const displayName = typeof descriptor.monster_display_name === "string"
-    ? descriptor.monster_display_name.trim()
-    : "";
-  descriptor.monster_display_name = DISPLAY_NAME_PATTERN.test(displayName)
-    ? displayName
-    : FALLBACK_DISPLAY_NAMES[canonicalTag] || prettifyCanonicalTag(canonicalTag);
+  delete descriptor.monster_display_name;
   descriptor.monster_match_kind = descriptor.monster_match_kind === "existing"
     ? "existing"
     : "new";
@@ -1288,6 +1323,12 @@ function deriveVisualDNA(canonicalTag, badgeKind) {
       feature: "athletic wristbands",
       temperament: "energetic",
     },
+    Life: {
+      body: "small adaptable everyday creature",
+      colors: ["moss", "cream"],
+      feature: "one practical object tied to the activity",
+      temperament: "resourceful",
+    },
   };
   return { subject: finalName, ...(badgeDNA[badgeKind] || badgeDNA.Solver) };
 }
@@ -1320,15 +1361,54 @@ function isValidCanonicalTag(value) {
   return typeof value === "string" && value.length <= 80 && CANONICAL_TAG_PATTERN.test(value);
 }
 
-function prettifyCanonicalTag(tag) {
-  const finalComponent = tag.split(".").pop() || "Quest Creature";
-  return finalComponent
-    .replaceAll("_", " ")
-    .split(" ")
-    .filter(Boolean)
-    .map((word) => word.slice(0, 1).toUpperCase() + word.slice(1))
-    .join(" ")
-    .slice(0, 60) || "Quest Creature";
+export function speciesDescriptionFromCanonicalTag(canonicalTag, badgeKind) {
+  const components = normalizeCanonicalTag(canonicalTag).split(".").filter(Boolean);
+  const finalWords = (components.at(-1) || "activity").split("_").filter(Boolean);
+  const meaningfulWords = finalWords.filter((word) => !GENERIC_ACTION_WORDS.has(word));
+  let description = (meaningfulWords.length > 0 ? meaningfulWords : finalWords).join("");
+  const medalType = String(badgeKind || "").toLowerCase();
+  if (description === medalType && components.length > 1) {
+    const parentWords = components.at(-2).split("_").filter(Boolean);
+    description = parentWords.join("");
+  }
+  return description.replace(/[^a-z0-9]/g, "").slice(0, 48) || "activity";
+}
+
+export function buildSpeciesId(canonicalTag, badgeKind, includeDomain = false) {
+  const medalType = String(badgeKind || "").toLowerCase();
+  if (!BADGE_KINDS.has(badgeKind) || !/^[a-z]+$/.test(medalType)) {
+    throw new MonsterServiceError(400, "invalid_badge_kind", "Invalid badge kind.");
+  }
+  let description = speciesDescriptionFromCanonicalTag(canonicalTag, badgeKind);
+  if (includeDomain) {
+    const components = normalizeCanonicalTag(canonicalTag).split(".").filter(Boolean);
+    const domain = (components.at(-2) || "category").replace(/[^a-z0-9]/g, "");
+    description = `${domain}${description}`.slice(0, 60);
+  }
+  return `species-${medalType}-${description}`;
+}
+
+async function availableSpeciesId(database, canonicalTag, badgeKind) {
+  for (const includeDomain of [false, true]) {
+    const candidate = buildSpeciesId(canonicalTag, badgeKind, includeDomain);
+    const row = await database.prepare(
+      `SELECT canonical_tag FROM monster_species WHERE id = ? LIMIT 1`,
+    ).bind(candidate).first();
+    if (!row || row.canonical_tag === canonicalTag) return candidate;
+  }
+  throw new MonsterServiceError(
+    409,
+    "monster_species_id_conflict",
+    "Unable to create a unique categorized monster species ID.",
+  );
+}
+
+function englishAliasFromCanonicalTag(canonicalTag) {
+  const words = normalizeCanonicalTag(canonicalTag).split(".").at(-1)?.split("_").filter(Boolean)
+    || [];
+  const meaningfulWords = words.filter((word) => !GENERIC_ACTION_WORDS.has(word));
+  const alias = (meaningfulWords.length > 0 ? meaningfulWords : words).join(" ");
+  return alias.length <= 80 && ENGLISH_ALIAS_PATTERN.test(alias) ? alias : "";
 }
 
 async function readRequestTextBounded(request, limit) {

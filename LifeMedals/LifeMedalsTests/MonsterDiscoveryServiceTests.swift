@@ -32,6 +32,11 @@ final class MonsterDiscoveryServiceTests: XCTestCase {
 
     func testBadgeRanksMapDirectlyToMonsterLevels() {
         XCTAssertEqual(BadgeRank.allCases.map(\.rawValue), Array(1...9))
+        XCTAssertEqual(BadgeKind.allCases.map(\.rawValue), ["Solver", "Builder", "Career", "Athlete", "Life"])
+    }
+
+    func testMonsterPollingCoversSlowBackgroundGeneration() {
+        XCTAssertGreaterThanOrEqual(MonsterVariantPollingPolicy.maximumWaitSeconds, 120)
     }
 
     func testTaskLocksLevelBeforeItsXPAwardCanUpgradeBadge() throws {
@@ -94,7 +99,6 @@ final class MonsterDiscoveryServiceTests: XCTestCase {
             xpReward: 50,
             hierarchyRole: .group,
             monsterTag: "coding.leetcode",
-            monsterDisplayName: "Algorithm Imp",
             monsterLevel: 1,
             badgeCategory: category
         )
@@ -108,13 +112,40 @@ final class MonsterDiscoveryServiceTests: XCTestCase {
         let tags = phrases.map {
             MonsterTaxonomy.descriptor(
                 canonicalTag: nil,
-                displayName: nil,
                 matchKind: nil,
                 fallbackText: $0,
                 badgeKind: BadgeKind.solver.rawValue
             ).canonicalTag
         }
         XCTAssertEqual(Set(tags), ["coding.leetcode"])
+    }
+
+    func testChineseLifeActivitiesReceiveEnglishTaxonomyFallbacks() {
+        let cases = [
+            ("在以撒的结合关闭控制台", "gaming.console"),
+            ("今晚做饭", "life.cooking"),
+            ("去寄快递", "errands.shipping")
+        ]
+
+        for (text, expectedTag) in cases {
+            let descriptor = MonsterTaxonomy.descriptor(
+                canonicalTag: nil,
+                matchKind: nil,
+                fallbackText: text,
+                badgeKind: BadgeKind.life.rawValue
+            )
+            XCTAssertEqual(descriptor.canonicalTag, expectedTag)
+        }
+    }
+
+    func testSportsRemainAthleteActivities() {
+        let descriptor = MonsterTaxonomy.descriptor(
+            canonicalTag: nil,
+            matchKind: nil,
+            fallbackText: "周末打篮球",
+            badgeKind: BadgeKind.life.rawValue
+        )
+        XCTAssertEqual(descriptor.canonicalTag, "fitness.workout")
     }
 
     func testPendingDiscoveryCanBeReplacedWhenArtworkBecomesReady() throws {
@@ -172,7 +203,6 @@ final class MonsterDiscoveryServiceTests: XCTestCase {
             evidenceRequirement: "Show accepted results.",
             xpReward: xpReward,
             monsterTag: "coding.leetcode",
-            monsterDisplayName: "Algorithm Imp",
             monsterLevel: 1,
             badgeCategory: category
         )

@@ -9,7 +9,6 @@ enum MonsterMatchKind: String, Codable, Sendable {
 
 struct MonsterDescriptor: Equatable, Sendable {
     let canonicalTag: String
-    let displayName: String
     let matchKind: MonsterMatchKind
 }
 
@@ -19,44 +18,30 @@ struct MonsterDescriptor: Equatable, Sendable {
 enum MonsterTaxonomy {
     private static let tagPattern = #"^[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)+$"#
 
-    private static let displayNames: [String: String] = [
-        "coding.leetcode": "Algorithm Imp",
-        "coding.project": "Forge Sprite",
-        "coding.practice": "Puzzle Imp",
-        "study.statistics": "Stat Wisp",
-        "study.learning": "Study Wisp",
-        "fitness.workout": "Training Brute",
-        "communication.send_email": "Mail Bat",
-        "communication.career": "Courier Wisp",
-        "chores.take_out_trash": "Trash Slime",
-        "chores.household": "Chore Slime"
-    ]
-
     static func isValidCanonicalTag(_ value: String) -> Bool {
         let tag = value.trimmingCharacters(in: .whitespacesAndNewlines).lowercased()
         guard tag.count <= 80 else { return false }
         return tag.range(of: tagPattern, options: .regularExpression) != nil
     }
 
-    static func localizedDisplayName(for canonicalTag: String, fallback: String) -> String {
+    static func categoryLabel(for canonicalTag: String) -> String {
         switch canonicalTag {
-        case "coding.leetcode": L10n.text("算法小鬼", english: fallback)
-        case "coding.project": L10n.text("锻造精灵", english: fallback)
-        case "coding.practice": L10n.text("解谜小鬼", english: fallback)
-        case "study.statistics": L10n.text("统计幽灵", english: fallback)
-        case "study.learning": L10n.text("学习幽灵", english: fallback)
-        case "fitness.workout": L10n.text("训练蛮兽", english: fallback)
-        case "communication.send_email": L10n.text("邮差蝙蝠", english: fallback)
-        case "communication.career": L10n.text("信使幽灵", english: fallback)
-        case "chores.take_out_trash": L10n.text("垃圾史莱姆", english: fallback)
-        case "chores.household": L10n.text("家务史莱姆", english: fallback)
-        default: fallback
+        case "coding.leetcode": "LeetCode"
+        case "coding.project": L10n.text("编程项目", english: "Coding Project")
+        case "coding.practice": L10n.text("编程练习", english: "Coding Practice")
+        case "study.statistics": L10n.text("统计", english: "Statistics")
+        case "study.learning": L10n.text("学习", english: "Learning")
+        case "fitness.workout": L10n.text("健身", english: "Workout")
+        case "communication.send_email": L10n.text("邮件", english: "Email")
+        case "communication.career": L10n.text("职业沟通", english: "Career Communication")
+        case "chores.take_out_trash": L10n.text("倒垃圾", english: "Trash")
+        case "chores.household": L10n.text("家务", english: "Household")
+        default: prettifiedCategory(for: canonicalTag)
         }
     }
 
     static func descriptor(
         canonicalTag: String?,
-        displayName: String?,
         matchKind: MonsterMatchKind?,
         fallbackText: String,
         badgeKind: String
@@ -75,18 +60,8 @@ enum MonsterTaxonomy {
             resolvedMatchKind = .existing
         }
 
-        let trimmedDisplayName = displayName?
-            .trimmingCharacters(in: .whitespacesAndNewlines)
-        let safeDisplayName: String?
-        if let trimmedDisplayName, !trimmedDisplayName.isEmpty, trimmedDisplayName.count <= 60 {
-            safeDisplayName = trimmedDisplayName
-        } else {
-            safeDisplayName = nil
-        }
-
         return MonsterDescriptor(
             canonicalTag: tag,
-            displayName: safeDisplayName ?? displayNames[tag] ?? prettifiedName(for: tag),
             matchKind: resolvedMatchKind
         )
     }
@@ -105,11 +80,26 @@ enum MonsterTaxonomy {
         if containsAny(normalized, ["email", "e-mail", "mail", "邮件", "邮箱"]) {
             return "communication.send_email"
         }
-        if containsAny(normalized, ["workout", "gym", "exercise", "running", "run ", "健身", "锻炼", "跑步", "运动"]) {
+        if containsAny(normalized, ["workout", "gym", "exercise", "running", "run ", "sport", "basketball", "football", "soccer", "tennis", "swim", "健身", "锻炼", "跑步", "运动", "篮球", "足球", "网球", "游泳"]) {
             return "fitness.workout"
         }
         if containsAny(normalized, ["take out the trash", "garbage", "rubbish", "倒垃圾", "垃圾"]) {
             return "chores.take_out_trash"
+        }
+        if containsAny(normalized, ["console", "控制台"]) {
+            return "gaming.console"
+        }
+        if containsAny(normalized, ["video game", "gaming", "game", "游戏", "主机"]) {
+            return "gaming.game"
+        }
+        if containsAny(normalized, ["cook", "cooking", "meal", "recipe", "烹饪", "做饭", "做菜"]) {
+            return "life.cooking"
+        }
+        if containsAny(normalized, ["ship", "shipping", "send package", "mail package", "寄快递", "寄包裹", "快递"]) {
+            return "errands.shipping"
+        }
+        if containsAny(normalized, ["chore", "household", "clean", "laundry", "家务", "打扫", "洗衣"]) {
+            return "chores.household"
         }
 
         switch BadgeKind(rawValue: badgeKind) {
@@ -117,6 +107,7 @@ enum MonsterTaxonomy {
         case .career: return "communication.career"
         case .athlete: return "fitness.workout"
         case .solver: return "coding.practice"
+        case .life: return "life.activity"
         case nil: return "study.learning"
         }
     }
@@ -125,7 +116,7 @@ enum MonsterTaxonomy {
         needles.contains { text.contains($0) }
     }
 
-    private static func prettifiedName(for tag: String) -> String {
+    private static func prettifiedCategory(for tag: String) -> String {
         let finalComponent = tag.split(separator: ".").last.map(String.init) ?? tag
         return finalComponent
             .replacingOccurrences(of: "_", with: " ")
@@ -190,6 +181,12 @@ enum MonsterDraftPreviewState: Equatable, Sendable {
     case unavailable
 }
 
+enum MonsterVariantPollingPolicy {
+    static let intervalSeconds = 4
+    static let maxAttempts = 45
+    static let maximumWaitSeconds = intervalSeconds * maxAttempts
+}
+
 enum MonsterVariantError: LocalizedError {
     case missingConfiguration
     case invalidEncounter
@@ -213,13 +210,11 @@ enum MonsterVariantError: LocalizedError {
 struct MonsterVariantService: Sendable {
     private struct EnsureRequest: Encodable {
         let canonicalTag: String
-        let displayName: String
         let badgeKind: String
         let level: Int
 
         enum CodingKeys: String, CodingKey {
             case canonicalTag = "canonical_tag"
-            case displayName = "display_name"
             case badgeKind = "badge_kind"
             case level
         }
@@ -231,7 +226,6 @@ struct MonsterVariantService: Sendable {
 
     func ensureVariant(
         canonicalTag: String,
-        displayName: String,
         badgeKind: String,
         level: Int
     ) async throws -> MonsterVariantSnapshot {
@@ -249,7 +243,6 @@ struct MonsterVariantService: Sendable {
         request.httpBody = try JSONEncoder().encode(
             EnsureRequest(
                 canonicalTag: canonicalTag,
-                displayName: String(displayName.prefix(60)),
                 badgeKind: badgeKind,
                 level: level
             )
@@ -341,7 +334,6 @@ struct MonsterDiscoveryEvent: Identifiable, Equatable, Sendable {
     let id = UUID()
     let canonicalTag: String
     let sourceTaskID: UUID
-    let displayName: String
     let level: Int
     let badgeKindRawValue: String
     let variantID: String?
@@ -376,7 +368,6 @@ enum MonsterDiscoveryService {
                     $0.styleVersion == nil || task.monsterStyleVersion == nil)
         }
 
-        let displayName = task.monsterDisplayName ?? canonicalTag
         let badgeKind = task.badgeCategory?.name ?? ""
         let isFirstDiscovery = existing == nil
         let discovery: MonsterDiscovery
@@ -390,7 +381,6 @@ enum MonsterDiscoveryService {
         } else {
             discovery = MonsterDiscovery(
                 canonicalTag: canonicalTag,
-                displayName: displayName,
                 level: level,
                 badgeKindRawValue: badgeKind,
                 variantID: task.monsterVariantID,
@@ -404,7 +394,6 @@ enum MonsterDiscoveryService {
         return MonsterDiscoveryEvent(
             canonicalTag: canonicalTag,
             sourceTaskID: task.id,
-            displayName: discovery.displayName,
             level: level,
             badgeKindRawValue: discovery.badgeKindRawValue,
             variantID: discovery.variantID,

@@ -59,6 +59,12 @@ enum MedalArtworkCatalog {
             silverAssetName: "Sport_Silver",
             fragmentCount: 73,
             cacheKey: "sport"
+        ),
+        .life: MedalArtworkConfiguration(
+            bronzeAssetName: "Create_Bronze",
+            silverAssetName: "Create_Silver",
+            fragmentCount: 73,
+            cacheKey: "life"
         )
     ]
 

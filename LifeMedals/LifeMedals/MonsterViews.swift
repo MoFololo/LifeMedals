@@ -76,6 +76,8 @@ struct MonsterCachedImageView: View {
             }
         }
         .task(id: imageURL) {
+            imageData = nil
+            didFail = false
             guard let url = URL(string: imageURL), url.scheme == "https" else {
                 didFail = true
                 return
@@ -133,10 +135,7 @@ struct MonsterDraftPreviewCard: View {
                 .overlay { PixelCornerShape(step: 4).stroke(PixelTheme.gold.opacity(0.72), lineWidth: 2) }
 
             VStack(alignment: .leading, spacing: PixelTheme.space8) {
-                Text(MonsterTaxonomy.localizedDisplayName(
-                    for: descriptor.canonicalTag,
-                    fallback: descriptor.displayName
-                ))
+                Text(MonsterTaxonomy.categoryLabel(for: descriptor.canonicalTag))
                     .font(PixelTheme.displayFont(size: 18))
                     .foregroundStyle(PixelTheme.ink)
                     .lineLimit(2)
@@ -204,7 +203,7 @@ struct MonsterEncounterCard: View {
             .overlay { PixelCornerShape(step: 4).stroke(PixelTheme.gold.opacity(0.7), lineWidth: 2) }
 
             VStack(alignment: .leading, spacing: PixelTheme.space8) {
-                Text(localizedTaskMonsterName)
+                Text(taskMonsterCategory)
                     .font(PixelTheme.displayFont(size: 19))
                     .foregroundStyle(PixelTheme.ink)
 
@@ -244,12 +243,11 @@ struct MonsterEncounterCard: View {
         )
     }
 
-    private var localizedTaskMonsterName: String {
+    private var taskMonsterCategory: String {
         let tag = task.monsterTag ?? discovery?.canonicalTag ?? ""
-        let fallback = discovery?.displayName
-            ?? task.monsterDisplayName
-            ?? L10n.text("怪物", english: "Monster")
-        return MonsterTaxonomy.localizedDisplayName(for: tag, fallback: fallback)
+        return tag.isEmpty
+            ? L10n.text("怪物", english: "Monster")
+            : MonsterTaxonomy.categoryLabel(for: tag)
     }
 }
 
@@ -285,10 +283,7 @@ struct MonsterRevealOverlay: View {
                         .font(PixelTheme.displayFont(size: 27))
                         .foregroundStyle(event.isFirstDiscovery ? PixelTheme.goldBright : PixelTheme.success)
 
-                    Text(MonsterTaxonomy.localizedDisplayName(
-                        for: event.canonicalTag,
-                        fallback: event.displayName
-                    ))
+                    Text(MonsterTaxonomy.categoryLabel(for: event.canonicalTag))
                         .font(PixelTheme.displayFont(size: 22))
                         .foregroundStyle(PixelTheme.ink)
 
@@ -342,12 +337,7 @@ struct MonsterAtlasView: View {
         let discoveries: [MonsterDiscovery]
 
         var id: String { canonicalTag }
-        var displayName: String {
-            MonsterTaxonomy.localizedDisplayName(
-                for: canonicalTag,
-                fallback: discoveries.first?.displayName ?? canonicalTag
-            )
-        }
+        var categoryLabel: String { MonsterTaxonomy.categoryLabel(for: canonicalTag) }
         var encounterCount: Int { discoveries.reduce(0) { $0 + max($1.discoveryCount, 1) } }
         var discoveredLevelCount: Int { Set(discoveries.map(\.level)).count }
         var firstDiscoveredAt: Date { discoveries.map(\.discoveredAt).min() ?? .now }
@@ -417,7 +407,7 @@ struct MonsterAtlasView: View {
                 .padding(PixelTheme.space8)
                 .background(PixelTheme.background.opacity(0.08), in: PixelCornerShape(step: 4))
 
-            Text(species.displayName)
+            Text(species.categoryLabel)
                 .font(PixelTheme.displayFont(size: 17))
                 .foregroundStyle(PixelTheme.ink)
                 .lineLimit(1)
@@ -449,7 +439,7 @@ struct MonsterAtlasView: View {
             .buttonStyle(PixelButtonStyle(tone: PixelTheme.brown))
 
             VStack(alignment: .leading, spacing: PixelTheme.space8) {
-                Text(species.displayName)
+                Text(species.categoryLabel)
                     .font(PixelTheme.displayFont(size: 28))
                     .foregroundStyle(PixelTheme.paperRaised)
                 Text(BadgeKind.displayName(for: species.badgeKind))
@@ -541,7 +531,6 @@ struct MonsterAtlasView: View {
         for discovery in pending {
             guard let snapshot = try? await variantService.ensureVariant(
                 canonicalTag: discovery.canonicalTag,
-                displayName: discovery.displayName,
                 badgeKind: discovery.badgeKindRawValue,
                 level: discovery.level
             ) else { continue }

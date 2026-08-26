@@ -60,7 +60,6 @@ final class TaskContract {
     // leaves every field nil; only independently verifiable tasks encounter a
     // monster.
     var monsterTag: String?
-    var monsterDisplayName: String?
     var monsterLevel: Int?
     var monsterVariantID: String?
     var monsterImageURL: String?
@@ -135,7 +134,6 @@ final class TaskContract {
         groupCompletedAt: Date? = nil,
         sourceImageData: Data? = nil,
         monsterTag: String? = nil,
-        monsterDisplayName: String? = nil,
         monsterLevel: Int? = nil,
         monsterVariantID: String? = nil,
         monsterImageURL: String? = nil,
@@ -164,7 +162,6 @@ final class TaskContract {
         self.groupCompletedAt = hierarchyRole == .group ? groupCompletedAt : nil
         self.sourceImageData = sourceImageData
         self.monsterTag = monsterTag
-        self.monsterDisplayName = monsterDisplayName
         self.monsterLevel = monsterLevel.map { min(max($0, 1), 9) }
         self.monsterVariantID = monsterVariantID
         self.monsterImageURL = monsterImageURL

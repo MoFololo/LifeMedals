@@ -5,9 +5,8 @@ PRAGMA foreign_keys = ON;
 CREATE TABLE IF NOT EXISTS monster_species (
     id TEXT PRIMARY KEY,
     canonical_tag TEXT NOT NULL COLLATE NOCASE UNIQUE,
-    display_name TEXT NOT NULL,
     badge_kind TEXT NOT NULL
-        CHECK (badge_kind IN ('Solver', 'Builder', 'Career', 'Athlete')),
+        CHECK (badge_kind IN ('Solver', 'Builder', 'Career', 'Athlete', 'Life')),
     visual_dna_json TEXT NOT NULL
         CHECK (json_valid(visual_dna_json)),
     style_version TEXT NOT NULL,
@@ -15,7 +14,10 @@ CREATE TABLE IF NOT EXISTS monster_species (
     updated_at TEXT NOT NULL,
 
     CHECK (length(canonical_tag) BETWEEN 3 AND 80),
-    CHECK (length(display_name) BETWEEN 1 AND 60)
+    CHECK (length(id) BETWEEN 14 AND 80),
+    CHECK (id LIKE 'species-' || lower(badge_kind) || '-%'),
+    CHECK (id NOT GLOB '*[^a-z0-9-]*'),
+    CHECK (id NOT GLOB 'species-*-*-*')
 ) STRICT;
 
 CREATE TABLE IF NOT EXISTS monster_aliases (
@@ -25,7 +27,12 @@ CREATE TABLE IF NOT EXISTS monster_aliases (
 
     FOREIGN KEY (species_id)
         REFERENCES monster_species(id)
-        ON DELETE CASCADE
+        ON DELETE CASCADE,
+
+    CHECK (length(alias) BETWEEN 1 AND 80),
+    CHECK (alias = lower(trim(alias))),
+    CHECK (alias NOT GLOB '*[^a-z0-9 _-]*'),
+    CHECK (alias GLOB '*[a-z0-9]*')
 ) STRICT;
 
 CREATE INDEX IF NOT EXISTS idx_monster_aliases_species
@@ -86,7 +93,6 @@ CREATE INDEX IF NOT EXISTS idx_monster_variants_stale_lease
 INSERT OR IGNORE INTO monster_species (
     id,
     canonical_tag,
-    display_name,
     badge_kind,
     visual_dna_json,
     style_version,
@@ -95,9 +101,8 @@ INSERT OR IGNORE INTO monster_species (
 )
 VALUES
 (
-    'species-coding-leetcode',
+    'species-solver-leetcode',
     'coding.leetcode',
-    'Algorithm Imp',
     'Solver',
     '{"body":"small compact imp","colors":["indigo","cyan"],"feature":"glowing algorithm rune","temperament":"clever"}',
     'pixel-v1',
@@ -105,9 +110,8 @@ VALUES
     strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
 ),
 (
-    'species-coding-project',
+    'species-builder-project',
     'coding.project',
-    'Forge Sprite',
     'Builder',
     '{"body":"compact forge sprite","colors":["orange","steel"],"feature":"tiny crafting hammer","temperament":"inventive"}',
     'pixel-v1',
@@ -115,9 +119,8 @@ VALUES
     strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
 ),
 (
-    'species-coding-practice',
+    'species-solver-practice',
     'coding.practice',
-    'Puzzle Imp',
     'Solver',
     '{"body":"round puzzle imp","colors":["violet","gold"],"feature":"floating puzzle tiles","temperament":"curious"}',
     'pixel-v1',
@@ -125,9 +128,8 @@ VALUES
     strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
 ),
 (
-    'species-study-statistics',
+    'species-solver-statistics',
     'study.statistics',
-    'Stat Wisp',
     'Solver',
     '{"body":"soft floating wisp","colors":["blue","mint"],"feature":"chart-shaped aura","temperament":"analytical"}',
     'pixel-v1',
@@ -135,9 +137,8 @@ VALUES
     strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
 ),
 (
-    'species-study-learning',
+    'species-solver-learning',
     'study.learning',
-    'Study Wisp',
     'Solver',
     '{"body":"book-shaped wisp","colors":["teal","cream"],"feature":"floating pages","temperament":"focused"}',
     'pixel-v1',
@@ -145,9 +146,8 @@ VALUES
     strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
 ),
 (
-    'species-fitness-workout',
+    'species-athlete-workout',
     'fitness.workout',
-    'Training Brute',
     'Athlete',
     '{"body":"friendly compact brute","colors":["red","charcoal"],"feature":"training wristbands","temperament":"energetic"}',
     'pixel-v1',
@@ -155,9 +155,8 @@ VALUES
     strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
 ),
 (
-    'species-communication-send-email',
+    'species-career-email',
     'communication.send_email',
-    'Mail Bat',
     'Career',
     '{"body":"small winged courier","colors":["navy","yellow"],"feature":"sealed envelope satchel","temperament":"swift"}',
     'pixel-v1',
@@ -165,9 +164,8 @@ VALUES
     strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
 ),
 (
-    'species-communication-career',
+    'species-career-communication',
     'communication.career',
-    'Courier Wisp',
     'Career',
     '{"body":"professional courier wisp","colors":["blue","silver"],"feature":"briefcase-shaped charm","temperament":"reliable"}',
     'pixel-v1',
@@ -175,20 +173,18 @@ VALUES
     strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
 ),
 (
-    'species-chores-trash',
+    'species-life-trash',
     'chores.take_out_trash',
-    'Trash Slime',
-    'Builder',
+    'Life',
     '{"body":"clean rounded slime","colors":["green","gray"],"feature":"tiny recycling emblem","temperament":"helpful"}',
     'pixel-v1',
     strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
     strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
 ),
 (
-    'species-chores-household',
+    'species-life-household',
     'chores.household',
-    'Chore Slime',
-    'Builder',
+    'Life',
     '{"body":"tidy household slime","colors":["aqua","white"],"feature":"small cleaning brush","temperament":"cheerful"}',
     'pixel-v1',
     strftime('%Y-%m-%dT%H:%M:%fZ', 'now'),
@@ -197,25 +193,22 @@ VALUES
 
 INSERT OR IGNORE INTO monster_aliases (alias, species_id, created_at)
 VALUES
-('leetcode', 'species-coding-leetcode', strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-('algorithm', 'species-coding-leetcode', strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-('算法', 'species-coding-leetcode', strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-('coding project', 'species-coding-project', strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-('编程项目', 'species-coding-project', strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-('coding practice', 'species-coding-practice', strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-('刷题', 'species-coding-practice', strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-('statistics', 'species-study-statistics', strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-('统计', 'species-study-statistics', strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-('study', 'species-study-learning', strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-('学习', 'species-study-learning', strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-('workout', 'species-fitness-workout', strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-('gym', 'species-fitness-workout', strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-('健身', 'species-fitness-workout', strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-('send email', 'species-communication-send-email', strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-('邮件', 'species-communication-send-email', strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-('career communication', 'species-communication-career', strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-('职业沟通', 'species-communication-career', strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-('take out trash', 'species-chores-trash', strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-('倒垃圾', 'species-chores-trash', strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-('household chores', 'species-chores-household', strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
-('家务', 'species-chores-household', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));
+('leetcode', 'species-solver-leetcode', strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+('algorithm', 'species-solver-leetcode', strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+('coding project', 'species-builder-project', strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+('project', 'species-builder-project', strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+('coding practice', 'species-solver-practice', strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+('practice', 'species-solver-practice', strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+('statistics', 'species-solver-statistics', strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+('study', 'species-solver-learning', strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+('learning', 'species-solver-learning', strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+('workout', 'species-athlete-workout', strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+('gym', 'species-athlete-workout', strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+('send email', 'species-career-email', strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+('email', 'species-career-email', strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+('career communication', 'species-career-communication', strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+('communication', 'species-career-communication', strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+('take out trash', 'species-life-trash', strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+('trash', 'species-life-trash', strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+('household chores', 'species-life-household', strftime('%Y-%m-%dT%H:%M:%fZ', 'now')),
+('household', 'species-life-household', strftime('%Y-%m-%dT%H:%M:%fZ', 'now'));

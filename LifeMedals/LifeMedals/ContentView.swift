@@ -141,7 +141,6 @@ struct ContentView: View {
         var evidenceImageDescriptions: [String]
         var xpReward: Int
         var monsterTag: String?
-        var monsterDisplayName: String?
         var monsterMatchKind: MonsterMatchKind?
 
         init(_ child: GeneratedTaskChild) {
@@ -151,7 +150,6 @@ struct ContentView: View {
             evidenceImageDescriptions = child.evidenceImageDescriptions
             xpReward = child.suggestedXP
             monsterTag = child.monsterTag
-            monsterDisplayName = child.monsterDisplayName
             monsterMatchKind = child.monsterMatchKind
         }
     }
@@ -387,6 +385,7 @@ struct ContentView: View {
     private static let badgeOptions = BadgeKind.allCases.map(\.rawValue)
 
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.scenePhase) private var scenePhase
     @Query(sort: \TaskContract.createdAt, order: .reverse) private var taskContracts: [TaskContract]
     @Query(sort: \BadgeCategory.createdAt) private var badgeCategories: [BadgeCategory]
     @Query(sort: \MonsterDiscovery.discoveredAt) private var monsterDiscoveries: [MonsterDiscovery]
@@ -433,9 +432,9 @@ struct ContentView: View {
     @State private var draftXP = 10
     @State private var draftChildren: [TaskChildDraft] = []
     @State private var draftMonsterTag: String?
-    @State private var draftMonsterDisplayName: String?
     @State private var draftMonsterMatchKind: MonsterMatchKind?
     @State private var draftMonsterPreviewStates: [String: MonsterDraftPreviewState] = [:]
+    @State private var monsterArtworkSyncActivation = 0
 
     private let generationService = TaskGenerationService()
     private let monsterVariantService = MonsterVariantService()
@@ -474,8 +473,16 @@ struct ContentView: View {
                     isReminderStatusDismissed = false
                 }
             }
+            .onChange(of: scenePhase) { _, phase in
+                if phase == .active {
+                    monsterArtworkSyncActivation += 1
+                }
+            }
             .task {
                 await restoreTaskReminders()
+            }
+            .task(id: pendingMonsterArtworkSyncKey) {
+                await ensureMonsterVariants(for: tasksAwaitingMonsterArtwork)
             }
             .onReceive(NotificationCenter.default.publisher(for: .xpAwarded)) { notification in
                 guard let event = notification.object as? XPAwardEvent else { return }
@@ -1231,7 +1238,6 @@ struct ContentView: View {
     private var singleDraftMonsterDescriptor: MonsterDescriptor {
         MonsterTaxonomy.descriptor(
             canonicalTag: draftMonsterTag,
-            displayName: draftMonsterDisplayName,
             matchKind: draftMonsterMatchKind,
             fallbackText: "\(draftTitle) \(draftEvidenceRequirement)",
             badgeKind: draftBadge
@@ -1241,7 +1247,6 @@ struct ContentView: View {
     private func monsterDescriptor(for child: TaskChildDraft) -> MonsterDescriptor {
         MonsterTaxonomy.descriptor(
             canonicalTag: child.monsterTag,
-            displayName: child.monsterDisplayName,
             matchKind: child.monsterMatchKind,
             fallbackText: "\(child.title) \(child.evidenceRequirement)",
             badgeKind: draftBadge
@@ -1287,7 +1292,6 @@ struct ContentView: View {
             do {
                 let snapshot = try await monsterVariantService.ensureVariant(
                     canonicalTag: request.descriptor.canonicalTag,
-                    displayName: request.descriptor.displayName,
                     badgeKind: request.badgeKind,
                     level: request.level
                 )
@@ -1299,7 +1303,7 @@ struct ContentView: View {
             }
         }
 
-        for _ in 0..<12 {
+        for _ in 0..<MonsterVariantPollingPolicy.maxAttempts {
             let pending = requests.filter { request in
                 guard case let .variant(snapshot) = draftMonsterPreviewStates[request.key] else { return false }
                 return snapshot.status == .pending || snapshot.status == .generating
@@ -1307,7 +1311,7 @@ struct ContentView: View {
             guard !pending.isEmpty, !Task.isCancelled else { return }
 
             do {
-                try await Task.sleep(for: .seconds(4))
+                try await Task.sleep(for: .seconds(MonsterVariantPollingPolicy.intervalSeconds))
             } catch {
                 return
             }
@@ -2376,7 +2380,6 @@ struct ContentView: View {
                     : Self.badgeOptions[0]
                 draftXP = contract.suggestedXP
                 draftMonsterTag = contract.monsterTag
-                draftMonsterDisplayName = contract.monsterDisplayName
                 draftMonsterMatchKind = contract.monsterMatchKind
                 draftMonsterPreviewStates = [:]
                 draftChildren = contract.kind == .taskGroup
@@ -2446,7 +2449,6 @@ struct ContentView: View {
                 let children = draftChildren.enumerated().map { index, draft in
                     let monster = MonsterTaxonomy.descriptor(
                         canonicalTag: draft.monsterTag,
-                        displayName: draft.monsterDisplayName,
                         matchKind: draft.monsterMatchKind,
                         fallbackText: "\(draft.title) \(draft.evidenceRequirement)",
                         badgeKind: draftBadge
@@ -2463,7 +2465,6 @@ struct ContentView: View {
                         parentTaskID: parent.id,
                         childOrder: index,
                         monsterTag: monster.canonicalTag,
-                        monsterDisplayName: monster.displayName,
                         monsterLevel: lockedMonsterLevel,
                         monsterVariantID: snapshot?.variantID,
                         monsterImageURL: snapshot?.status == .ready ? snapshot?.imageURL : nil,
@@ -2476,7 +2477,6 @@ struct ContentView: View {
             } else {
                 let monster = MonsterTaxonomy.descriptor(
                     canonicalTag: draftMonsterTag,
-                    displayName: draftMonsterDisplayName,
                     matchKind: draftMonsterMatchKind,
                     fallbackText: "\(title) \(requirement)",
                     badgeKind: draftBadge
@@ -2491,7 +2491,6 @@ struct ContentView: View {
                     xpReward: draftXP,
                     sourceImageData: draftContractSourceImageData,
                     monsterTag: monster.canonicalTag,
-                    monsterDisplayName: monster.displayName,
                     monsterLevel: lockedMonsterLevel,
                     monsterVariantID: snapshot?.variantID,
                     monsterImageURL: snapshot?.status == .ready ? snapshot?.imageURL : nil,
@@ -2515,7 +2514,6 @@ struct ContentView: View {
             draftContractSourceImageData = nil
             draftChildren = []
             draftMonsterTag = nil
-            draftMonsterDisplayName = nil
             draftMonsterMatchKind = nil
             draftMonsterPreviewStates = [:]
             imageTaskNote = ""
@@ -2735,6 +2733,23 @@ struct ContentView: View {
 
     // MARK: - Helpers
 
+    private var tasksAwaitingMonsterArtwork: [TaskContract] {
+        taskContracts.filter {
+            !$0.isTaskGroup &&
+                $0.monsterTag != nil &&
+                $0.monsterLevel != nil &&
+                ($0.monsterImageURL?.isEmpty != false)
+        }
+    }
+
+    private var pendingMonsterArtworkSyncKey: String {
+        let taskIDs = tasksAwaitingMonsterArtwork
+            .map(\.id.uuidString)
+            .sorted()
+            .joined(separator: ",")
+        return "\(monsterArtworkSyncActivation):\(taskIDs)"
+    }
+
     @MainActor
     private func ensureMonsterVariants(for tasks: [TaskContract]) async {
         for task in tasks {
@@ -2746,23 +2761,22 @@ struct ContentView: View {
     private func ensureMonsterVariant(for task: TaskContract) async {
         guard
             let canonicalTag = task.monsterTag,
-            let displayName = task.monsterDisplayName,
             let level = task.monsterLevel,
             let badgeKind = task.badgeCategory?.name
         else { return }
 
         guard var snapshot = try? await monsterVariantService.ensureVariant(
             canonicalTag: canonicalTag,
-            displayName: displayName,
             badgeKind: badgeKind,
             level: level
         ) else { return }
 
         applyMonsterSnapshot(snapshot, to: task)
 
-        for _ in 0..<12 where snapshot.status == .pending || snapshot.status == .generating {
+        for _ in 0..<MonsterVariantPollingPolicy.maxAttempts
+        where snapshot.status == .pending || snapshot.status == .generating {
             do {
-                try await Task.sleep(for: .seconds(4))
+                try await Task.sleep(for: .seconds(MonsterVariantPollingPolicy.intervalSeconds))
             } catch {
                 return
             }
@@ -2901,7 +2915,6 @@ struct ContentView: View {
                 modelContext.insert(
                     MonsterDiscovery(
                         canonicalTag: "coding.leetcode",
-                        displayName: "Algorithm Imp",
                         level: 1,
                         badgeKindRawValue: BadgeKind.solver.rawValue,
                         sourceTaskID: UUID(),
@@ -2911,7 +2924,6 @@ struct ContentView: View {
                 modelContext.insert(
                     MonsterDiscovery(
                         canonicalTag: "fitness.workout",
-                        displayName: "Training Brute",
                         level: 2,
                         badgeKindRawValue: BadgeKind.athlete.rawValue,
                         sourceTaskID: UUID()

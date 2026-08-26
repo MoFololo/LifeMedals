@@ -159,6 +159,20 @@ test("builds a stateless vision request for task generation", () => {
   assert.match(request.instructions, /never cause redaction, omission, refusal/);
   assert.match(request.instructions, /monster_tag/);
   assert.match(request.instructions, /Use monster_match_kind=existing/i);
+  assert.match(request.instructions, /Life includes chores, cooking, errands, sending packages, games/i);
+  assert.match(request.instructions, /Exercise and sports always use Athlete/i);
+  assert.match(request.instructions, /taxonomy is always English/i);
+  assert.match(request.instructions, /gaming\.console, not controls\.toggle/i);
+  assert.doesNotMatch(request.instructions, /monster_display_name/);
+  assert.deepEqual(
+    request.text.format.schema.properties.suggested_badge.enum,
+    ["Solver", "Builder", "Career", "Athlete", "Life"],
+  );
+  assert.equal("monster_display_name" in request.text.format.schema.properties, false);
+  assert.equal(
+    "monster_display_name" in request.text.format.schema.properties.children.items.properties,
+    false,
+  );
   assert.doesNotMatch(request.instructions, /privacy-conscious/);
 });
 
@@ -219,7 +233,6 @@ test("generate-task forwards the source image without storing response state", a
         suggested_badge: "Career",
         estimated_hours: 0.25,
         monster_tag: "communication.career",
-        monster_display_name: "Courier Wisp",
         monster_match_kind: "existing",
         children: [],
       }),
@@ -300,7 +313,6 @@ test("validates task contracts with count-aware evidence descriptions", () => {
     suggested_badge: "Solver",
     estimated_hours: 0.5,
     monster_tag: "coding.leetcode",
-    monster_display_name: "Algorithm Imp",
     monster_match_kind: "existing",
     children: [],
   };
@@ -344,7 +356,6 @@ test("validates task groups and requires child-specific evidence plans", () => {
     evidence_image_descriptions: [`Completion result for ${title}.`],
     estimated_hours: 0.25,
     monster_tag: "study.learning",
-    monster_display_name: "Learning Sprite",
     monster_match_kind: "existing",
   });
   const group = {
@@ -358,7 +369,6 @@ test("validates task groups and requires child-specific evidence plans", () => {
     suggested_badge: "Solver",
     estimated_hours: 0.5,
     monster_tag: null,
-    monster_display_name: null,
     monster_match_kind: null,
     children: [child("Complete the survey"), child("Join Piazza")],
   };

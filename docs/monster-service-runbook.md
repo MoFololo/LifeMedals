@@ -76,6 +76,8 @@ npx wrangler d1 migrations apply lifemedals-monsters --remote
 - `communication.send_email`
 - `chores.take_out_trash`
 
+alias 只保存小写英文与数字，不为每种输入语言分别维护翻译。任务生成模型负责把中文或其他语言的活动归类并翻译为英文 taxonomy。物种 ID 必须使用 `species-[medaltype]-[description]`，description 采用最简单的单词；必须使用两个单词时直接连接在最后一个 `-` 后面。
+
 ## 4. 实现客户端所需 API
 
 保留现有 `/health`、`/generate-task`、`/verify-evidence`，新增：
@@ -85,11 +87,10 @@ npx wrangler d1 migrations apply lifemedals-monsters --remote
 只接受：
 
 - `canonical_tag`
-- `display_name`
 - `badge_kind`
 - `level`（1...9）
 
-必须重新规范化 tag、限制长度和字符、限制 body 大小，并忽略/拒绝 Prompt、图片、用户 ID、任务内容和证据。使用 D1 唯一约束与 `INSERT OR IGNORE` 幂等创建；已 ready 立即返回，pending/generating 返回当前状态，新 variant 只入队一次。
+必须重新规范化 tag、限制长度和字符、限制 body 大小，并忽略/拒绝怪物名、Prompt、图片、用户 ID、任务内容和证据。使用 D1 唯一约束与 `INSERT OR IGNORE` 幂等创建；已 ready 立即返回，pending/generating 返回当前状态，新 variant 只入队一次。
 
 ### `GET /monster-variants/{canonicalTag}/{level}`
 
