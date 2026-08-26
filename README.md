@@ -1,6 +1,6 @@
 # 人生勋章（LifeMedals）
 
-**项目状态**：🚧 macOS + iOS 多平台 v1 开发中（SwiftData 本地优先 + CloudKit 私有数据库同步；已接入 Sign in with Apple 会话）
+**项目状态**：🚧 iOS v2 客户端“任务怪物与怪物图鉴”闭环已实现并通过模拟器测试；Cloudflare 全球素材服务仍待后续服务端阶段接入
 
 ---
 
@@ -17,8 +17,9 @@
    → 执行任务
    → 提交证据
    → AI核验
+   → 发现/再次击败任务怪物
    → 勋章 + EXP 到账
-   → 存入 Library
+   → 存入成就（勋章 Library + 怪物图鉴）
 ```
 
 ---
@@ -68,10 +69,23 @@ LifeMedals/
 - `BadgeCategory`：默认或自定义勋章类别。
 - `UserBadge`：每个类别独立累计的 EXP 和等级。
 - `TaskContract`：标题、截止时间、锁定的验收标准、1–5 张证据照片计划、可选的任务来源图片、所属勋章、XP 奖励和状态。
+- `TaskContract` 的可选怪物字段：canonical tag、显示名、保存时锁定的 1–9 级、variant ID、图片 URL 和 style version；旧任务全部为 `nil` 时继续按原流程运行。
+- `MonsterDiscovery`：用户私有的 tag + level + styleVersion 发现元数据、首次来源任务和击败次数；应用逻辑使用已处理任务 ID 防止重复核验回调重复计数。
 - `Evidence`：本地证据图片、提交批次与顺序、提交时间、AI 三态核验结果和解释。
 - `XPLog`：关联任务与勋章的 EXP 变动记录。
 
 所有模型使用稳定 UUID。证据图片先保存到本地，并使用适合大字段的外部存储方式；SwiftData/CloudKit 负责同步，AI 代理不会持久化图片或上述模型数据。模型已移除 CloudKit 不支持的唯一约束，并将关系调整为可选。
+
+### iOS v2：任务怪物与怪物图鉴
+
+- 任务生成响应可为单任务和每个 child task 返回 `monster_tag`、`monster_display_name` 和 `monster_match_kind`。iOS 解码器兼容旧 Worker；旧响应会通过内置种子分类稳定映射到 `coding.leetcode`、`study.statistics`、`fitness.workout`、`communication.send_email`、`chores.take_out_trash` 等宽泛标签。
+- 用户在确认页最终选择勋章后，客户端读取该勋章当时的 `BadgeRank.rawValue` 并把 `monsterLevel` 锁入任务。该任务随后获得 EXP 并升级也不会改变本次遭遇等级。任务组父容器没有怪物，每个可独立核验的 child task 单独分配。
+- 任务确认页会立即用 tag + 当前勋章等级查询全球素材：ready 时预览对应怪物，缺失、生成中或服务不可用时显示本地未知轮廓，并在后台调用 ensure。保存后的未完成任务继续隐藏素材；核验为 Verified 时会再次刷新，先原子保存任务、发现记录和 EXP，再播放怪物揭晓，之后才播放原有勋章/EXP 动画。Reduce Motion 使用淡入淡出。
+- 顶级“勋章”导航已演进为“成就”，内部保留“勋章”并新增“怪物图鉴”。图鉴仅查询用户自己的 `MonsterDiscovery`，按物种展示 1–9 级路线，未发现等级保持锁定。
+- 客户端只向 `POST /monster-variants/ensure` 发送规范化 tag、显示名、badge kind 和 level，并通过 `GET /monster-variants/{tag}/{level}` 刷新状态；不接受自定义生图 Prompt，不包含 OpenAI Key、Cloudflare Token 或 R2 管理凭证。图片使用公开 HTTPS URL，并在浏览后写入 iOS Caches 目录供离线回看。
+- ensure、轮询或图片下载失败不阻止本地保存、提醒、证据核验、EXP 或发现记录；图片未 ready 时先把未知怪物收入图鉴，图鉴会继续轮询并在 ready 后替换为真实图片。
+
+本轮只实现 iOS 客户端，没有修改或部署 `worker/`，也没有创建 D1、R2 或 Queue。全球素材服务仍应按“D1 只存通用物种/variant 元数据、R2 只存系统生成图片、Queue 异步幂等生成”的边界实现；不得把用户身份、任务、证据、XP 或个人发现写入这些全局资源。GPT Image 2 调用和 Prompt 模板必须只存在于 Worker，`OPENAI_API_KEY` 继续只使用 Worker Secret。具体上线顺序见 [`docs/monster-service-runbook.md`](docs/monster-service-runbook.md)。
 
 以下服务端控制数据是 **v2 规划**，不在 v1 创建：
 

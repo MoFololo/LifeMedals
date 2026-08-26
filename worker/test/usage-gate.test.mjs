@@ -34,6 +34,17 @@ async function reserve(gate, requestsPerMinute, monthlyRequestBudget) {
   return response.json();
 }
 
+async function reserveMonsterImage(gate, monthlyMonsterImageBudget, monsterImagesPerMinute = 10) {
+  const response = await gate.fetch(
+    new Request("https://usage-gate.internal/reserve-monster-image", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ monthlyMonsterImageBudget, monsterImagesPerMinute }),
+    }),
+  );
+  return response.json();
+}
+
 test("enforces the global fixed-window rate limit", async () => {
   const gate = new GlobalUsageGate({ storage: new MemoryStorage() });
 
@@ -56,6 +67,29 @@ test("enforces the monthly hard request budget", async () => {
   assert.equal(rejected.allowed, false);
   assert.equal(rejected.reason, "budget_exhausted");
   assert.match(rejected.resetAt, /^\d{4}-\d{2}-01T00:00:00\.000Z$/);
+});
+
+test("enforces an independent monthly monster image budget", async () => {
+  const gate = new GlobalUsageGate({ storage: new MemoryStorage() });
+
+  assert.equal((await reserveMonsterImage(gate, 2)).allowed, true);
+  assert.equal((await reserveMonsterImage(gate, 2)).allowed, true);
+
+  const rejected = await reserveMonsterImage(gate, 2);
+  assert.equal(rejected.allowed, false);
+  assert.equal(rejected.reason, "budget_exhausted");
+  assert.match(rejected.resetAt, /^\d{4}-\d{2}-01T00:00:00\.000Z$/);
+});
+
+test("enforces an independent monster image rate limit", async () => {
+  const gate = new GlobalUsageGate({ storage: new MemoryStorage() });
+
+  assert.equal((await reserveMonsterImage(gate, 20, 2)).allowed, true);
+  assert.equal((await reserveMonsterImage(gate, 20, 2)).allowed, true);
+  const rejected = await reserveMonsterImage(gate, 20, 2);
+  assert.equal(rejected.allowed, false);
+  assert.equal(rejected.reason, "rate_limited");
+  assert.ok(rejected.retryAfterSeconds >= 1);
 });
 
 const validEvidenceBody = {
@@ -88,7 +122,8 @@ test("health identifies the deployed Worker release", async () => {
   const body = await response.json();
 
   assert.equal(response.status, 200);
-  assert.equal(body.release, "2026-08-25-scheduled-email-proof-1");
+  assert.equal(body.release, "2026-08-26-monster-service-1");
+  assert.equal(body.monsterServiceConfigured, false);
   assert.equal(response.headers.get("X-LifeMedals-Release"), body.release);
 });
 
@@ -122,6 +157,8 @@ test("builds a stateless vision request for task generation", () => {
   assert.match(request.instructions, /own objective, lightweight evidence requirement/);
   assert.match(request.instructions, /names, email addresses, phone numbers/);
   assert.match(request.instructions, /never cause redaction, omission, refusal/);
+  assert.match(request.instructions, /monster_tag/);
+  assert.match(request.instructions, /Use monster_match_kind=existing/i);
   assert.doesNotMatch(request.instructions, /privacy-conscious/);
 });
 
@@ -181,6 +218,9 @@ test("generate-task forwards the source image without storing response state", a
         evidence_image_descriptions: ["显示报名成功状态的页面截图。"],
         suggested_badge: "Career",
         estimated_hours: 0.25,
+        monster_tag: "communication.career",
+        monster_display_name: "Courier Wisp",
+        monster_match_kind: "existing",
         children: [],
       }),
     });
@@ -259,6 +299,9 @@ test("validates task contracts with count-aware evidence descriptions", () => {
     ],
     suggested_badge: "Solver",
     estimated_hours: 0.5,
+    monster_tag: "coding.leetcode",
+    monster_display_name: "Algorithm Imp",
+    monster_match_kind: "existing",
     children: [],
   };
 
@@ -300,6 +343,9 @@ test("validates task groups and requires child-specific evidence plans", () => {
     evidence_image_count: 1,
     evidence_image_descriptions: [`Completion result for ${title}.`],
     estimated_hours: 0.25,
+    monster_tag: "study.learning",
+    monster_display_name: "Learning Sprite",
+    monster_match_kind: "existing",
   });
   const group = {
     kind: "task_group",
@@ -311,6 +357,9 @@ test("validates task groups and requires child-specific evidence plans", () => {
     evidence_image_descriptions: [],
     suggested_badge: "Solver",
     estimated_hours: 0.5,
+    monster_tag: null,
+    monster_display_name: null,
+    monster_match_kind: null,
     children: [child("Complete the survey"), child("Join Piazza")],
   };
 

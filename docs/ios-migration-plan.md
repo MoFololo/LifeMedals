@@ -62,4 +62,4 @@ iOS 版本达到可内测状态时，必须能在 iPhone 上独立跑通“生�
 
 ## Debug 截图回归入口
 
-Debug 构建可通过 `LIFEMEDALS_DEBUG_PAGE` 打开 `tasks`、`medals`、`account`、`review`、`task-detail` 或 `award` 场景。该入口仅用于模拟器截图回归，不会进入 Release 构建的正常用户流程。
+Debug 构建可通过 `LIFEMEDALS_DEBUG_PAGE` 打开 `tasks`、`medals`、`atlas`、`account`、`review`、`task-detail` 或 `award` 场景。该入口仅用于模拟器截图回归，不会进入 Release 构建的正常用户流程。

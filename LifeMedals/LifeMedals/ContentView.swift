@@ -94,7 +94,7 @@ struct ContentView: View {
             switch self {
             case .create: L10n.text("新任务", english: "New Task")
             case .tasks: L10n.text("任务", english: "Tasks")
-            case .medals: L10n.text("勋章", english: "Medals")
+            case .medals: L10n.text("成就", english: "Achievements")
             }
         }
 
@@ -102,7 +102,28 @@ struct ContentView: View {
             switch self {
             case .create: "plus"
             case .tasks: "checklist"
+            case .medals: "trophy"
+            }
+        }
+    }
+
+    private enum AchievementTab: String, CaseIterable, Identifiable {
+        case medals
+        case monsters
+
+        var id: Self { self }
+
+        var title: String {
+            switch self {
+            case .medals: L10n.text("勋章", english: "Medals")
+            case .monsters: L10n.text("怪物图鉴", english: "Monster Atlas")
+            }
+        }
+
+        var icon: String {
+            switch self {
             case .medals: "medal"
+            case .monsters: "book.closed"
             }
         }
     }
@@ -119,6 +140,9 @@ struct ContentView: View {
         var evidenceImageCount: Int
         var evidenceImageDescriptions: [String]
         var xpReward: Int
+        var monsterTag: String?
+        var monsterDisplayName: String?
+        var monsterMatchKind: MonsterMatchKind?
 
         init(_ child: GeneratedTaskChild) {
             title = child.title
@@ -126,7 +150,17 @@ struct ContentView: View {
             evidenceImageCount = child.evidenceImageCount
             evidenceImageDescriptions = child.evidenceImageDescriptions
             xpReward = child.suggestedXP
+            monsterTag = child.monsterTag
+            monsterDisplayName = child.monsterDisplayName
+            monsterMatchKind = child.monsterMatchKind
         }
+    }
+
+    private struct DraftMonsterPreviewRequest: Sendable {
+        let key: String
+        let descriptor: MonsterDescriptor
+        let badgeKind: String
+        let level: Int
     }
 
     private struct EvidenceVerificationPresentation: Equatable {
@@ -355,6 +389,7 @@ struct ContentView: View {
     @Environment(\.modelContext) private var modelContext
     @Query(sort: \TaskContract.createdAt, order: .reverse) private var taskContracts: [TaskContract]
     @Query(sort: \BadgeCategory.createdAt) private var badgeCategories: [BadgeCategory]
+    @Query(sort: \MonsterDiscovery.discoveredAt) private var monsterDiscoveries: [MonsterDiscovery]
 
     @AppStorage("pendingTaskInput") private var taskInput = ""
     @State private var selectedPage = AppPage.create
@@ -375,9 +410,11 @@ struct ContentView: View {
     /// Absence means expanded, so newly created and synced groups default open.
     @State private var collapsedTaskGroupIDs: Set<UUID> = []
     @State private var selectedLibraryBadge: String?
+    @State private var selectedAchievementTab = AchievementTab.medals
     @State private var medalAnimationPresentation: XPAwardEvent?
     @State private var deferredMedalAnimationPresentation: XPAwardEvent?
     @State private var evidenceVerificationPresentation: EvidenceVerificationPresentation?
+    @State private var monsterRevealPresentation: MonsterDiscoveryEvent?
     @State private var isShowingSettings = false
     @State private var selectedSourcePhoto: PhotosPickerItem?
     @State private var draftSourceImageData: Data?
@@ -395,8 +432,13 @@ struct ContentView: View {
     @State private var draftBadge = BadgeKind.solver.rawValue
     @State private var draftXP = 10
     @State private var draftChildren: [TaskChildDraft] = []
+    @State private var draftMonsterTag: String?
+    @State private var draftMonsterDisplayName: String?
+    @State private var draftMonsterMatchKind: MonsterMatchKind?
+    @State private var draftMonsterPreviewStates: [String: MonsterDraftPreviewState] = [:]
 
     private let generationService = TaskGenerationService()
+    private let monsterVariantService = MonsterVariantService()
     private let notificationService = TaskNotificationService()
 
     var body: some View {
@@ -440,7 +482,7 @@ struct ContentView: View {
                 guard event.currentXP > event.previousXP else { return }
                 guard event.previousXP < BadgeRank.silver.cumulativeXPThreshold else { return }
 
-                if evidenceVerificationPresentation != nil {
+                if evidenceVerificationPresentation != nil || monsterRevealPresentation != nil {
                     deferredMedalAnimationPresentation = event
                 } else {
                     withAnimation(.smooth(duration: 0.3)) {
@@ -498,6 +540,14 @@ struct ContentView: View {
                 )
                 .transition(.opacity.combined(with: .scale(scale: 0.97)))
                 .zIndex(15)
+            }
+
+            if let monsterRevealPresentation {
+                MonsterRevealOverlay(event: monsterRevealPresentation) {
+                    finishMonsterReveal(for: monsterRevealPresentation)
+                }
+                .transition(.opacity.combined(with: .scale(scale: 0.97)))
+                .zIndex(18)
             }
 
 #if os(macOS)
@@ -944,6 +994,10 @@ struct ContentView: View {
                         }
                     }
 
+                    if !isDraftTaskGroup {
+                        draftMonsterContractField
+                    }
+
                     if let draftContractSourceImageData {
                         contractField("任务来源") {
                             VStack(alignment: .leading, spacing: 10) {
@@ -997,6 +1051,12 @@ struct ContentView: View {
                                         )
                                         .font(PixelTheme.font(.caption))
                                         .foregroundStyle(PixelTheme.inkMuted)
+
+                                        MonsterDraftPreviewCard(
+                                            descriptor: monsterDescriptor(for: child),
+                                            level: draftMonsterLevel,
+                                            state: draftMonsterPreviewStates[child.id.uuidString] ?? .loading
+                                        )
                                     }
                                     .padding(14)
                                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -1062,6 +1122,9 @@ struct ContentView: View {
             .padding(.vertical, 28)
             .platformScrollableContentWidth(790)
             .frame(maxWidth: .infinity)
+        }
+        .task(id: draftMonsterPreviewKey) {
+            await refreshDraftMonsterPreviews()
         }
     }
 
@@ -1130,15 +1193,139 @@ struct ContentView: View {
 
     private var badgeContractField: some View {
         contractField("所属勋章") {
-            MedalArtworkView(categoryName: draftBadge, rank: badgeRank(for: draftBadge))
-                .frame(width: 132, height: 132)
-                .frame(maxWidth: .infinity)
-                .clipped()
-                .padding(4)
-                .frame(maxWidth: .infinity, minHeight: 144, maxHeight: 144)
-                .background(PixelTheme.paperRaised, in: PixelCornerShape())
-                .overlay { PixelCornerShape().stroke(PixelTheme.gold.opacity(0.62), lineWidth: 1) }
+            VStack(spacing: PixelTheme.space8) {
+                MedalArtworkView(categoryName: draftBadge, rank: badgeRank(for: draftBadge))
+                    .frame(width: 108, height: 108)
+                    .clipped()
+
+                Picker(L10n.text("所属勋章", english: "Medal"), selection: $draftBadge) {
+                    ForEach(Self.badgeOptions, id: \.self) { badge in
+                        Text(badgeDisplayName(badge)).tag(badge)
+                    }
+                }
+                .pickerStyle(.menu)
+                .labelsHidden()
+                .accessibilityLabel(L10n.text("选择所属勋章", english: "Choose medal category"))
+            }
+            .padding(8)
+            .frame(maxWidth: .infinity, minHeight: 144)
+            .background(PixelTheme.paperRaised, in: PixelCornerShape())
+            .overlay { PixelCornerShape().stroke(PixelTheme.gold.opacity(0.62), lineWidth: 1) }
         }
+    }
+
+    private var draftMonsterContractField: some View {
+        contractField(L10n.text("任务怪物", english: "Task Monster")) {
+            MonsterDraftPreviewCard(
+                descriptor: singleDraftMonsterDescriptor,
+                level: draftMonsterLevel,
+                state: draftMonsterPreviewStates["single"] ?? .loading
+            )
+        }
+    }
+
+    private var draftMonsterLevel: Int {
+        badgeRank(for: draftBadge).rawValue
+    }
+
+    private var singleDraftMonsterDescriptor: MonsterDescriptor {
+        MonsterTaxonomy.descriptor(
+            canonicalTag: draftMonsterTag,
+            displayName: draftMonsterDisplayName,
+            matchKind: draftMonsterMatchKind,
+            fallbackText: "\(draftTitle) \(draftEvidenceRequirement)",
+            badgeKind: draftBadge
+        )
+    }
+
+    private func monsterDescriptor(for child: TaskChildDraft) -> MonsterDescriptor {
+        MonsterTaxonomy.descriptor(
+            canonicalTag: child.monsterTag,
+            displayName: child.monsterDisplayName,
+            matchKind: child.monsterMatchKind,
+            fallbackText: "\(child.title) \(child.evidenceRequirement)",
+            badgeKind: draftBadge
+        )
+    }
+
+    private var draftMonsterPreviewRequests: [DraftMonsterPreviewRequest] {
+        if isDraftTaskGroup {
+            return draftChildren.map { child in
+                DraftMonsterPreviewRequest(
+                    key: child.id.uuidString,
+                    descriptor: monsterDescriptor(for: child),
+                    badgeKind: draftBadge,
+                    level: draftMonsterLevel
+                )
+            }
+        }
+        return [
+            DraftMonsterPreviewRequest(
+                key: "single",
+                descriptor: singleDraftMonsterDescriptor,
+                badgeKind: draftBadge,
+                level: draftMonsterLevel
+            )
+        ]
+    }
+
+    private var draftMonsterPreviewKey: String {
+        draftMonsterPreviewRequests
+            .map { "\($0.key):\($0.descriptor.canonicalTag):\($0.level)" }
+            .joined(separator: "|")
+    }
+
+    @MainActor
+    private func refreshDraftMonsterPreviews() async {
+        let requests = draftMonsterPreviewRequests
+        draftMonsterPreviewStates = Dictionary(
+            uniqueKeysWithValues: requests.map { ($0.key, MonsterDraftPreviewState.loading) }
+        )
+
+        for request in requests {
+            guard !Task.isCancelled else { return }
+            do {
+                let snapshot = try await monsterVariantService.ensureVariant(
+                    canonicalTag: request.descriptor.canonicalTag,
+                    displayName: request.descriptor.displayName,
+                    badgeKind: request.badgeKind,
+                    level: request.level
+                )
+                guard !Task.isCancelled else { return }
+                draftMonsterPreviewStates[request.key] = .variant(snapshot)
+            } catch {
+                guard !Task.isCancelled else { return }
+                draftMonsterPreviewStates[request.key] = .unavailable
+            }
+        }
+
+        for _ in 0..<12 {
+            let pending = requests.filter { request in
+                guard case let .variant(snapshot) = draftMonsterPreviewStates[request.key] else { return false }
+                return snapshot.status == .pending || snapshot.status == .generating
+            }
+            guard !pending.isEmpty, !Task.isCancelled else { return }
+
+            do {
+                try await Task.sleep(for: .seconds(4))
+            } catch {
+                return
+            }
+
+            for request in pending {
+                guard !Task.isCancelled else { return }
+                guard let snapshot = try? await monsterVariantService.fetchVariant(
+                    canonicalTag: request.descriptor.canonicalTag,
+                    level: request.level
+                ) else { continue }
+                draftMonsterPreviewStates[request.key] = .variant(snapshot)
+            }
+        }
+    }
+
+    private func draftMonsterSnapshot(for key: String) -> MonsterVariantSnapshot? {
+        guard case let .variant(snapshot) = draftMonsterPreviewStates[key] else { return nil }
+        return snapshot
     }
 
     private var deadlineContractField: some View {
@@ -1608,6 +1795,13 @@ struct ContentView: View {
                     )
                 }
 
+                if task.monsterTag != nil, task.monsterLevel != nil {
+                    MonsterEncounterCard(
+                        task: task,
+                        discovery: monsterDiscovery(for: task)
+                    )
+                }
+
                 if let sourceImageData = task.sourceImageData {
                     VStack(alignment: .leading, spacing: 12) {
                         Label("任务来源", systemImage: "photo.text.magnifyingglass")
@@ -1688,8 +1882,12 @@ struct ContentView: View {
                     onVerificationStarted: {
                         beginEvidenceVerification(for: task)
                     },
-                    onVerificationFinished: { verdict in
-                        finishEvidenceVerification(for: task, verdict: verdict)
+                    onVerificationFinished: { verdict, monsterEvent in
+                        finishEvidenceVerification(
+                            for: task,
+                            verdict: verdict,
+                            monsterEvent: monsterEvent
+                        )
                     }
                 )
                 taskReminderDetail(for: task)
@@ -1698,6 +1896,9 @@ struct ContentView: View {
             .padding(.vertical, 38)
             .platformScrollableContentWidth(790)
             .frame(maxWidth: .infinity)
+        }
+        .task(id: monsterDetailSyncKey(for: task)) {
+            await ensureMonsterVariant(for: task)
         }
     }
 
@@ -1739,13 +1940,15 @@ struct ContentView: View {
                     )
                 )
         } else {
-            medalsGridPage
-                .transition(
-                    .asymmetric(
-                        insertion: .opacity.combined(with: .move(edge: .leading)),
-                        removal: .opacity.combined(with: .move(edge: .trailing))
-                    )
-                )
+            Group {
+                switch selectedAchievementTab {
+                case .medals:
+                    medalsGridPage
+                case .monsters:
+                    monsterAtlasPage
+                }
+            }
+            .transition(.opacity.combined(with: .scale(scale: 0.99)))
         }
     }
 
@@ -1753,11 +1956,13 @@ struct ContentView: View {
         ScrollView {
             VStack(alignment: .leading, spacing: 20) {
                 pageHeader(
-                    title: "勋章",
+                    title: "成就",
                     subtitle: isCompactLayout
                         ? nil
                         : "收集碎片，铸造属于每个领域的勋章。点开后可回顾历史任务和证据。"
                 )
+
+                achievementTabPicker
 
                 LazyVGrid(
                     columns: [
@@ -1783,6 +1988,44 @@ struct ContentView: View {
             .platformScrollableContentWidth(790)
             .frame(maxWidth: .infinity)
         }
+    }
+
+    private var monsterAtlasPage: some View {
+        ScrollView {
+            VStack(alignment: .leading, spacing: 20) {
+                pageHeader(
+                    title: "成就",
+                    subtitle: isCompactLayout
+                        ? nil
+                        : L10n.text(
+                            "只有亲自完成并通过核验的怪物才会进入你的图鉴。",
+                            english: "Only monsters you personally reveal through verified tasks enter your atlas."
+                        )
+                )
+
+                achievementTabPicker
+                MonsterAtlasView()
+            }
+            .padding(.horizontal, pageHorizontalInset)
+            .padding(.vertical, 38)
+            .platformScrollableContentWidth(790)
+            .frame(maxWidth: .infinity)
+        }
+    }
+
+    private var achievementTabPicker: some View {
+        PixelTabBar(
+            items: AchievementTab.allCases.map {
+                PixelTabItem(id: $0.rawValue, title: $0.title, systemImage: $0.icon)
+            },
+            selection: selectedAchievementTab.rawValue
+        ) { rawValue in
+            guard let tab = AchievementTab(rawValue: rawValue) else { return }
+            withAnimation(reduceMotion ? nil : .smooth(duration: 0.28)) {
+                selectedAchievementTab = tab
+            }
+        }
+        .accessibilityLabel(L10n.text("成就类别", english: "Achievement category"))
     }
 
     private func medalCard(for badge: String) -> some View {
@@ -2132,6 +2375,10 @@ struct ContentView: View {
                     ? contract.suggestedBadge
                     : Self.badgeOptions[0]
                 draftXP = contract.suggestedXP
+                draftMonsterTag = contract.monsterTag
+                draftMonsterDisplayName = contract.monsterDisplayName
+                draftMonsterMatchKind = contract.monsterMatchKind
+                draftMonsterPreviewStates = [:]
                 draftChildren = contract.kind == .taskGroup
                     ? contract.children.map(TaskChildDraft.init)
                     : []
@@ -2179,6 +2426,7 @@ struct ContentView: View {
                 modelContext.insert(category)
                 modelContext.insert(userBadge)
             }
+            let lockedMonsterLevel = MonsterEncounterRules.lockedLevel(for: category)
 
             let savedTasks: [TaskContract]
             if wasTaskGroup {
@@ -2196,7 +2444,15 @@ struct ContentView: View {
                 modelContext.insert(parent)
 
                 let children = draftChildren.enumerated().map { index, draft in
-                    TaskContract(
+                    let monster = MonsterTaxonomy.descriptor(
+                        canonicalTag: draft.monsterTag,
+                        displayName: draft.monsterDisplayName,
+                        matchKind: draft.monsterMatchKind,
+                        fallbackText: "\(draft.title) \(draft.evidenceRequirement)",
+                        badgeKind: draftBadge
+                    )
+                    let snapshot = draftMonsterSnapshot(for: draft.id.uuidString)
+                    return TaskContract(
                         title: draft.title.trimmingCharacters(in: .whitespacesAndNewlines),
                         deadline: deadline,
                         evidenceRequirement: draft.evidenceRequirement.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -2206,12 +2462,26 @@ struct ContentView: View {
                         hierarchyRole: .child,
                         parentTaskID: parent.id,
                         childOrder: index,
+                        monsterTag: monster.canonicalTag,
+                        monsterDisplayName: monster.displayName,
+                        monsterLevel: lockedMonsterLevel,
+                        monsterVariantID: snapshot?.variantID,
+                        monsterImageURL: snapshot?.status == .ready ? snapshot?.imageURL : nil,
+                        monsterStyleVersion: snapshot?.styleVersion,
                         badgeCategory: category
                     )
                 }
                 children.forEach(modelContext.insert)
                 savedTasks = children
             } else {
+                let monster = MonsterTaxonomy.descriptor(
+                    canonicalTag: draftMonsterTag,
+                    displayName: draftMonsterDisplayName,
+                    matchKind: draftMonsterMatchKind,
+                    fallbackText: "\(title) \(requirement)",
+                    badgeKind: draftBadge
+                )
+                let snapshot = draftMonsterSnapshot(for: "single")
                 let task = TaskContract(
                     title: title,
                     deadline: deadline,
@@ -2220,6 +2490,12 @@ struct ContentView: View {
                     evidenceImageDescriptions: draftEvidenceImageDescriptions,
                     xpReward: draftXP,
                     sourceImageData: draftContractSourceImageData,
+                    monsterTag: monster.canonicalTag,
+                    monsterDisplayName: monster.displayName,
+                    monsterLevel: lockedMonsterLevel,
+                    monsterVariantID: snapshot?.variantID,
+                    monsterImageURL: snapshot?.status == .ready ? snapshot?.imageURL : nil,
+                    monsterStyleVersion: snapshot?.styleVersion,
                     badgeCategory: category
                 )
                 modelContext.insert(task)
@@ -2231,12 +2507,17 @@ struct ContentView: View {
                     LocalTaskReminder(taskID: task.id, title: task.title, deadline: task.deadline)
                 )
             }
+            Task { await ensureMonsterVariants(for: savedTasks) }
 
             taskInput = ""
             selectedSourcePhoto = nil
             draftSourceImageData = nil
             draftContractSourceImageData = nil
             draftChildren = []
+            draftMonsterTag = nil
+            draftMonsterDisplayName = nil
+            draftMonsterMatchKind = nil
+            draftMonsterPreviewStates = [:]
             imageTaskNote = ""
             sourceImageError = nil
             errorMessage = nil
@@ -2304,7 +2585,11 @@ struct ContentView: View {
         }
     }
 
-    private func finishEvidenceVerification(for task: TaskContract, verdict: EvidenceVerdict?) {
+    private func finishEvidenceVerification(
+        for task: TaskContract,
+        verdict: EvidenceVerdict?,
+        monsterEvent: MonsterDiscoveryEvent?
+    ) {
         guard evidenceVerificationPresentation?.taskID == task.id else { return }
 
         guard verdict == .verified else {
@@ -2319,31 +2604,66 @@ struct ContentView: View {
         }
 
         Task { @MainActor in
-            try? await Task.sleep(for: .seconds(reduceMotion ? 0.9 : 1.45))
+            try? await Task.sleep(for: .seconds(reduceMotion ? 0.45 : 0.9))
             guard
                 evidenceVerificationPresentation?.taskID == task.id,
                 evidenceVerificationPresentation?.phase == .completed
             else { return }
 
-            withAnimation(reduceMotion ? nil : .smooth(duration: 0.38)) {
-                selectedPage = .tasks
-                if evidenceVerificationPresentation?.isSubtask == true,
-                   evidenceVerificationPresentation?.completesTaskGroup == false {
-                    selectedTaskTab = task.deadline <= .now ? .overdue : .unfinished
-                } else {
-                    selectedTaskTab = .completed
+            if let monsterEvent {
+                withAnimation(reduceMotion ? nil : .smooth(duration: 0.32)) {
+                    evidenceVerificationPresentation = nil
+                    monsterRevealPresentation = monsterEvent
                 }
-                selectedTask = nil
-                taskDetailOrigin = .taskList
-                evidenceVerificationPresentation = nil
+                return
             }
 
-            if let deferredEvent = deferredMedalAnimationPresentation {
-                deferredMedalAnimationPresentation = nil
-                try? await Task.sleep(for: .milliseconds(180))
-                withAnimation(reduceMotion ? nil : .smooth(duration: 0.3)) {
-                    medalAnimationPresentation = deferredEvent
-                }
+            completeVerifiedTaskTransition(for: task)
+        }
+    }
+
+    private func finishMonsterReveal(for event: MonsterDiscoveryEvent) {
+        guard monsterRevealPresentation?.id == event.id else { return }
+        let task = taskContracts.first { $0.id == event.sourceTaskID }
+
+        withAnimation(reduceMotion ? nil : .smooth(duration: 0.28)) {
+            monsterRevealPresentation = nil
+        }
+
+        if let task {
+            completeVerifiedTaskTransition(for: task)
+        } else {
+            presentDeferredMedalAnimationIfNeeded()
+        }
+    }
+
+    private func completeVerifiedTaskTransition(for task: TaskContract) {
+        withAnimation(reduceMotion ? nil : .smooth(duration: 0.38)) {
+            selectedPage = .tasks
+            let wasSubtask = task.isSubtask
+            let parent = task.parentTaskID.flatMap { parentID in
+                taskContracts.first { $0.id == parentID }
+            }
+            if wasSubtask, parent?.status != .verified {
+                selectedTaskTab = task.deadline <= .now ? .overdue : .unfinished
+            } else {
+                selectedTaskTab = .completed
+            }
+            selectedTask = nil
+            taskDetailOrigin = .taskList
+            evidenceVerificationPresentation = nil
+        }
+
+        presentDeferredMedalAnimationIfNeeded()
+    }
+
+    private func presentDeferredMedalAnimationIfNeeded() {
+        guard let deferredEvent = deferredMedalAnimationPresentation else { return }
+        deferredMedalAnimationPresentation = nil
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(180))
+            withAnimation(reduceMotion ? nil : .smooth(duration: 0.3)) {
+                medalAnimationPresentation = deferredEvent
             }
         }
     }
@@ -2414,6 +2734,70 @@ struct ContentView: View {
     }
 
     // MARK: - Helpers
+
+    @MainActor
+    private func ensureMonsterVariants(for tasks: [TaskContract]) async {
+        for task in tasks {
+            await ensureMonsterVariant(for: task)
+        }
+    }
+
+    @MainActor
+    private func ensureMonsterVariant(for task: TaskContract) async {
+        guard
+            let canonicalTag = task.monsterTag,
+            let displayName = task.monsterDisplayName,
+            let level = task.monsterLevel,
+            let badgeKind = task.badgeCategory?.name
+        else { return }
+
+        guard var snapshot = try? await monsterVariantService.ensureVariant(
+            canonicalTag: canonicalTag,
+            displayName: displayName,
+            badgeKind: badgeKind,
+            level: level
+        ) else { return }
+
+        applyMonsterSnapshot(snapshot, to: task)
+
+        for _ in 0..<12 where snapshot.status == .pending || snapshot.status == .generating {
+            do {
+                try await Task.sleep(for: .seconds(4))
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
+            guard let refreshed = try? await monsterVariantService.fetchVariant(
+                canonicalTag: canonicalTag,
+                level: level
+            ) else { continue }
+            snapshot = refreshed
+            applyMonsterSnapshot(snapshot, to: task)
+        }
+    }
+
+    @MainActor
+    private func applyMonsterSnapshot(_ snapshot: MonsterVariantSnapshot, to task: TaskContract) {
+        MonsterVariantSync.apply(
+            snapshot,
+            to: task,
+            discovery: monsterDiscovery(for: task)
+        )
+        try? modelContext.save()
+    }
+
+    private func monsterDetailSyncKey(for task: TaskContract) -> String {
+        "\(task.id.uuidString):\(task.monsterTag ?? "none"):\(task.monsterLevel ?? 0):\(task.monsterImageURL ?? "pending")"
+    }
+
+    private func monsterDiscovery(for task: TaskContract) -> MonsterDiscovery? {
+        guard let tag = task.monsterTag, let level = task.monsterLevel else { return nil }
+        return monsterDiscoveries.first {
+            $0.canonicalTag == tag &&
+                $0.level == level &&
+                (task.monsterStyleVersion == nil || $0.styleVersion == task.monsterStyleVersion)
+        }
+    }
 
     private func migrateLegacySolverCategoriesIfNeeded() {
         let legacyName = BadgeKind.legacySolverName
@@ -2510,6 +2894,31 @@ struct ContentView: View {
             selectedPage = .tasks
         case "medals":
             selectedPage = .medals
+        case "atlas":
+            selectedPage = .medals
+            selectedAchievementTab = .monsters
+            if monsterDiscoveries.isEmpty {
+                modelContext.insert(
+                    MonsterDiscovery(
+                        canonicalTag: "coding.leetcode",
+                        displayName: "Algorithm Imp",
+                        level: 1,
+                        badgeKindRawValue: BadgeKind.solver.rawValue,
+                        sourceTaskID: UUID(),
+                        discoveryCount: 3
+                    )
+                )
+                modelContext.insert(
+                    MonsterDiscovery(
+                        canonicalTag: "fitness.workout",
+                        displayName: "Training Brute",
+                        level: 2,
+                        badgeKindRawValue: BadgeKind.athlete.rawValue,
+                        sourceTaskID: UUID()
+                    )
+                )
+                try? modelContext.save()
+            }
         case "account":
             isShowingSettings = true
         case "review":
@@ -3223,6 +3632,7 @@ private struct PixelEvidenceVerificationOverlay: View {
             BadgeCategory.self,
             UserBadge.self,
             TaskContract.self,
+            MonsterDiscovery.self,
             Evidence.self,
             XPLog.self
         ], inMemory: true)

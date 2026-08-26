@@ -6,9 +6,9 @@
 
 ## 当前状态
 
-**阶段**：Step 9/10 - iOS 迁移与 Mac/iPhone CloudKit 验收
-**已完成**：现有 target 已升级为 macOS+iOS 多平台应用；完成图片、相机、WebKit 与首轮小屏/触控适配，macOS 和 iOS Simulator Debug 均编译通过；SwiftData schema、Apple 登录、同步状态 UI 与 CloudKit 私有容器保持共享
-**下一步该做什么**：使用付费 Apple Developer Team 激活 `iCloud.noorg.LifeMedals`，在 iPhone 真机验证相机/通知/登录并完成 Mac↔iPhone 同步、断网恢复和冲突验收；详细清单见 `docs/ios-migration-plan.md`
+**阶段**：iOS v2 - 任务怪物与怪物图鉴客户端已完成，等待全球素材服务
+**已完成**：任务/child monster tag 兼容解码与本地稳定回退、确认页 ready 怪物预览与后台 ensure、确认时等级锁定、SwiftData 私有发现、完成前素材刷新、未知发现自动替换、Verified 揭晓与 EXP 动画排序、磁盘图片缓存、成就双 Tab 和 1–9 级怪物图鉴；iPhone 17 Simulator Debug 构建与 17 项测试通过
+**下一步该做什么**：在独立服务端阶段实现并部署 D1/R2/Queue 与 GPT Image 2 生成链，随后用 iPhone 真机验证图片缓存、Reduce Motion、VoiceOver 和 CloudKit 发现同步；本轮未修改或部署 Worker
 
 > 2026-07-30 架构已调整为本地优先。下方 2026-07-29 的 Supabase 条目保留为历史记录，不代表当前技术方向；迁移完成后不再依赖 Supabase Postgres、Auth、Storage 或 Edge Functions。
 >
@@ -128,6 +128,25 @@
 
 > iOS 基础 target 已完成；下一步必须在付费团队签名的 iPhone 真机上完成专项验收。
 
+### iOS v2：任务怪物与怪物图鉴
+
+- [x] 解码 single task 与 child task 的 monster tag / display name / match kind，并兼容旧 Worker 响应
+- [x] 内置稳定种子分类，旧响应不会为 LeetCode/算法、统计、健身、邮件和倒垃圾生成一次性标签
+- [x] 用户最终确认时按最终勋章锁定 `monsterLevel`；父任务组不分配怪物
+- [x] 为 `TaskContract` 增加可选怪物字段，并新增 CloudKit 兼容的 `MonsterDiscovery`
+- [x] Verified 后幂等创建发现；同任务重复回调不重复计数，不同任务再次遭遇增加击败次数
+- [x] 未发现阶段使用本地像素轮廓并提供 VoiceOver 文案；图片 pending 不阻塞任何本地业务
+- [x] 任务确认页查询并预览 ready 怪物；缺失时显示未知轮廓、后台 ensure 并短时轮询
+- [x] 揭晓先于原有勋章/EXP 动画，Reduce Motion 使用简化转场
+- [x] 成就页面提供“勋章 / 怪物图鉴”双 Tab，图鉴按物种显示 Level 1...9 路线
+- [x] 完成核验前再次刷新素材；若仍 pending 则先记录未知发现，图鉴持续轮询并在 ready 后替换
+- [x] 公开 HTTPS 怪物图片使用磁盘缓存，图鉴会刷新 pending variant
+- [x] iPhone 17 Simulator Debug 构建与 17 项 Swift 测试通过
+- [ ] Worker：实现 D1/R2/Queue、taxonomy/alias、ensure/GET API 与全局幂等生成
+- [ ] Worker：使用服务端固定 Prompt 和 GPT Image 2 生成连续 1→9 级素材，并增加独立预算/限流
+- [ ] 外部权限：创建 Cloudflare 资源、应用 migration、配置/轮换 Secret 并部署
+- [ ] iPhone 真机：验证 VoiceOver、Reduce Motion、离线图片缓存和 CloudKit 发现同步
+
 ### v2：真实账户、会员与订阅（不属于当前 roadmap）
 
 - [x] 客户端接入 Sign in with Apple capability、真实登录和钥匙串会话
@@ -148,6 +167,9 @@
 ## 更新日志
 
 <!-- 每条记录格式：YYYY-MM-DD | 做了什么 | 涉及文件/commit -->
+
+- 2026-08-25 | 完成 iOS v2“任务怪物与怪物图鉴”客户端闭环：任务生成兼容 monster 字段与旧 Worker 稳定分类回退；确认时按最终勋章锁定等级；新增可选 TaskContract 怪物字段和私有 MonsterDiscovery，使用任务 ID 防止重复回调；任务详情在发现前隐藏图片，Verified 后先持久化发现再播放揭晓与原有 EXP 动画；成就页新增勋章/怪物图鉴双 Tab、物种分组和 1–9 级路线；公开图片使用磁盘缓存且服务失败不阻塞本地流程。未修改/部署 Worker 或创建 Cloudflare 资源。iPhone 17 Simulator Debug 构建通过，16 项测试通过 | TaskGenerationService.swift, ContentView.swift, EvidenceSubmissionView.swift, MonsterServices.swift, MonsterViews.swift, Models/TaskContract.swift, Models/MonsterDiscovery.swift, LifeMedalsApp.swift, LifeMedalsTests/*.swift, README.md, docs/product-plan.md, docs/progress.md
+- 2026-08-25 | 补齐怪物素材异步状态链：任务确认页按 tag + 最终 badge 等级调用 ensure，ready 时显示对应图片，pending/失败时显示未知怪物并短时轮询；保存时带入已取得 variant 元数据；证据核验成功后在创建发现前再次 ensure，未 ready 时先记录未知发现；怪物图鉴对 pending 素材持续轮询，ready 后更新私有发现并自动替换占位。新增 variant 同步测试和完整服务端上线运行手册。未修改/部署 Worker 或创建外部资源。iPhone 17 Simulator Debug 构建与 17 项测试通过，确认页怪物卡完成模拟器视觉检查 | ContentView.swift, EvidenceSubmissionView.swift, MonsterServices.swift, MonsterViews.swift, MonsterDiscoveryServiceTests.swift, README.md, docs/product-plan.md, docs/progress.md, docs/monster-service-runbook.md
 
 - 2026-08-23 | 新增图片生成任务：创建页可从照片图库或文件选择邮件、syllabus、社团海报等图片，并可附加文字说明；客户端压缩为 JPEG 后通过 `generate-task` 发送，Worker 使用无状态 Responses API 视觉输入提取一个明确的下一步并保留既有结构化契约；确认保存时将来源图作为 SwiftData 外部字段随任务保存，任务详情可回看。补充图片输入校验、Prompt 构建与端到端 Worker 转发测试；Worker 11 项测试、Wrangler dry-run、macOS 与 iOS Simulator Debug 构建通过 | ContentView.swift, TaskContract.swift, TaskGenerationService.swift, project.pbxproj, worker/src/index.ts, worker/test/usage-gate.test.mjs, README.md, docs/progress.md
 

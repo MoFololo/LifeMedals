@@ -34,6 +34,9 @@ struct GeneratedTaskChild: Decodable, Identifiable, Sendable {
     let evidenceImageCount: Int
     let evidenceImageDescriptions: [String]
     let estimatedHours: Double
+    let monsterTag: String?
+    let monsterDisplayName: String?
+    let monsterMatchKind: MonsterMatchKind?
 
     var suggestedXP: Int {
         XPRules.xp(forEstimatedHours: estimatedHours)
@@ -45,6 +48,9 @@ struct GeneratedTaskChild: Decodable, Identifiable, Sendable {
         case evidenceImageCount = "evidence_image_count"
         case evidenceImageDescriptions = "evidence_image_descriptions"
         case estimatedHours = "estimated_hours"
+        case monsterTag = "monster_tag"
+        case monsterDisplayName = "monster_display_name"
+        case monsterMatchKind = "monster_match_kind"
     }
 
     init(from decoder: Decoder) throws {
@@ -63,6 +69,9 @@ struct GeneratedTaskChild: Decodable, Identifiable, Sendable {
         estimatedHours = GeneratedTaskContract.normalizedHours(
             (try? container.decode(Double.self, forKey: .estimatedHours)) ?? 0.25
         )
+        monsterTag = try? container.decode(String.self, forKey: .monsterTag)
+        monsterDisplayName = try? container.decode(String.self, forKey: .monsterDisplayName)
+        monsterMatchKind = try? container.decode(MonsterMatchKind.self, forKey: .monsterMatchKind)
     }
 }
 
@@ -81,6 +90,9 @@ struct GeneratedTaskContract: Decodable, Sendable {
     let estimatedHours: Double
     let suggestedXP: Int
     let children: [GeneratedTaskChild]
+    let monsterTag: String?
+    let monsterDisplayName: String?
+    let monsterMatchKind: MonsterMatchKind?
 
     enum CodingKeys: String, CodingKey {
         case title
@@ -94,6 +106,9 @@ struct GeneratedTaskContract: Decodable, Sendable {
         case estimatedHours = "estimated_hours"
         case suggestedXP = "suggested_xp"
         case children
+        case monsterTag = "monster_tag"
+        case monsterDisplayName = "monster_display_name"
+        case monsterMatchKind = "monster_match_kind"
     }
 
     init(from decoder: Decoder) throws {
@@ -124,6 +139,9 @@ struct GeneratedTaskContract: Decodable, Sendable {
             evidenceImageCount = 0
             evidenceImageDescriptions = []
             children = validChildren
+            monsterTag = nil
+            monsterDisplayName = nil
+            monsterMatchKind = nil
         } else {
             kind = .singleTask
             children = []
@@ -134,6 +152,9 @@ struct GeneratedTaskContract: Decodable, Sendable {
                 evidenceRequirement = onlyChild.evidenceRequirement
                 evidenceImageCount = onlyChild.evidenceImageCount
                 evidenceImageDescriptions = onlyChild.evidenceImageDescriptions
+                monsterTag = onlyChild.monsterTag
+                monsterDisplayName = onlyChild.monsterDisplayName
+                monsterMatchKind = onlyChild.monsterMatchKind
             } else {
                 title = rootTitle
                 evidenceRequirement = Self.normalizedRequirement(
@@ -147,6 +168,9 @@ struct GeneratedTaskContract: Decodable, Sendable {
                     count: evidenceImageCount,
                     requirement: evidenceRequirement
                 )
+                monsterTag = try? container.decode(String.self, forKey: .monsterTag)
+                monsterDisplayName = try? container.decode(String.self, forKey: .monsterDisplayName)
+                monsterMatchKind = try? container.decode(MonsterMatchKind.self, forKey: .monsterMatchKind)
             }
         }
 

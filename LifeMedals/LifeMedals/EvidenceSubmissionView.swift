@@ -41,7 +41,7 @@ struct EvidenceSubmissionView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Bindable var task: TaskContract
     let onVerificationStarted: () -> Void
-    let onVerificationFinished: (EvidenceVerdict?) -> Void
+    let onVerificationFinished: (EvidenceVerdict?, MonsterDiscoveryEvent?) -> Void
 
     @State private var selectedPhotos: [PhotosPickerItem] = []
     @State private var draftImages: [DraftImage] = []
@@ -55,14 +55,16 @@ struct EvidenceSubmissionView: View {
     @State private var feedbackMessage: String?
     @State private var feedbackIsError = false
     @State private var cardSize: CGSize = .zero
+    @State private var monsterDiscoveryEvent: MonsterDiscoveryEvent?
     @FocusState private var isDraftAreaFocused: Bool
 
     private let verificationService = EvidenceVerificationService()
+    private let monsterVariantService = MonsterVariantService()
 
     init(
         task: TaskContract,
         onVerificationStarted: @escaping () -> Void = {},
-        onVerificationFinished: @escaping (EvidenceVerdict?) -> Void = { _ in }
+        onVerificationFinished: @escaping (EvidenceVerdict?, MonsterDiscoveryEvent?) -> Void = { _, _ in }
     ) {
         self.task = task
         self.onVerificationStarted = onVerificationStarted
@@ -1037,9 +1039,10 @@ struct EvidenceSubmissionView: View {
         isWorking = true
         feedbackMessage = nil
         var verificationVerdict: EvidenceVerdict?
+        monsterDiscoveryEvent = nil
         defer {
             isWorking = false
-            onVerificationFinished(verificationVerdict)
+            onVerificationFinished(verificationVerdict, monsterDiscoveryEvent)
         }
         let previousStatus = task.status
         let submittedImages = draftImages.sorted { $0.slotIndex < $1.slotIndex }
@@ -1088,9 +1091,10 @@ struct EvidenceSubmissionView: View {
         isWorking = true
         feedbackMessage = nil
         var verificationVerdict: EvidenceVerdict?
+        monsterDiscoveryEvent = nil
         defer {
             isWorking = false
-            onVerificationFinished(verificationVerdict)
+            onVerificationFinished(verificationVerdict, monsterDiscoveryEvent)
         }
         task.status = .awaitingVerification
         try? modelContext.save()
@@ -1128,7 +1132,12 @@ struct EvidenceSubmissionView: View {
             var awardEvent: XPAwardEvent?
             switch result.verdict {
             case .verified:
+                await refreshMonsterArtworkBeforeDiscovery()
                 task.status = .verified
+                monsterDiscoveryEvent = try? MonsterDiscoveryService.recordEncounter(
+                    for: task,
+                    in: modelContext
+                )
                 if task.isSubtask {
                     awardEvent = try TaskGroupService.reconcileParent(for: task, in: modelContext)
                 } else {
@@ -1150,6 +1159,7 @@ struct EvidenceSubmissionView: View {
             // Roll back parent status, XPLog, badge totals, and evidence verdicts
             // together if the final atomic save fails.
             modelContext.rollback()
+            monsterDiscoveryEvent = nil
             for evidence in evidences {
                 evidence.verdict = .pending
             }
@@ -1159,5 +1169,24 @@ struct EvidenceSubmissionView: View {
             feedbackIsError = true
             return nil
         }
+    }
+
+    @MainActor
+    private func refreshMonsterArtworkBeforeDiscovery() async {
+        guard
+            let canonicalTag = task.monsterTag,
+            let displayName = task.monsterDisplayName,
+            let level = task.monsterLevel,
+            let badgeKind = task.badgeCategory?.name
+        else { return }
+
+        guard let snapshot = try? await monsterVariantService.ensureVariant(
+            canonicalTag: canonicalTag,
+            displayName: displayName,
+            badgeKind: badgeKind,
+            level: level
+        ) else { return }
+
+        MonsterVariantSync.apply(snapshot, to: task)
     }
 }

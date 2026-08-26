@@ -27,6 +27,7 @@ struct LifeMedalsApp: App {
             BadgeCategory.self,
             UserBadge.self,
             TaskContract.self,
+            MonsterDiscovery.self,
             Evidence.self,
             XPLog.self
         ])

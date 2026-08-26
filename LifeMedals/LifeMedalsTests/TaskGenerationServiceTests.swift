@@ -64,6 +64,40 @@ final class TaskGenerationServiceTests: XCTestCase {
         XCTAssertFalse(contract.evidenceRequirement.isEmpty)
     }
 
+    func testMonsterFieldsDecodeForSingleTask() throws {
+        let contract = try decode(#"""
+        {
+          "kind":"single_task",
+          "title":"Practice algorithms",
+          "deadline":"2026-08-25T23:59:00-04:00",
+          "deadline_preset":"tomorrow",
+          "evidence_requirement":"Show two accepted solutions.",
+          "evidence_image_count":1,
+          "evidence_image_descriptions":["Accepted results"],
+          "suggested_badge":"Solver",
+          "estimated_hours":1,
+          "monster_tag":"coding.leetcode",
+          "monster_display_name":"Algorithm Imp",
+          "monster_match_kind":"existing",
+          "children":[]
+        }
+        """#)
+
+        XCTAssertEqual(contract.monsterTag, "coding.leetcode")
+        XCTAssertEqual(contract.monsterDisplayName, "Algorithm Imp")
+        XCTAssertEqual(contract.monsterMatchKind, .existing)
+    }
+
+    func testTaskGroupParentHasNoMonsterWhileChildrenKeepAssignments() throws {
+        let contract = try decode(groupJSON(children: [
+            childJSON(title: "Practice algorithms", monsterTag: "coding.leetcode"),
+            childJSON(title: "Send the email", monsterTag: "communication.send_email")
+        ]))
+
+        XCTAssertNil(contract.monsterTag)
+        XCTAssertEqual(contract.children.map(\.monsterTag), ["coding.leetcode", "communication.send_email"])
+    }
+
     private func decode(_ json: String) throws -> GeneratedTaskContract {
         try JSONDecoder().decode(GeneratedTaskContract.self, from: Data(json.utf8))
     }
@@ -87,7 +121,8 @@ final class TaskGenerationServiceTests: XCTestCase {
 
     private func childJSON(
         title: String,
-        requirement: String = "Show the completion result."
+        requirement: String = "Show the completion result.",
+        monsterTag: String = "coding.practice"
     ) -> String {
         """
         {
@@ -95,7 +130,10 @@ final class TaskGenerationServiceTests: XCTestCase {
           "evidence_requirement":"\(requirement)",
           "evidence_image_count":1,
           "evidence_image_descriptions":["Completion result"],
-          "estimated_hours":0.25
+          "estimated_hours":0.25,
+          "monster_tag":"\(monsterTag)",
+          "monster_display_name":"Quest Creature",
+          "monster_match_kind":"existing"
         }
         """
     }

@@ -55,6 +55,17 @@ final class TaskContract {
     /// Optional external storage keeps text-created tasks and existing stores migration-compatible.
     @Attribute(.externalStorage) var sourceImageData: Data?
 
+    // Optional monster encounter fields keep legacy stores and CloudKit
+    // lightweight migration compatible. A task group parent intentionally
+    // leaves every field nil; only independently verifiable tasks encounter a
+    // monster.
+    var monsterTag: String?
+    var monsterDisplayName: String?
+    var monsterLevel: Int?
+    var monsterVariantID: String?
+    var monsterImageURL: String?
+    var monsterStyleVersion: String?
+
     var badgeCategory: BadgeCategory?
 
     @Relationship(deleteRule: .cascade, inverse: \Evidence.taskContract)
@@ -123,6 +134,12 @@ final class TaskContract {
         childOrder: Int? = nil,
         groupCompletedAt: Date? = nil,
         sourceImageData: Data? = nil,
+        monsterTag: String? = nil,
+        monsterDisplayName: String? = nil,
+        monsterLevel: Int? = nil,
+        monsterVariantID: String? = nil,
+        monsterImageURL: String? = nil,
+        monsterStyleVersion: String? = nil,
         badgeCategory: BadgeCategory? = nil
     ) {
         self.id = id
@@ -146,6 +163,12 @@ final class TaskContract {
         self.childOrder = hierarchyRole == .child ? childOrder : nil
         self.groupCompletedAt = hierarchyRole == .group ? groupCompletedAt : nil
         self.sourceImageData = sourceImageData
+        self.monsterTag = monsterTag
+        self.monsterDisplayName = monsterDisplayName
+        self.monsterLevel = monsterLevel.map { min(max($0, 1), 9) }
+        self.monsterVariantID = monsterVariantID
+        self.monsterImageURL = monsterImageURL
+        self.monsterStyleVersion = monsterStyleVersion
         self.badgeCategory = badgeCategory
     }
 }

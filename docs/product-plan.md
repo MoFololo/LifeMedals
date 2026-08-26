@@ -92,6 +92,19 @@ AI 生成（可编辑）：
 
 - **外观**：目前所有段位共用同一个占位图标/外观，暂不做视觉区分；但等级计算逻辑（`BadgeRank`）按段位单独暴露图标属性，预留了未来给每个段位换上专属勋章美术/图标的空间，不需要改动等级计算或 UI 调用方式。
 
+### 4.4 v2 任务怪物与怪物图鉴（iOS 客户端阶段）
+
+任务怪物把每个可独立核验的任务变成一次“遭遇”。AI 建议宽泛、可复用的 canonical tag；iOS 在用户最终确认任务时，根据最终选择的勋章读取当时的 `BadgeRank.rawValue`，将 Level 1...9 锁入 `TaskContract`。本任务完成后即使 EXP 令勋章升级，也不能回写本次怪物等级。任务组父容器没有证据和怪物，每个 child task 分别拥有 tag、level 和发现流程。
+
+数据必须保持两层隔离：
+
+1. **全球怪物素材库（后续 Worker 阶段）**：D1 保存通用 species、alias、variant 状态和 visual DNA；R2 保存系统生成的通用 WebP；Queue 负责按等级链异步生成。`canonicalTag + level + styleVersion` 全局幂等，不保存任何用户身份、任务、证据、EXP 或发现记录。
+2. **用户个人发现状态（已实现）**：`MonsterDiscovery` 只存在 SwiftData/CloudKit 私有数据库，保存 tag、level、styleVersion、图片公开 URL、首次来源任务和击败次数。应用通过来源任务 ID 防止重复核验回调重复计数。
+
+iOS 显示规则：AI 返回任务契约后，确认页使用最终 badge 对应等级查询全球素材；ready 时允许预览对应怪物，缺失或 generating 时显示代码原生的像素深色轮廓和问号并触发后台 ensure。保存后到完成前的任务详情仍保持未知遭遇。Verified 时再次刷新素材，先持久化任务、发现与 EXP，再依次播放“怪物揭晓 → 勋章/EXP”。图片尚未 ready 时仍保存未知发现并显示“正在显形”；图鉴停留期间持续刷新，ready 后自动替换。成就页保留勋章 Library，并增加怪物图鉴 Tab；图鉴只展示本人发现，按物种显示 1–9 级进化路线，未发现等级保持锁定。远程图片写入 iOS Caches 目录，浏览后离线仍尽量可见。
+
+客户端 API 权限保持最小：只发送 canonical tag、display name、badge kind 和 level 到 `POST /monster-variants/ensure`，并通过只读 GET 刷新 variant；客户端不能提交 Prompt，不能持有 OpenAI Key、Cloudflare Token、D1/R2 管理凭证。生图应由后续 Worker 使用服务端固定模板和 GPT Image 2 完成，Secret 只配置为 `OPENAI_API_KEY`。本轮没有修改/部署 Worker，也没有创建 D1、R2 或 Queue，因此图片生成属于明确的外部待办，而本地任务、轮廓、发现和图鉴元数据闭环可独立运行。
+
 ---
 
 ## 5. MVP 范围

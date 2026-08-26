@@ -81,7 +81,7 @@
       <EnvironmentVariables>
          <EnvironmentVariable
             key = "LIFEMEDALS_API_BASE_URL"
-            value = "https://lifemedals-api.david-lian0809.workers.dev/"
+            value = "https://lifemedals-api-staging.david-lian0809.workers.dev"
             isEnabled = "YES">
          </EnvironmentVariable>
       </EnvironmentVariables>
