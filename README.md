@@ -78,15 +78,16 @@ LifeMedals/
 
 ### iOS v2：任务怪物与怪物图鉴
 
-- 任务生成响应可为单任务和每个 child task 返回 `monster_tag` 和 `monster_match_kind`。taxonomy 永远使用英文；即使用户输入中文，也会先归类并翻译成可复用的英文 tag。iOS 对缺失 tag 的旧响应会通过内置种子分类稳定映射到 `coding.leetcode`、`study.statistics`、`fitness.workout`、`communication.send_email`、`chores.take_out_trash` 等宽泛标签。
+- 任务生成响应可为单任务和每个 child task 返回 `monster_tag` 和 `monster_match_kind`。taxonomy 永远使用英文；即使用户输入中文，也会先归类并翻译成可复用的英文 tag。明确命名的运动会保留为独立物种，例如 `sports.basketball`、`sports.baseball`、`sports.tennis` 和 `sports.swimming`；`fitness.workout` 只表示健身房、力量训练或一般锻炼。Worker 与 iOS 兼容回退层都会阻止具体运动被压扁成健身怪物。
 - 用户在确认页最终选择勋章后，客户端读取该勋章当时的 `BadgeRank.rawValue` 并把 `monsterLevel` 锁入任务。该任务随后获得 EXP 并升级也不会改变本次遭遇等级。任务组父容器没有怪物，每个可独立核验的 child task 单独分配。
 - 任务确认页会立即用 tag + 当前勋章等级查询全球素材：ready 时预览对应怪物，缺失、生成中或服务不可用时显示本地未知轮廓，并在后台调用 ensure。保存后的未完成任务继续隐藏素材；核验为 Verified 时会再次刷新，先原子保存任务、发现记录和 EXP，再播放怪物揭晓，之后才播放原有勋章/EXP 动画。Reduce Motion 使用淡入淡出。
 - 顶级“勋章”导航已演进为“成就”，内部保留“勋章”并新增“怪物图鉴”。图鉴仅查询用户自己的 `MonsterDiscovery`，按物种展示 1–9 级路线，未发现等级保持锁定。
 - 客户端只向 `POST /monster-variants/ensure` 发送规范化 tag、badge kind 和 level，并通过 `GET /monster-variants/{tag}/{level}` 刷新状态；不接受怪物名、自定义生图 Prompt，也不包含 OpenAI Key、Cloudflare Token 或 R2 管理凭证。图片使用公开 HTTPS URL，并在浏览后写入 iOS Caches 目录供离线回看。
 - `monster_aliases` 只接受小写英文 alias。新物种 ID 固定为 `species-[medaltype]-[description]`；description 优先使用一个最简单的单词，确需两个单词时直接连接，不增加额外连字符，例如 `species-career-email` 和 `species-career-jobsearch`。
+- 怪物概念必须先选出 1–2 个与 canonical tag 强关联的具体物品或材料，再把每一个锚点强制融入身体、主轮廓或穿戴/手持装备；背景暗示不算包含。完整规则见 [`docs/monster-image-spec.md`](docs/monster-image-spec.md)。
 - ensure、轮询或图片下载失败不阻止本地保存、提醒、证据核验、EXP 或发现记录；图片未 ready 时先把未知怪物收入图鉴，图鉴会继续轮询并在 ready 后替换为真实图片。
 
-本轮只实现 iOS 客户端，没有修改或部署 `worker/`，也没有创建 D1、R2 或 Queue。全球素材服务仍应按“D1 只存通用物种/variant 元数据、R2 只存系统生成图片、Queue 异步幂等生成”的边界实现；不得把用户身份、任务、证据、XP 或个人发现写入这些全局资源。GPT Image 2 调用和 Prompt 模板必须只存在于 Worker，`OPENAI_API_KEY` 继续只使用 Worker Secret。具体上线顺序见 [`docs/monster-service-runbook.md`](docs/monster-service-runbook.md)。
+全球素材服务继续按“D1 只存通用物种/variant 元数据、R2 只存系统生成图片、Queue 异步幂等生成”的边界实现；不得把用户身份、任务、证据、XP 或个人发现写入这些全局资源。GPT Image 2 调用和 Prompt 模板只存在于 Worker，`OPENAI_API_KEY` 继续只使用 Worker Secret。具体上线顺序见 [`docs/monster-service-runbook.md`](docs/monster-service-runbook.md)。
 
 以下服务端控制数据是 **v2 规划**，不在 v1 创建：
 

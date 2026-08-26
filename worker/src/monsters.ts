@@ -3,9 +3,9 @@ const OPENAI_IMAGE_EDITS_URL = "https://api.openai.com/v1/images/edits";
 const OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses";
 
 const DEFAULT_IMAGE_MODEL = "gpt-image-2";
-const DEFAULT_STYLE_VERSION = "grotesque-pixel-v1";
-const DEFAULT_PROMPT_VERSION = "monster-image-v3";
-const DEFAULT_CONCEPT_PROMPT_VERSION = "monster-concept-v2";
+const DEFAULT_STYLE_VERSION = "grotesque-pixel-v2";
+const DEFAULT_PROMPT_VERSION = "monster-image-v4";
+const DEFAULT_CONCEPT_PROMPT_VERSION = "monster-concept-v3";
 const DEFAULT_MONTHLY_IMAGE_BUDGET = 100;
 const DEFAULT_IMAGES_PER_MINUTE = 2;
 
@@ -21,6 +21,23 @@ const SPECIES_ID_PATTERN = /^species-(?:solver|builder|career|athlete|life)-[a-z
 const ENGLISH_ALIAS_PATTERN = /^[a-z0-9]+(?:[ _-][a-z0-9]+)*$/;
 const BADGE_KINDS = new Set(["Solver", "Builder", "Career", "Athlete", "Life"]);
 const VARIANT_STATUSES = new Set(["pending", "generating", "ready", "failed"]);
+const ATHLETE_TAG_RULES = [
+  { tag: "sports.basketball", keywords: ["basketball", "hoops", "篮球"] },
+  { tag: "sports.baseball", keywords: ["baseball", "棒球"] },
+  { tag: "sports.tennis", keywords: ["tennis", "网球"] },
+  { tag: "sports.swimming", keywords: ["swimming", "swim", "游泳"] },
+  { tag: "sports.badminton", keywords: ["badminton", "羽毛球"] },
+  { tag: "sports.table_tennis", keywords: ["table tennis", "ping pong", "ping-pong", "乒乓球"] },
+  { tag: "sports.volleyball", keywords: ["volleyball", "排球"] },
+  { tag: "sports.football", keywords: ["american football", "gridiron", "橄榄球"] },
+  { tag: "sports.soccer", keywords: ["soccer", "football", "足球"] },
+  { tag: "sports.cycling", keywords: ["cycling", "biking", "bike ride", "骑行", "骑自行车"] },
+  { tag: "sports.running", keywords: ["running", "jogging", "marathon", "5k run", "10k run", "跑步", "慢跑", "马拉松"] },
+  { tag: "sports.hiking", keywords: ["hiking", "hike", "徒步", "爬山"] },
+  { tag: "sports.boxing", keywords: ["boxing", "拳击"] },
+  { tag: "sports.golf", keywords: ["golf", "高尔夫"] },
+  { tag: "fitness.yoga", keywords: ["yoga", "瑜伽"] },
+];
 const GENERIC_ACTION_WORDS = new Set([
   "build",
   "check",
@@ -54,13 +71,19 @@ const MONSTER_CONCEPT_SCHEMA = {
   additionalProperties: false,
   properties: {
     action_metaphor: { type: "string", minLength: 1, maxLength: 240 },
+    signature_objects: {
+      type: "array",
+      minItems: 1,
+      maxItems: 2,
+      items: { type: "string", minLength: 1, maxLength: 80 },
+    },
     creature_archetype: { type: "string", minLength: 1, maxLength: 120 },
     body_shape: { type: "string", minLength: 1, maxLength: 180 },
     face: { type: "string", minLength: 1, maxLength: 180 },
     task_features: {
       type: "array",
-      minItems: 2,
-      maxItems: 3,
+      minItems: 1,
+      maxItems: 2,
       items: { type: "string", minLength: 1, maxLength: 160 },
     },
     palette: {
@@ -76,6 +99,7 @@ const MONSTER_CONCEPT_SCHEMA = {
   },
   required: [
     "action_metaphor",
+    "signature_objects",
     "creature_archetype",
     "body_shape",
     "face",
@@ -95,6 +119,21 @@ export const SEED_MONSTER_TAGS = new Set([
   "study.statistics",
   "study.learning",
   "fitness.workout",
+  "fitness.yoga",
+  "sports.basketball",
+  "sports.baseball",
+  "sports.tennis",
+  "sports.swimming",
+  "sports.badminton",
+  "sports.table_tennis",
+  "sports.volleyball",
+  "sports.football",
+  "sports.soccer",
+  "sports.cycling",
+  "sports.running",
+  "sports.hiking",
+  "sports.boxing",
+  "sports.golf",
   "communication.send_email",
   "communication.career",
   "chores.take_out_trash",
@@ -590,6 +629,10 @@ export async function normalizeGeneratedTaskMonsters(contract, env) {
     descriptors.push(normalized);
   }
 
+  for (const descriptor of descriptors) {
+    descriptor.monster_tag = refinedAthleteTag(descriptor);
+  }
+
   const validTags = [...new Set(
     descriptors
       .map((descriptor) => descriptor.monster_tag)
@@ -626,6 +669,9 @@ export async function normalizeGeneratedTaskMonsters(contract, env) {
 
 export function buildMonsterConceptOpenAIRequest(species, env = {}) {
   const model = readNonEmptyString(env.OPENAI_MODEL, "gpt-5.6-terra");
+  const speciesId = SPECIES_ID_PATTERN.test(species.id || "")
+    ? species.id
+    : buildSpeciesId(species.canonical_tag, species.badge_kind);
   const conceptPromptVersion = readNonEmptyString(
     env.MONSTER_CONCEPT_PROMPT_VERSION,
     DEFAULT_CONCEPT_PROMPT_VERSION,
@@ -639,7 +685,11 @@ export function buildMonsterConceptOpenAIRequest(species, env = {}) {
     instructions: [
       "Design one original recurring monster species as a strong visual metaphor for a general task category.",
       "The canonical category tag is the semantic source of truth. Do not produce a generic badge-themed creature; make it unmistakably related to that action rather than merely matching its badge color.",
-      "Invent two or three concrete anatomy, prop, or behavior features that communicate the category without using written words, UI screenshots, brand logos, trademarks, or copyrighted characters.",
+      "First identify one or two concrete signature objects or physical materials with the strongest immediate association to the canonical tag. Examples of the required specificity: sports.basketball suggests a basketball and/or hoop; sports.swimming suggests water and/or a life ring; chores.take_out_trash suggests a trash can and/or tied trash bag. Derive anchors for every category in this same way instead of copying these examples blindly.",
+      "Return those anchors in signature_objects. Use specific visible nouns, never abstract ideas, moods, badge symbols, generic tools, or the badge family itself.",
+      "Then invent one anatomy or carried/worn-prop integration for each signature object. Every returned signature object must be visibly built into the monster's body, silhouette, clothing, or held equipment; background-only objects, decorative scenery, implied associations, and behavior without a visible anchor do not count.",
+      "The task_features array must contain exactly one integration per signature object, in the same order, and each entry must repeat that signature object's exact phrase. It must contain no unrelated feature. The final image_description must repeat every exact signature object phrase and explain its integration.",
+      "Do not use written words, UI screenshots, brand logos, trademarks, or copyrighted characters.",
       "Art direction: an original low-resolution grotesque pixel mascot that is odd, deadpan, awkward, slightly unsettling, and endearingly stupid.",
       "Design for a logical 48 by 48 pixel sprite: one compact silhouette, an oversized expressive face, a tiny simple body, and no more than two category-specific visual features.",
       "Every form must be expressible as chunky square pixel clusters. Favor lopsided anatomy, blank or worried eyes, a tiny mouth, one- to three-pixel-thick stepped outlines, flat fills, and three or four dirty muted colors.",
@@ -650,6 +700,7 @@ export function buildMonsterConceptOpenAIRequest(species, env = {}) {
       `Concept prompt version: ${conceptPromptVersion}.`,
     ].join("\n"),
     input: [
+      `SPECIES_ID\n${speciesId}`,
       `CANONICAL_CATEGORY_TAG\n${species.canonical_tag}`,
       `BADGE_FAMILY\n${species.badge_kind}`,
     ].join("\n\n"),
@@ -677,11 +728,19 @@ export function validateMonsterConcept(value) {
     evolution_motif: 240,
     image_description: 700,
   };
-  if (Object.keys(value).length !== 10) return false;
+  if (Object.keys(value).length !== 11) return false;
   for (const [key, maxLength] of Object.entries(stringLimits)) {
     if (!isBoundedNonEmptyString(value[key], maxLength)) return false;
   }
-  if (!isBoundedStringArray(value.task_features, 2, 3, 160)) return false;
+  if (!isBoundedStringArray(value.signature_objects, 1, 2, 80)) return false;
+  if (!isBoundedStringArray(value.task_features, 1, 2, 160)) return false;
+  if (value.task_features.length !== value.signature_objects.length) return false;
+  const imageDescription = value.image_description.toLocaleLowerCase("en-US");
+  for (const [index, signatureObject] of value.signature_objects.entries()) {
+    const anchor = signatureObject.toLocaleLowerCase("en-US");
+    if (!value.task_features[index].toLocaleLowerCase("en-US").includes(anchor)) return false;
+    if (!imageDescription.includes(anchor)) return false;
+  }
   if (!isBoundedStringArray(value.palette, 3, 4, 40)) return false;
   return true;
 }
@@ -887,9 +946,12 @@ export function buildMonsterPrompt(species, level, styleVersion, env = {}) {
   } catch {
     visualDNA = deriveVisualDNA(species.canonical_tag, species.badge_kind);
   }
+  const signatureObjects = Array.isArray(visualDNA.signature_objects)
+    ? visualDNA.signature_objects.slice(0, 2)
+    : [species.canonical_tag.split(".").pop()?.replaceAll("_", " ") || "category object"];
 
   const progression = level === 1
-    ? "This is the base form: use the fewest possible pixel clusters and only the two strongest category-specific features."
+    ? "This is the base form: use the fewest possible pixel clusters while rendering all one or two mandatory signature integrations."
     : `This is evolution level ${level} of 9. Preserve the exact same face, body plan, palette, pixel scale, and category metaphor from the reference image. Add only one tiny pixel-readable mutation from the evolution motif; do not increase rendering detail.`;
 
   return [
@@ -897,8 +959,10 @@ export function buildMonsterPrompt(species, level, styleVersion, env = {}) {
     `Canonical species tag: ${species.canonical_tag}.`,
     `Badge family: ${species.badge_kind}.`,
     `AI-authored stable species concept: ${JSON.stringify(visualDNA)}.`,
+    `MANDATORY SIGNATURE OBJECTS OR MATERIALS: ${JSON.stringify(signatureObjects)}. Render every listed anchor clearly and recognizably in the sprite.`,
     progression,
-    "The category connection must be immediately visible through one or two simple anatomy or prop features; do not produce a generic fantasy monster or a complex scene.",
+    "HARD COMPOSITION RULE: visibly fuse every mandatory signature anchor into the monster's anatomy, main silhouette, clothing, or carried/worn equipment. Do not place an anchor only in the background, hide it in scenery, replace it with a badge icon or abstract symbol, or merely imply it through pose. A sprite missing any listed anchor is invalid.",
+    "The category connection must be immediately visible through these one or two signature integrations; do not add unrelated category props, produce a generic fantasy monster, or create a complex scene.",
     "PIXEL CONSTRUCTION IS MANDATORY: design on a logical 48 by 48 pixel canvas, then nearest-neighbor upscale it. Every edge must snap to a visible square-pixel grid with chunky staircase contours.",
     "Use crisp hard-edged pixel clusters, one- to three-pixel-thick dark outlines, no anti-aliasing, no subpixel detail, no smooth vector curves, no blur, no gradients, and no paper or paint texture.",
     "Make it extremely simple: one squat lopsided blob-like silhouette, oversized blank or worried eyes, a tiny mouth, tiny limbs if needed, and at most two category-specific details. It should be easy to redraw as a tiny game sprite.",
@@ -1308,6 +1372,26 @@ function normalizeGeneratedMonsterDescriptor(value) {
   return descriptor;
 }
 
+function refinedAthleteTag(descriptor) {
+  if (
+    descriptor.monster_tag !== "fitness.workout" &&
+    descriptor.monster_tag !== "sports.activity" &&
+    !descriptor.monster_tag.startsWith("sports.")
+  ) {
+    return descriptor.monster_tag;
+  }
+  const semanticText = [descriptor.title, descriptor.evidence_requirement]
+    .filter((value) => typeof value === "string")
+    .join(" ")
+    .toLocaleLowerCase("en-US");
+  for (const rule of ATHLETE_TAG_RULES) {
+    if (rule.keywords.some((keyword) => semanticText.includes(keyword))) {
+      return rule.tag;
+    }
+  }
+  return descriptor.monster_tag;
+}
+
 function deriveVisualDNA(canonicalTag, badgeKind) {
   const finalName = canonicalTag.split(".").pop()?.replaceAll("_", " ") || "quest";
   const badgeDNA = {
@@ -1342,7 +1426,11 @@ function deriveVisualDNA(canonicalTag, badgeKind) {
       temperament: "resourceful",
     },
   };
-  return { subject: finalName, ...(badgeDNA[badgeKind] || badgeDNA.Solver) };
+  return {
+    subject: finalName,
+    signature_objects: [finalName],
+    ...(badgeDNA[badgeKind] || badgeDNA.Solver),
+  };
 }
 
 function variantSnapshot(variant, env) {

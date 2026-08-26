@@ -122,7 +122,7 @@ test("health identifies the deployed Worker release", async () => {
   const body = await response.json();
 
   assert.equal(response.status, 200);
-  assert.equal(body.release, "2026-08-26-monster-service-2");
+  assert.equal(body.release, "2026-08-26-monster-service-3");
   assert.equal(body.monsterServiceConfigured, false);
   assert.equal(response.headers.get("X-LifeMedals-Release"), body.release);
 });
@@ -161,6 +161,10 @@ test("builds a stateless vision request for task generation", () => {
   assert.match(request.instructions, /Use monster_match_kind=existing/i);
   assert.match(request.instructions, /Life includes chores, cooking, errands, sending packages, games/i);
   assert.match(request.instructions, /Exercise and sports always use Athlete/i);
+  assert.match(request.instructions, /sports\.basketball/);
+  assert.match(request.instructions, /Never collapse a named sport into fitness\.workout/i);
+  assert.match(request.instructions, /same specificity rule across every badge/i);
+  assert.match(request.instructions, /chores\.take_out_trash rather than chores\.household/i);
   assert.match(request.instructions, /taxonomy is always English/i);
   assert.match(request.instructions, /gaming\.console, not controls\.toggle/i);
   assert.doesNotMatch(request.instructions, /monster_display_name/);

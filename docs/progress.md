@@ -6,9 +6,9 @@
 
 ## 当前状态
 
-**阶段**：iOS v2 - 任务怪物与怪物图鉴客户端已完成，等待全球素材服务
-**已完成**：任务/child monster tag 兼容解码与本地稳定回退、确认页 ready 怪物预览与后台 ensure、确认时等级锁定、SwiftData 私有发现、完成前素材刷新、未知发现自动替换、Verified 揭晓与 EXP 动画排序、磁盘图片缓存、成就双 Tab 和 1–9 级怪物图鉴；iPhone 17 Simulator Debug 构建与 17 项测试通过
-**下一步该做什么**：在独立服务端阶段实现并部署 D1/R2/Queue 与 GPT Image 2 生成链，随后用 iPhone 真机验证图片缓存、Reduce Motion、VoiceOver 和 CloudKit 发现同步；本轮未修改或部署 Worker
+**阶段**：iOS v2 - 任务怪物与怪物图鉴闭环及 Worker 全球素材服务代码已完成，等待 staging migration/deploy
+**已完成**：任务/child monster taxonomy、具体运动独立物种、确认/核验/发现闭环、D1/R2/Queue 异步生成链、1–9 级进化、强关联视觉锚点生成规范、磁盘图片缓存与怪物图鉴；Worker 测试、Wrangler dry-run、完整 D1 migration 链和 iOS taxonomy 测试通过
+**下一步该做什么**：将 D1 migration 应用到 staging 后部署 Worker，按预算生成新 v2 素材；随后用 iPhone 真机验证图片缓存、Reduce Motion、VoiceOver 和 CloudKit 发现同步
 
 > 2026-07-30 架构已调整为本地优先。下方 2026-07-29 的 Supabase 条目保留为历史记录，不代表当前技术方向；迁移完成后不再依赖 Supabase Postgres、Auth、Storage 或 Edge Functions。
 >
@@ -165,6 +165,8 @@
 ---
 
 ## 更新日志
+
+- 2026-08-26 | 修复具体运动被压成 `fitness.workout` 的怪物分类：篮球、棒球、网球、游泳等 14 个运动项目改为独立 `sports.*` 物种，并在 Worker 正常化与 iOS 旧响应回退两层纠错；建立通用怪物形象规范，概念 schema 必须先返回 1–2 个强关联 `signature_objects`，逐一融入身体/轮廓/装备，图片 prompt 强制渲染全部锚点；新增 15 个 Athlete 种子、v2 不可变素材版本与规范文档。Worker 33 项测试、完整 SQLite migration 链、Wrangler staging dry-run及 iPhone 17 Pro Simulator 12 项 taxonomy/发现测试通过；未部署远程资源 | MonsterServices.swift, MonsterDiscoveryServiceTests.swift, worker/src/index.ts, worker/src/monsters.ts, worker/migrations/0004_add_distinct_sport_species.sql, worker/test/*.mjs, worker/wrangler.jsonc, docs/monster-image-spec.md, docs/monster-service-runbook.md, README.md, docs/progress.md
 
 <!-- 每条记录格式：YYYY-MM-DD | 做了什么 | 涉及文件/commit -->
 

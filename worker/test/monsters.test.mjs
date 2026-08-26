@@ -19,6 +19,7 @@ import {
 
 const validConcept = {
   action_metaphor: "Repeatedly untangling algorithm mazes under time pressure.",
+  signature_objects: ["maze", "bracket"],
   creature_archetype: "a squat worried maze imp",
   body_shape: "one lopsided bean-shaped body with two tiny legs",
   face: "blank uneven eyes and a small uncertain mouth",
@@ -30,7 +31,7 @@ const validConcept = {
   linework: "chunky one-to-three-pixel stepped outlines with no anti-aliasing",
   silhouette: "a compact bean with bracket horns and oversized forehead",
   evolution_motif: "the forehead maze gains one branch and the horns knot closer at each level",
-  image_description: "A squat lopsided maze imp stares blankly while tracing a glowing algorithm path through the groove in its oversized forehead.",
+  image_description: "A squat lopsided maze imp with bracket horns stares blankly while tracing a glowing algorithm path through the maze groove in its oversized forehead.",
 };
 
 test("validates and normalizes an ensure-monster request", () => {
@@ -110,6 +111,27 @@ test("normalizes descriptors and removes the group-root monster", async () => {
       ["reading.book", "new"],
     ],
   );
+});
+
+test("keeps named sports as distinct reusable species", async () => {
+  const cases = [
+    ["打一场篮球", "fitness.workout", "sports.basketball"],
+    ["Swim ten laps", "fitness.workout", "sports.swimming"],
+    ["Play tennis", "sports.activity", "sports.tennis"],
+    ["Do a gym workout", "fitness.workout", "fitness.workout"],
+  ];
+
+  for (const [title, generatedTag, expectedTag] of cases) {
+    const contract = await normalizeGeneratedTaskMonsters({
+      kind: "single_task",
+      title,
+      monster_tag: generatedTag,
+      monster_match_kind: "existing",
+      children: [],
+    }, {});
+    assert.equal(contract.monster_tag, expectedTag);
+    assert.equal(contract.monster_match_kind, "existing");
+  }
 });
 
 test("classifies gaming tasks as Life unless they are game-development projects", async () => {
@@ -197,8 +219,12 @@ test("builds a private-data-free concept request tied to the category", () => {
   assert.equal(request.model, "test-model");
   assert.equal(request.store, false);
   assert.match(request.input, /coding\.leetcode/);
+  assert.match(request.input, /SPECIES_ID\nspecies-solver-leetcode/);
   assert.doesNotMatch(request.input, /SPECIES_NAME/);
   assert.match(request.instructions, /strong visual metaphor/i);
+  assert.match(request.instructions, /signature_objects/);
+  assert.match(request.instructions, /basketball and\/or hoop/i);
+  assert.match(request.instructions, /Every returned signature object must be visibly built into/i);
   assert.match(request.instructions, /logical 48 by 48 pixel sprite/i);
   assert.match(request.instructions, /chunky square pixel clusters/i);
   assert.match(request.instructions, /no anti-aliasing/i);
@@ -211,7 +237,12 @@ test("builds a private-data-free concept request tied to the category", () => {
 
 test("validates and requests a structured monster concept", async (t) => {
   assert.equal(validateMonsterConcept(validConcept), true);
+  assert.equal(validateMonsterConcept({ ...validConcept, signature_objects: [] }), false);
   assert.equal(validateMonsterConcept({ ...validConcept, task_features: [] }), false);
+  assert.equal(validateMonsterConcept({
+    ...validConcept,
+    image_description: "A generic monster without its bracket anchor.",
+  }), false);
 
   const originalFetch = globalThis.fetch;
   let captured;
@@ -236,17 +267,17 @@ test("validates and requests a structured monster concept", async (t) => {
 test("invalidates stored concepts when the concept prompt version changes", () => {
   const species = {
     concept_status: "ready",
-    concept_prompt_version: "monster-concept-v2",
+    concept_prompt_version: "monster-concept-v3",
     visual_dna_json: JSON.stringify(validConcept),
   };
   assert.equal(isCurrentMonsterConcept(species, {
-    MONSTER_CONCEPT_PROMPT_VERSION: "monster-concept-v2",
+    MONSTER_CONCEPT_PROMPT_VERSION: "monster-concept-v3",
   }), true);
   assert.equal(isCurrentMonsterConcept(species, {
-    MONSTER_CONCEPT_PROMPT_VERSION: "monster-concept-v3",
+    MONSTER_CONCEPT_PROMPT_VERSION: "monster-concept-v4",
   }), false);
   assert.equal(isCurrentMonsterConcept({ ...species, visual_dna_json: "{}" }, {
-    MONSTER_CONCEPT_PROMPT_VERSION: "monster-concept-v2",
+    MONSTER_CONCEPT_PROMPT_VERSION: "monster-concept-v3",
   }), false);
 });
 
@@ -255,7 +286,7 @@ test("builds a stable evolution prompt without user task content", () => {
     canonical_tag: "coding.leetcode",
     badge_kind: "Solver",
     visual_dna_json: JSON.stringify(validConcept),
-  }, 3, "grotesque-pixel-v1", { MONSTER_PROMPT_VERSION: "monster-image-v3" });
+  }, 3, "grotesque-pixel-v2", { MONSTER_PROMPT_VERSION: "monster-image-v4" });
 
   assert.match(prompt, /coding\.leetcode/);
   assert.doesNotMatch(prompt, /Species name:/i);
@@ -268,7 +299,10 @@ test("builds a stable evolution prompt without user task content", () => {
   assert.match(prompt, /extremely simple/i);
   assert.match(prompt, /No sprite sheet/i);
   assert.match(prompt, /glossy 3D/i);
-  assert.match(prompt, /Prompt version: monster-image-v3/);
+  assert.match(prompt, /Prompt version: monster-image-v4/);
+  assert.match(prompt, /MANDATORY SIGNATURE OBJECTS OR MATERIALS/i);
+  assert.match(prompt, /"maze","bracket"/);
+  assert.match(prompt, /missing any listed anchor is invalid/i);
   assert.match(prompt, /maze groove carved across its forehead/i);
   assert.doesNotMatch(prompt, /Binding of Isaac/i);
   assert.doesNotMatch(prompt, /task title|email address|user name/i);

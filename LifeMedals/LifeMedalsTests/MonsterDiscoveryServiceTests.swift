@@ -162,14 +162,23 @@ final class MonsterDiscoveryServiceTests: XCTestCase {
         )
     }
 
-    func testSportsRemainAthleteActivities() {
-        let descriptor = MonsterTaxonomy.descriptor(
-            canonicalTag: nil,
-            matchKind: nil,
-            fallbackText: "周末打篮球",
-            badgeKind: BadgeKind.life.rawValue
-        )
-        XCTAssertEqual(descriptor.canonicalTag, "fitness.workout")
+    func testNamedSportsReceiveDistinctTaxonomyEvenFromGenericServerTags() {
+        let cases = [
+            ("周末打篮球", "sports.basketball"),
+            ("Play baseball", "sports.baseball"),
+            ("打一场网球", "sports.tennis"),
+            ("Swim ten laps", "sports.swimming")
+        ]
+
+        for (text, expectedTag) in cases {
+            let descriptor = MonsterTaxonomy.descriptor(
+                canonicalTag: "fitness.workout",
+                matchKind: .existing,
+                fallbackText: text,
+                badgeKind: BadgeKind.life.rawValue
+            )
+            XCTAssertEqual(descriptor.canonicalTag, expectedTag)
+        }
     }
 
     func testPendingDiscoveryCanBeReplacedWhenArtworkBecomesReady() throws {

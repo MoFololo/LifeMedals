@@ -37,7 +37,7 @@ npx wrangler queues create lifemedals-monster-generation-dlq
 - 同一个 Worker 的 Queue consumer，并配置 `max_retries` 与 dead-letter queue
 - `nodejs_compat`
 - Worker observability 与采样率
-- 非 Secret 版本值：`MONSTER_STYLE_VERSION`、`MONSTER_PROMPT_VERSION`、`MONSTER_IMAGE_MODEL=gpt-image-2`
+- 非 Secret 版本值：`MONSTER_STYLE_VERSION=grotesque-pixel-v2`、`MONSTER_PROMPT_VERSION=monster-image-v4`、`MONSTER_CONCEPT_PROMPT_VERSION=monster-concept-v3`、`MONSTER_IMAGE_MODEL=gpt-image-2`
 
 Cloudflare 要求 Worker 通过 Wrangler bindings 访问 D1、R2 与 Queue，而不是在 Worker 内调用 Cloudflare 管理 REST API：
 
@@ -73,6 +73,10 @@ npx wrangler d1 migrations apply lifemedals-monsters --remote
 - `coding.leetcode`
 - `study.statistics`
 - `fitness.workout`
+- `sports.basketball`
+- `sports.baseball`
+- `sports.tennis`
+- `sports.swimming`
 - `communication.send_email`
 - `chores.take_out_trash`
 
@@ -102,7 +106,7 @@ alias 只保存小写英文与数字，不为每种输入语言分别维护翻�
     "variant_id": "...",
     "status": "ready",
     "image_url": "https://assets.example.com/monsters/...webp",
-    "style_version": "pixel-v1"
+    "style_version": "grotesque-pixel-v2"
   }
 }
 ```
@@ -115,7 +119,7 @@ Consumer 对每条消息重新读取 D1；ready 立即确认，generating 使用
 
 生成规则：
 
-1. Level 1 根据服务端 visual DNA 与固定模板调用 Image API generation。
+1. Level 1 根据服务端 visual DNA 与固定模板调用 Image API generation。visual DNA 必须遵守 [`monster-image-spec.md`](monster-image-spec.md)：先选 1–2 个强关联 `signature_objects`，再把每一个锚点融入怪物身体、主轮廓或装备。
 2. Level N 必须等待 1...N-1 ready，并优先使用 Level N-1 的 R2 图片调用 image edit，保持同一物种连续进化。
 3. GPT Image 参数由服务端固定为 `model=gpt-image-2`、方形尺寸、`quality=low`、WebP 与适当压缩；客户端不能覆盖。
 4. Prompt 固定 family-friendly、无血腥、无具体受版权保护角色模仿，并包含稳定 visual DNA、level progression、style/prompt version。

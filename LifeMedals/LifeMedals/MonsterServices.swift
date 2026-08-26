@@ -32,6 +32,21 @@ enum MonsterTaxonomy {
         case "study.statistics": L10n.text("统计", english: "Statistics")
         case "study.learning": L10n.text("学习", english: "Learning")
         case "fitness.workout": L10n.text("健身", english: "Workout")
+        case "fitness.yoga": L10n.text("瑜伽", english: "Yoga")
+        case "sports.basketball": L10n.text("篮球", english: "Basketball")
+        case "sports.baseball": L10n.text("棒球", english: "Baseball")
+        case "sports.tennis": L10n.text("网球", english: "Tennis")
+        case "sports.swimming": L10n.text("游泳", english: "Swimming")
+        case "sports.badminton": L10n.text("羽毛球", english: "Badminton")
+        case "sports.table_tennis": L10n.text("乒乓球", english: "Table Tennis")
+        case "sports.volleyball": L10n.text("排球", english: "Volleyball")
+        case "sports.football": L10n.text("橄榄球", english: "Football")
+        case "sports.soccer": L10n.text("足球", english: "Soccer")
+        case "sports.cycling": L10n.text("骑行", english: "Cycling")
+        case "sports.running": L10n.text("跑步", english: "Running")
+        case "sports.hiking": L10n.text("徒步", english: "Hiking")
+        case "sports.boxing": L10n.text("拳击", english: "Boxing")
+        case "sports.golf": L10n.text("高尔夫", english: "Golf")
         case "communication.send_email": L10n.text("邮件", english: "Email")
         case "communication.career": L10n.text("职业沟通", english: "Career Communication")
         case "chores.take_out_trash": L10n.text("倒垃圾", english: "Trash")
@@ -69,7 +84,12 @@ enum MonsterTaxonomy {
         let tag: String
         let resolvedMatchKind: MonsterMatchKind
         if let normalizedTag, isValidCanonicalTag(normalizedTag) {
-            tag = normalizedTag
+            let refinedTag = refinedAthleteTag(
+                normalizedTag,
+                fallbackText: fallbackText,
+                badgeKind: badgeKind
+            )
+            tag = refinedTag
             resolvedMatchKind = matchKind ?? .existing
         } else {
             tag = fallbackTag(for: fallbackText, badgeKind: badgeKind)
@@ -96,7 +116,52 @@ enum MonsterTaxonomy {
         if containsAny(normalized, ["email", "e-mail", "mail", "邮件", "邮箱"]) {
             return "communication.send_email"
         }
-        if containsAny(normalized, ["workout", "gym", "exercise", "running", "run ", "sport", "basketball", "football", "soccer", "tennis", "swim", "健身", "锻炼", "跑步", "运动", "篮球", "足球", "网球", "游泳"]) {
+        if containsAny(normalized, ["basketball", "hoops", "篮球"]) {
+            return "sports.basketball"
+        }
+        if containsAny(normalized, ["baseball", "棒球"]) {
+            return "sports.baseball"
+        }
+        if containsAny(normalized, ["tennis", "网球"]) {
+            return "sports.tennis"
+        }
+        if containsAny(normalized, ["swimming", "swim", "游泳"]) {
+            return "sports.swimming"
+        }
+        if containsAny(normalized, ["badminton", "羽毛球"]) {
+            return "sports.badminton"
+        }
+        if containsAny(normalized, ["table tennis", "ping pong", "ping-pong", "乒乓球"]) {
+            return "sports.table_tennis"
+        }
+        if containsAny(normalized, ["volleyball", "排球"]) {
+            return "sports.volleyball"
+        }
+        if containsAny(normalized, ["american football", "gridiron", "橄榄球"]) {
+            return "sports.football"
+        }
+        if containsAny(normalized, ["soccer", "football", "足球"]) {
+            return "sports.soccer"
+        }
+        if containsAny(normalized, ["cycling", "biking", "bike ride", "骑行", "骑自行车"]) {
+            return "sports.cycling"
+        }
+        if containsAny(normalized, ["running", "jogging", "marathon", "5k run", "10k run", "跑步", "慢跑", "马拉松"]) {
+            return "sports.running"
+        }
+        if containsAny(normalized, ["hiking", "hike", "徒步", "爬山"]) {
+            return "sports.hiking"
+        }
+        if containsAny(normalized, ["boxing", "拳击"]) {
+            return "sports.boxing"
+        }
+        if containsAny(normalized, ["golf", "高尔夫"]) {
+            return "sports.golf"
+        }
+        if containsAny(normalized, ["yoga", "瑜伽"]) {
+            return "fitness.yoga"
+        }
+        if containsAny(normalized, ["workout", "gym", "exercise", "sport", "健身", "锻炼", "运动"]) {
             return "fitness.workout"
         }
         if containsAny(normalized, ["take out the trash", "garbage", "rubbish", "倒垃圾", "垃圾"]) {
@@ -130,6 +195,20 @@ enum MonsterTaxonomy {
 
     private static func containsAny(_ text: String, _ needles: [String]) -> Bool {
         needles.contains { text.contains($0) }
+    }
+
+    private static func refinedAthleteTag(
+        _ canonicalTag: String,
+        fallbackText: String,
+        badgeKind: String
+    ) -> String {
+        guard canonicalTag == "fitness.workout" || canonicalTag == "sports.activity" else {
+            return canonicalTag
+        }
+        let fallback = fallbackTag(for: fallbackText, badgeKind: badgeKind)
+        return fallback.hasPrefix("sports.") || fallback == "fitness.yoga"
+            ? fallback
+            : canonicalTag
     }
 
     private static func isGameDevelopmentTag(_ tag: String) -> Bool {

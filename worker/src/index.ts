@@ -16,7 +16,7 @@ const MAX_IMAGE_BASE64_LENGTH = 1_800_000;
 const DEFAULT_MODEL = "gpt-5.6-terra";
 const DEFAULT_GLOBAL_REQUESTS_PER_MINUTE = 20;
 const DEFAULT_MONTHLY_REQUEST_BUDGET = 500;
-const WORKER_RELEASE = "2026-08-26-monster-service-2";
+const WORKER_RELEASE = "2026-08-26-monster-service-3";
 
 const MONSTER_TAG_SCHEMA = {
   type: "string",
@@ -24,7 +24,7 @@ const MONSTER_TAG_SCHEMA = {
   maxLength: 80,
   pattern: "^[a-z][a-z0-9_]*(?:\\.[a-z][a-z0-9_]*)+$",
   description:
-    "A broad reusable taxonomy tag. Never include a person, account, private project, or one-off detail.",
+    "A reusable activity taxonomy tag at the named discipline or category granularity. Never include a person, account, private project, or one-off detail.",
 };
 
 const TASK_CHILD_SCHEMA = {
@@ -969,7 +969,9 @@ export function buildTaskGenerationOpenAIRequest(body, model = DEFAULT_MODEL) {
       "Choose exactly one badge for the whole contract: Solver for study and problem-solving, Builder for creating projects, Career for professional or job-search work, Athlete for exercise and sports, or Life for ordinary life activities that do not fit the other four.",
       "Life includes chores, cooking, errands, sending packages, games, and personal hobbies. Exercise and sports always use Athlete even when they are hobbies.",
       "Assign every single task and every child a reusable monster taxonomy descriptor: monster_tag and monster_match_kind.",
-      "Prefer these existing tags when they fit: coding.leetcode, coding.project, coding.practice, study.statistics, study.learning, fitness.workout, communication.send_email, communication.career, chores.take_out_trash, and chores.household.",
+      "Prefer these existing tags when they fit: coding.leetcode, coding.project, coding.practice, study.statistics, study.learning, fitness.workout, fitness.yoga, sports.basketball, sports.baseball, sports.tennis, sports.swimming, sports.badminton, sports.table_tennis, sports.volleyball, sports.football, sports.soccer, sports.cycling, sports.running, sports.hiking, sports.boxing, sports.golf, communication.send_email, communication.career, chores.take_out_trash, and chores.household.",
+      "Sports taxonomy must preserve the named discipline. Use fitness.workout only for gym, strength, or general workouts; when the task names basketball, baseball, tennis, swimming, running, or any other distinct sport, use that sport's own reusable sports.<discipline> tag. Never collapse a named sport into fitness.workout or a generic sports.activity tag.",
+      "Apply the same specificity rule across every badge: preserve a stable concrete category when it has a materially different real-world object or action metaphor. For example, taking out trash is chores.take_out_trash rather than chores.household. Do not fragment by one-off details, but do not collapse visibly different reusable activities merely because they share a badge.",
       "Use monster_match_kind=existing for one of those tags. If none fits, create a broad reusable lowercase dot-separated English tag such as reading.book, finance.budget, gaming.console, errands.shipping, or life.cooking, and use monster_match_kind=new.",
       "Monster taxonomy is always English even when the user's title and evidence are Chinese or another language. Translate the activity into the simplest reusable English category words; never emit Chinese or other non-ASCII words in monster_tag.",
       "Classify a new tag by the activity's durable domain before its literal button or verb. For example, closing a console inside a video game belongs under gaming.console, not controls.toggle, switches, or a generic open/close category.",
