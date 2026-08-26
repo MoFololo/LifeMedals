@@ -144,7 +144,7 @@ iOS 只接受 HTTPS 图片且限制为 10 MB，因此生成端应在写入前验
 5. 测试 Level 3 首次请求能够按 1→2→3 顺序生成。
 6. 确认 iOS 确认页先显示未知怪物，ready 后自动显示图片；完成时 ready 图片进入图鉴，未 ready 时先保存未知发现并稍后替换。
 7. 查看 Queue dead-letter、Worker 结构化日志、OpenAI 用量和 R2 对象，再发布 production。
-8. 最后把生产 Worker 根地址配置为 `LifeMedalsAPIBaseURL`，或调试时使用 `LIFEMEDALS_API_BASE_URL`。当前默认地址已经指向 `lifemedals-api` Worker 根路径。
+8. 最后把生产 Worker 根地址配置为 `LifeMedalsAPIBaseURL`。Debug 构建默认使用 `lifemedals-api-staging`，Release 构建默认使用 `lifemedals-api`；需要临时切换时可用 `LIFEMEDALS_API_BASE_URL` 覆盖。
 
 ## 8. 上线验收标准
 

@@ -190,7 +190,7 @@ Debug 默认定义 `LIFEMEDALS_LOCAL_DEVELOPMENT`：使用本机 SwiftData、不
 
 当前 Worker 使用 SQLite Durable Object，在调用 OpenAI **之前**原子预留一次额度；`POST /generate-task` 和 `POST /verify-evidence` 共用同一个全局计数器。默认全局每分钟最多 20 次、每个 UTC 自然月最多 500 次。达到频率限制返回 429，达到月度硬上限返回 402，保护组件异常时返回 503 且不会继续调用 OpenAI。可在 `worker/wrangler.jsonc` 中调整 `GLOBAL_REQUESTS_PER_MINUTE` 和 `MONTHLY_REQUEST_BUDGET`，再运行 `npm test` 与 `npm run check` 验证。这个月度上限按请求次数计算，不是对 OpenAI 账单金额的实时估算，因此仍需在 OpenAI 项目控制台单独设置用量/支出告警。
 
-Cloudflare 部署完成后访问 `GET /health`；只有 API Key 和全局保护都配置成功时才返回 200。客户端的长期默认地址由 `LifeMedalsAPIConfiguration.defaultBaseURL` 保存，因此从 iPhone 主屏幕重新启动 App 时仍然有效。更换 Worker 时修改该值：
+Cloudflare 部署完成后访问 `GET /health`；只有 API Key 和全局保护都配置成功时才返回 200。客户端的长期默认地址由 `LifeMedalsAPIConfiguration.defaultBaseURL` 保存：Debug 构建默认连接 staging Worker，Release 构建默认连接 production Worker，因此从 iPhone 主屏幕重新启动 App 时仍然有效。更换 Worker 时修改对应构建的值：
 
 ```text
 static let defaultBaseURL = "https://你的-worker.workers.dev/"

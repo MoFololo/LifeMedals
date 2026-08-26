@@ -8,7 +8,11 @@
 import Foundation
 
 enum LifeMedalsAPIConfiguration {
+#if DEBUG
+    static let defaultBaseURL = "https://lifemedals-api-staging.david-lian0809.workers.dev/"
+#else
     static let defaultBaseURL = "https://lifemedals-api.david-lian0809.workers.dev/"
+#endif
 
     static var baseURL: URL? {
         let environmentValue = ProcessInfo.processInfo.environment["LIFEMEDALS_API_BASE_URL"]

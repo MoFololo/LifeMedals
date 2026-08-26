@@ -112,6 +112,35 @@ test("normalizes descriptors and removes the group-root monster", async () => {
   );
 });
 
+test("classifies gaming tasks as Life unless they are game-development projects", async () => {
+  const ordinaryGameTask = await normalizeGeneratedTaskMonsters({
+    kind: "single_task",
+    suggested_badge: "Solver",
+    monster_tag: "gaming.console",
+    monster_match_kind: "new",
+    children: [],
+  }, {});
+  assert.equal(ordinaryGameTask.suggested_badge, "Life");
+
+  const gameDevelopmentTask = await normalizeGeneratedTaskMonsters({
+    kind: "single_task",
+    suggested_badge: "Solver",
+    monster_tag: "gaming.development",
+    monster_match_kind: "new",
+    children: [],
+  }, {});
+  assert.equal(gameDevelopmentTask.suggested_badge, "Builder");
+
+  const incorrectlySuggestedBuilder = await normalizeGeneratedTaskMonsters({
+    kind: "single_task",
+    suggested_badge: "Builder",
+    monster_tag: "gaming.console",
+    monster_match_kind: "new",
+    children: [],
+  }, {});
+  assert.equal(incorrectlySuggestedBuilder.suggested_badge, "Life");
+});
+
 test("uses D1 as the authority for an existing species taxonomy", async () => {
   const database = {
     prepare: () => ({

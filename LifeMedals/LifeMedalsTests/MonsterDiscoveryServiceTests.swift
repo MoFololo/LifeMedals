@@ -138,6 +138,30 @@ final class MonsterDiscoveryServiceTests: XCTestCase {
         }
     }
 
+    func testGamingTagsOverrideSolverButNotGameDevelopmentBuilder() {
+        XCTAssertEqual(
+            MonsterTaxonomy.normalizedBadgeKind(
+                suggestedBadge: BadgeKind.solver.rawValue,
+                canonicalTags: ["gaming.console"]
+            ),
+            BadgeKind.life.rawValue
+        )
+        XCTAssertEqual(
+            MonsterTaxonomy.normalizedBadgeKind(
+                suggestedBadge: BadgeKind.solver.rawValue,
+                canonicalTags: ["gaming.development"]
+            ),
+            BadgeKind.builder.rawValue
+        )
+        XCTAssertEqual(
+            MonsterTaxonomy.normalizedBadgeKind(
+                suggestedBadge: BadgeKind.builder.rawValue,
+                canonicalTags: ["gaming.console"]
+            ),
+            BadgeKind.life.rawValue
+        )
+    }
+
     func testSportsRemainAthleteActivities() {
         let descriptor = MonsterTaxonomy.descriptor(
             canonicalTag: nil,

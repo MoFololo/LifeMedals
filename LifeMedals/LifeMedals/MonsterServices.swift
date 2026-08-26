@@ -40,6 +40,22 @@ enum MonsterTaxonomy {
         }
     }
 
+    static func normalizedBadgeKind(
+        suggestedBadge: String,
+        canonicalTags: [String?]
+    ) -> String {
+        let gamingTags = canonicalTags.compactMap { tag -> String? in
+            let normalized = tag?
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+                .lowercased()
+            return normalized?.hasPrefix("gaming.") == true ? normalized : nil
+        }
+        guard !gamingTags.isEmpty else { return suggestedBadge }
+        return gamingTags.allSatisfy(isGameDevelopmentTag)
+            ? BadgeKind.builder.rawValue
+            : BadgeKind.life.rawValue
+    }
+
     static func descriptor(
         canonicalTag: String?,
         matchKind: MonsterMatchKind?,
@@ -114,6 +130,18 @@ enum MonsterTaxonomy {
 
     private static func containsAny(_ text: String, _ needles: [String]) -> Bool {
         needles.contains { text.contains($0) }
+    }
+
+    private static func isGameDevelopmentTag(_ tag: String) -> Bool {
+        let developmentComponents: Set<String> = [
+            "coding",
+            "develop",
+            "development",
+            "programming"
+        ]
+        return tag
+            .split(whereSeparator: { $0 == "." || $0 == "_" })
+            .contains { developmentComponents.contains(String($0)) }
     }
 
     private static func prettifiedCategory(for tag: String) -> String {

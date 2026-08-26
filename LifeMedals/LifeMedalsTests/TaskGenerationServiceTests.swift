@@ -3,6 +3,15 @@ import XCTest
 @testable import LifeMedals
 
 final class TaskGenerationServiceTests: XCTestCase {
+    func testDebugBuildDefaultsToStagingAPI() {
+#if DEBUG
+        XCTAssertEqual(
+            LifeMedalsAPIConfiguration.defaultBaseURL,
+            "https://lifemedals-api-staging.david-lian0809.workers.dev/"
+        )
+#endif
+    }
+
     func testLegacySingleTaskResponseRemainsCompatible() throws {
         let contract = try decode(#"""
         {

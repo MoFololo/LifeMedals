@@ -122,7 +122,7 @@ test("health identifies the deployed Worker release", async () => {
   const body = await response.json();
 
   assert.equal(response.status, 200);
-  assert.equal(body.release, "2026-08-26-monster-service-1");
+  assert.equal(body.release, "2026-08-26-monster-service-2");
   assert.equal(body.monsterServiceConfigured, false);
   assert.equal(response.headers.get("X-LifeMedals-Release"), body.release);
 });

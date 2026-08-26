@@ -2375,8 +2375,12 @@ struct ContentView: View {
                 draftEvidenceRequirement = contract.evidenceRequirement
                 draftEvidenceImageCount = contract.evidenceImageCount
                 draftEvidenceImageDescriptions = contract.evidenceImageDescriptions
-                draftBadge = Self.badgeOptions.contains(contract.suggestedBadge)
-                    ? contract.suggestedBadge
+                let normalizedBadge = MonsterTaxonomy.normalizedBadgeKind(
+                    suggestedBadge: contract.suggestedBadge,
+                    canonicalTags: [contract.monsterTag] + contract.children.map(\.monsterTag)
+                )
+                draftBadge = Self.badgeOptions.contains(normalizedBadge)
+                    ? normalizedBadge
                     : Self.badgeOptions[0]
                 draftXP = contract.suggestedXP
                 draftMonsterTag = contract.monsterTag

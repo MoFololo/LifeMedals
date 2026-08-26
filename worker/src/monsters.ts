@@ -609,6 +609,18 @@ export async function normalizeGeneratedTaskMonsters(contract, env) {
     }
   }
 
+  // Badge assignment is product taxonomy, not a creative model decision.
+  // Playing or configuring a game belongs to Life; actual game-development
+  // taxonomy belongs to Builder regardless of the model's suggested badge.
+  const gamingTags = descriptors
+    .map((descriptor) => descriptor.monster_tag)
+    .filter((tag) => tag?.startsWith("gaming."));
+  if (gamingTags.length > 0) {
+    normalized.suggested_badge = gamingTags.every(isGameDevelopmentTag)
+      ? "Builder"
+      : "Life";
+  }
+
   return normalized;
 }
 
@@ -1359,6 +1371,17 @@ function normalizeCanonicalTag(value) {
 
 function isValidCanonicalTag(value) {
   return typeof value === "string" && value.length <= 80 && CANONICAL_TAG_PATTERN.test(value);
+}
+
+function isGameDevelopmentTag(tag) {
+  return tag
+    .split(/[._]/)
+    .some((component) => new Set([
+      "coding",
+      "develop",
+      "development",
+      "programming",
+    ]).has(component));
 }
 
 export function speciesDescriptionFromCanonicalTag(canonicalTag, badgeKind) {
