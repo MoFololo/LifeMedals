@@ -1051,8 +1051,8 @@ struct ContentView: View {
 
                                         Label(
                                             L10n.text(
-                                                "需要 \(child.evidenceImageCount) 张照片 · 约 +\(child.xpReward) EXP 工作量",
-                                                english: "\(child.evidenceImageCount) photo(s) · about +\(child.xpReward) EXP of effort"
+                                                "完成时可提交 1–5 张照片 · 约 +\(child.xpReward) EXP 工作量",
+                                                english: "Submit 1–5 photos when done · about +\(child.xpReward) EXP of effort"
                                             ),
                                             systemImage: "photo.stack"
                                         )
@@ -1075,24 +1075,12 @@ struct ContentView: View {
                     } else {
                         contractField("证据照片") {
                             VStack(alignment: .leading, spacing: 10) {
-                                Label("需要 \(draftEvidenceImageCount) 张照片", systemImage: "photo.stack")
+                                Label("完成时可提交 1–5 张照片", systemImage: "photo.stack")
                                     .font(PixelTheme.font(.subheadline, weight: .semibold))
-
-                                ForEach(Array(draftEvidenceImageDescriptions.enumerated()), id: \.offset) { index, description in
-                                    HStack(alignment: .top, spacing: 8) {
-                                        if draftEvidenceImageCount <= 2 {
-                                            Text("\(index + 1)")
-                                                .font(PixelTheme.statFont(size: 11))
-                                                .foregroundStyle(.white)
-                                                .frame(width: 20, height: 20)
-                                                .background(PixelTheme.selection, in: PixelCornerShape(step: 2))
-                                        }
-                                        Text(L10n.text(description))
-                                            .font(PixelTheme.font(.subheadline))
-                                            .foregroundStyle(PixelTheme.inkMuted)
-                                            .fixedSize(horizontal: false, vertical: true)
-                                    }
-                                }
+                                Text("一张照片就能提交，也可以补充更多角度；不要求固定页面或逐张对应。")
+                                    .font(PixelTheme.font(.subheadline))
+                                    .foregroundStyle(PixelTheme.inkMuted)
+                                    .fixedSize(horizontal: false, vertical: true)
                             }
                             .padding(14)
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -1852,18 +1840,12 @@ struct ContentView: View {
                         .opacity(0.45)
 
                     VStack(alignment: .leading, spacing: 8) {
-                        Label("需要 \(task.requiredEvidenceImageCount) 张照片", systemImage: "photo.stack")
+                        Label("可提交 1–5 张照片", systemImage: "photo.stack")
                             .font(PixelTheme.font(.subheadline, weight: .semibold))
-                        ForEach(Array(task.evidenceImageDescriptions.enumerated()), id: \.offset) { index, description in
-                            Text(
-                                task.requiredEvidenceImageCount <= 2
-                                    ? "\(index + 1). \(L10n.text(description))"
-                                    : L10n.text(description)
-                            )
-                                .font(PixelTheme.font(.subheadline))
-                                .foregroundStyle(PixelTheme.inkMuted)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
+                        Text("一张即可提交；证据只需能从任务标题或验收标准中的任一方向合理说明完成情况。")
+                            .font(PixelTheme.font(.subheadline))
+                            .foregroundStyle(PixelTheme.inkMuted)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
 
                     Divider()
@@ -3512,8 +3494,8 @@ private struct PixelEvidenceVerificationOverlay: View {
                         isCompleted
                             ? completionMessage
                             : L10n.text(
-                                "公会鉴定师正在核对锁定的验收标准…",
-                                english: "The guild appraiser is checking the locked requirements…"
+                                "公会鉴定师正在结合标题与验收标准判断…",
+                                english: "The guild appraiser is checking the title and acceptance criterion…"
                             )
                     )
                         .font(PixelTheme.font(.subheadline))

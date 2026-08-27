@@ -28,15 +28,13 @@ struct EvidenceVerificationService: Sendable {
             }
         }
 
+        let taskTitle: String
         let evidenceRequirement: String
-        let evidenceImageCount: Int
-        let evidenceImageDescriptions: [String]
         let images: [ImagePayload]
 
         enum CodingKeys: String, CodingKey {
+            case taskTitle = "task_title"
             case evidenceRequirement = "evidence_requirement"
-            case evidenceImageCount = "evidence_image_count"
-            case evidenceImageDescriptions = "evidence_image_descriptions"
             case images
         }
     }
@@ -51,15 +49,14 @@ struct EvidenceVerificationService: Sendable {
     }
 
     func verify(
+        taskTitle: String,
         lockedRequirement: String,
-        expectedImageCount: Int,
-        imageDescriptions: [String],
         imageData: [Data]
     ) async throws -> EvidenceVerificationResult {
         guard
-            (1...5).contains(expectedImageCount),
-            imageData.count == expectedImageCount,
-            !imageDescriptions.isEmpty
+            !taskTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+            !lockedRequirement.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+            (1...5).contains(imageData.count)
         else {
             throw EvidenceVerificationError.invalidEvidence
         }
@@ -73,9 +70,8 @@ struct EvidenceVerificationService: Sendable {
         request.setValue("no-store", forHTTPHeaderField: "Cache-Control")
         request.httpBody = try JSONEncoder().encode(
             VerificationRequest(
+                taskTitle: taskTitle,
                 evidenceRequirement: lockedRequirement,
-                evidenceImageCount: expectedImageCount,
-                evidenceImageDescriptions: imageDescriptions,
                 images: imageData.map {
                     VerificationRequest.ImagePayload(base64Data: $0.base64EncodedString())
                 }
@@ -130,7 +126,10 @@ enum EvidenceVerificationError: LocalizedError {
         case .missingConfiguration:
             return L10n.text("尚未配置代理地址。证据已保存在本机，配置后可重试核验。")
         case .invalidEvidence:
-            return L10n.text("证据照片数量与任务要求不一致。")
+            return L10n.text(
+                "请提交 1–5 张能说明任务完成情况的照片。",
+                english: "Submit 1–5 photos that help show the task is complete."
+            )
         case .invalidResponse:
             return L10n.text("代理返回了无法读取的核验结果，证据仍在本机。")
         case let .server(statusCode, message):

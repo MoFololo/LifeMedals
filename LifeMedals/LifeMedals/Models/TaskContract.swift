@@ -26,8 +26,8 @@ enum TaskHierarchyRole: String, Codable {
 
 /// 任务契约：标题、截止时间、锁定的验收标准、所属勋章、XP 奖励和状态。
 ///
-/// - Important: `evidenceRequirement` 一旦用户确认任务，即为锁定值，
-///   AI 核验阶段不能再修改或重新解释它。
+/// - Important: `evidenceRequirement` 一旦用户确认任务，即为锁定值；
+///   核验时它与任务标题分别构成可独立通过的判断依据。
 @Model
 final class TaskContract {
     var id: UUID = UUID()
@@ -35,7 +35,8 @@ final class TaskContract {
     var deadline: Date = Date.now
     var evidenceRequirement: String = ""
     /// Optional backing values keep existing local stores lightweight-migration compatible.
-    /// Tasks created before evidence planning default to one photo.
+    /// Legacy evidence-plan metadata. The current submission flow accepts any
+    /// 1–5 photos and keeps this only for store/CloudKit compatibility.
     var evidenceImageCount: Int?
     var evidenceImageDescriptionsJSON: String?
     var xpReward: Int = 0

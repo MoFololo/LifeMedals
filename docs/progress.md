@@ -58,7 +58,7 @@
 - [x] 保留离线入口，登录状态不阻塞本地或 AI 主链路
 - [x] 选择 Cloudflare Workers，创建不保存业务数据的最小代理工程
 - [x] 实现带输入与请求大小校验的 `generate-task` 端点
-- [x] 设计 prompt 和 JSON Schema，使用 OpenAI Structured Outputs 返回 title / deadline / evidence_requirement / evidence_image_count / evidence_image_descriptions / suggested_badge / suggested_xp
+- [x] 设计 prompt 和 JSON Schema，使用 OpenAI Structured Outputs 返回 title / deadline / evidence_requirement / suggested_badge / estimated_hours；证据提交统一为 1–5 张，不再生成精确照片计划
 - [x] 代理：用 SQLite Durable Object 加入原子全局限流（默认 20 次/分钟）
 - [x] 代理：加入调用 OpenAI 前强制执行的月度硬请求上限（默认 500 次/月）
 - [x] OpenAI 项目控制台：配置用量/支出告警（必须由项目所有者手动完成）
@@ -165,6 +165,8 @@
 ---
 
 ## 更新日志
+
+- 2026-08-27 | 放宽证据核验并统一照片提交体验：任务标题与验收标准改为两条独立通过路径，任一得到合理图片支持即可 Verified；Worker 明确采用 motivator 而非 TA/审计语义，认可课程相关笔记、邮件对话与简历附件等自然证据，不再要求不存在的正式申请页面、逐条内容对照或固定截图构图。任务生成 schema 移除精确照片数量/逐张描述，新客户端请求只发送标题、验收标准和任意 1–5 张图片；旧照片计划字段仅保留 SwiftData/CloudKit 与已发布客户端兼容。上传 UI 统一为一个 1–5 张图库，一张即可提交。Worker 33 项测试、Wrangler dry-run、iPhone 17 Pro Simulator Debug 构建与 23 项 XCTest 通过；未部署 Worker | EvidenceSubmissionView.swift, EvidenceVerificationService.swift, ContentView.swift, Models/TaskContract.swift, worker/src/index.ts, worker/test/usage-gate.test.mjs, README.md, docs/product-plan.md, docs/progress.md
 
 - 2026-08-26 | 修复具体运动被压成 `fitness.workout` 的怪物分类：篮球、棒球、网球、游泳等 14 个运动项目改为独立 `sports.*` 物种，并在 Worker 正常化与 iOS 旧响应回退两层纠错；建立通用怪物形象规范，概念 schema 必须先返回 1–2 个强关联 `signature_objects`，逐一融入身体/轮廓/装备，图片 prompt 强制渲染全部锚点；新增 15 个 Athlete 种子、v2 不可变素材版本与规范文档。Worker 33 项测试、完整 SQLite migration 链、Wrangler staging dry-run及 iPhone 17 Pro Simulator 12 项 taxonomy/发现测试通过；未部署远程资源 | MonsterServices.swift, MonsterDiscoveryServiceTests.swift, worker/src/index.ts, worker/src/monsters.ts, worker/migrations/0004_add_distinct_sport_species.sql, worker/test/*.mjs, worker/wrangler.jsonc, docs/monster-image-spec.md, docs/monster-service-runbook.md, README.md, docs/progress.md
 

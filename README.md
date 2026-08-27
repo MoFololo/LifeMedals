@@ -68,7 +68,7 @@ LifeMedals/
 
 - `BadgeCategory`：默认或自定义勋章类别。
 - `UserBadge`：每个类别独立累计的 EXP 和等级。
-- `TaskContract`：标题、截止时间、锁定的验收标准、1–5 张证据照片计划、可选的任务来源图片、所属勋章、XP 奖励和状态。
+- `TaskContract`：标题、截止时间、锁定的验收标准、兼容旧版本的可选照片计划元数据、可选的任务来源图片、所属勋章、XP 奖励和状态。当前提交统一支持任意 1–5 张照片。
 - `TaskContract` 的可选怪物字段：canonical tag、保存时锁定的 1–9 级、variant ID、图片 URL 和 style version；怪物不再保存或展示名字，旧任务全部为 `nil` 时继续按原流程运行。
 - `MonsterDiscovery`：用户私有的 tag + level + styleVersion 发现元数据、首次来源任务和击败次数；应用逻辑使用已处理任务 ID 防止重复核验回调重复计数。
 - `Evidence`：本地证据图片、提交批次与顺序、提交时间、AI 三态核验结果和解释。
@@ -128,9 +128,9 @@ LifeMedals/
 
 ## 关键设计原则（写代码时必须遵守）
 
-1. **验收标准锁定**：任务一旦被用户确认，`evidence_requirement` 不可再被 AI 在核验阶段修改或重新解释。核验只能基于确认时锁定的标准。
+1. **宽松且稳定的核验依据**：任务确认后标题和 `evidence_requirement` 的文本保持不变；核验把两者视为两条独立通过路径，照片能合理支持任一项即可通过。LifeMedals 是 motivator，不是 TA、审计或申请系统。
 2. **三态核验结果**：AI 核验结果永远是 `Verified / Need More Proof / Not Verified` 三选一，不做强制二选一，`Need More Proof` 时允许用户补交证据。
-3. **证据要轻量**：设计每类任务默认的证据要求时，优先选用户本来就会产生的东西（如 LeetCode 的 Accepted 截图），不要为了"证明"而制造额外负担。
+3. **证据要轻量**：统一允许提交 1–5 张照片，一张即可发起核验；优先接受用户本来就会产生的东西（如笔记、邮件对话或 LeetCode 的 Accepted 截图），不要为了“证明”而制造额外页面或拍摄负担。
 4. **每个勋章类别独立计算 EXP/等级**，不要把所有类别合并成一个总等级。
 5. **本地优先同步**：本地增删改查、Library、EXP 和通知不依赖网络；CloudKit 与 AI 请求失败都不能导致本地数据丢失。
 6. **身份职责分离**：Sign in with Apple 负责应用会话，设备 iCloud 账户负责 CloudKit，同步不可用时允许离线使用；登录不代表会员权益。

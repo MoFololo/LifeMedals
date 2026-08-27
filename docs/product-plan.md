@@ -264,13 +264,13 @@ v2 才将代理升级为账户、计费与 AI 网关，并连接小型持久化�
 ### 6.7 AI 调用与成本控制
 
 1. **任务契约生成**（文本→结构化 JSON）
-   - 输入用户一句话，使用 OpenAI Responses API 的 Structured Outputs 按 JSON Schema 输出 `{title, deadline, evidence_requirement, evidence_image_count, evidence_image_descriptions, suggested_badge, estimated_hours}`；照片数限制为 1–5，1–2 张逐张描述，3–5 张使用一条整组描述；`estimated_hours`（0.25–8，15 分钟颗粒度）由客户端按 1 小时 = 100 XP 换算成任务的 XP 奖励，AI 不直接输出 XP
+   - 输入用户一句话，使用 OpenAI Responses API 的 Structured Outputs 按 JSON Schema 输出 `{title, deadline, evidence_requirement, suggested_badge, estimated_hours}`；不再由 AI 规定精确照片数量或逐张拍摄计划；`estimated_hours`（0.25–8，15 分钟颗粒度）由客户端按 1 小时 = 100 XP 换算成任务的 XP 奖励，AI 不直接输出 XP
    - 客户端渲染成可编辑表单，用户改完后再确认
 
-2. **证据核验**（多模态：图片+已确认的验收标准）
-   - 把用户同一批次提交的 1–5 张截图作为图像输入，连同之前确认的验收标准、照片数量和内容描述一起发给 OpenAI Responses API
+2. **证据核验**（多模态：图片+标题+已确认的验收标准）
+   - 把用户同一批次提交的任意 1–5 张截图作为图像输入，连同任务标题和之前确认的验收标准一起发给 OpenAI Responses API；不再发送或核对精确照片计划
    - 使用 Structured Outputs 返回 `{verdict: "Verified"|"Need More Proof"|"Not Verified", explanation}`
-   - **关键原则**：验收标准必须在任务确认时就锁定，AI 核验阶段不能"临时改规则"，否则用户会觉得被不讲理地拒绝
+   - **关键原则**：标题或验收标准任一得到合理证据支持即可通过；相关且可信、没有明显矛盾的边界情况倾向通过。学习笔记不必逐项对照原课件，邮件申请也不要求现实中不存在的正式申请页面
 
 v1 仅在开发和有限内测范围内通过全局限流、请求大小限制、OpenAI 项目用量/支出告警和代理端硬预算上限控制成本。v2 再在每次调用前验证账户、entitlement、剩余额度和限流状态，并在调用成功后原子地计入用户用量。免费版、Pro 周期额度和额外 StoreKit consumable 都属于 v2。
 
@@ -278,7 +278,7 @@ v1 仅在开发和有限内测范围内通过全局限流、请求大小限制�
 
 - `BadgeCategory`：勋章类别（Solver / Builder / Athlete...），支持用户自定义。
 - `UserBadge`：每个类别的当前累计 EXP、等级（对应 `BadgeRank` 的 9 个固定段位，青铜到王者）。
-- `TaskContract`：任务契约（标题、截止时间、锁定的验收标准、证据照片数量与描述、所属勋章、XP 奖励、状态）。
+- `TaskContract`：任务契约（标题、截止时间、锁定的验收标准、兼容旧数据的可选照片计划元数据、所属勋章、XP 奖励、状态）。
 - `Evidence`：证据图片、提交批次与顺序、提交时间、三态核验结果和解释。
 - `XPLog`：每次 EXP 变动记录，关联任务和勋章，用于周报与历史回顾。
 
