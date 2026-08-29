@@ -239,4 +239,6 @@
 "这个模式专供本机开发和调试。切换到带云端 entitlement 的构建后，才会启用 Apple 登录和 CloudKit。" = "This mode is for local development and debugging. Apple sign-in and CloudKit are enabled in a build with cloud entitlements.";
 "这台设备限制了 iCloud 访问，请检查系统或家长控制设置。" = "This device restricts iCloud access. Check system or parental-control settings.";
 "这周末" = "This Weekend";
+"保存" = "Save";
+"取消" = "Cancel";
 "这项任务已过截止时间，不再安排新的系统提醒。" = "This task is past its deadline, so no new system reminder will be scheduled.";

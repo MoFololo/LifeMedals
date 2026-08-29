@@ -30,6 +30,25 @@ final class TaskGenerationServiceTests: XCTestCase {
         XCTAssertTrue(contract.children.isEmpty)
     }
 
+    func testExplicitCalendarDeadlineWithoutPresetDecodes() throws {
+        let contract = try decode(#"""
+        {
+          "kind":"single_task",
+          "title":"Submit the application",
+          "deadline":"2026-08-30T23:59:00-04:00",
+          "evidence_requirement":"Show the submission confirmation.",
+          "suggested_badge":"Career",
+          "estimated_hours":1,
+          "monster_tag":"communication.career",
+          "monster_match_kind":"existing",
+          "children":[]
+        }
+        """#)
+
+        XCTAssertNil(contract.deadlinePreset)
+        XCTAssertNotNil(contract.parsedDeadline)
+    }
+
     func testTwoValidActionsCreateTaskGroup() throws {
         let contract = try decode(groupJSON(children: [
             childJSON(title: "Complete the survey"),

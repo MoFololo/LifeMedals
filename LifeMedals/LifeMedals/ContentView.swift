@@ -424,7 +424,7 @@ struct ContentView: View {
     @FocusState private var isTaskInputFocused: Bool
 
     @State private var draftTitle = ""
-    @State private var draftDeadlinePreset: TaskDeadlinePreset? = .tomorrow
+    @State private var draftDeadline = DeadlineDateOptions.defaultSelection()
     @State private var draftEvidenceRequirement = ""
     @State private var draftEvidenceImageCount = 1
     @State private var draftEvidenceImageDescriptions: [String] = []
@@ -1322,7 +1322,7 @@ struct ContentView: View {
 
     private var deadlineContractField: some View {
         contractField("截止日期") {
-            DeadlinePresetWheelPicker(selection: $draftDeadlinePreset)
+            DeadlinePickerField(selection: $draftDeadline)
         }
     }
 
@@ -1761,11 +1761,15 @@ struct ContentView: View {
                 }
 
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 16)], spacing: 16) {
-                    detailCard(
+                    DeadlinePickerField(
                         title: "截止日期",
-                        value: deadlineDisplayText(task.deadline),
-                        icon: task.deadline < .now ? "clock.badge.exclamationmark" : "calendar.badge.clock",
-                        tint: task.deadline < .now ? PixelTheme.danger : PixelTheme.selection
+                        selection: Binding(
+                            get: { task.deadline },
+                            set: { _ in }
+                        ),
+                        onCommit: { deadline in
+                            updateDeadline(deadline, for: task)
+                        }
                     )
                     detailCard(
                         title: "所属勋章",
@@ -2352,8 +2356,7 @@ struct ContentView: View {
                 }
 
                 draftTitle = contract.title
-                draftDeadlinePreset = contract.deadlinePreset
-                    ?? deadlinePreset(for: deadline, relativeTo: .now)
+                draftDeadline = DeadlineDateOptions.normalized(deadline, relativeTo: .now)
                 draftEvidenceRequirement = contract.evidenceRequirement
                 draftEvidenceImageCount = contract.evidenceImageCount
                 draftEvidenceImageDescriptions = contract.evidenceImageDescriptions
@@ -2393,14 +2396,13 @@ struct ContentView: View {
             draftChildren.allSatisfy({
                 !$0.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
                     !$0.evidenceRequirement.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            }),
-            let draftDeadlinePreset
+            })
         else { return }
 
-        let deadline = taskDeadline(for: draftDeadlinePreset, relativeTo: .now)
+        let deadline = DeadlineDateOptions.normalized(draftDeadline, relativeTo: .now)
         guard deadline > Date.now else {
             errorMessage = "截止时间必须晚于当前时间，请重新选择。"
-            self.draftDeadlinePreset = .tomorrow
+            draftDeadline = DeadlineDateOptions.defaultSelection()
             return
         }
 
@@ -2502,6 +2504,7 @@ struct ContentView: View {
             draftMonsterTag = nil
             draftMonsterMatchKind = nil
             draftMonsterPreviewStates = [:]
+            draftDeadline = DeadlineDateOptions.defaultSelection()
             imageTaskNote = ""
             sourceImageError = nil
             errorMessage = nil
@@ -2545,6 +2548,44 @@ struct ContentView: View {
         withAnimation(.smooth(duration: 0.4)) {
             taskDetailOrigin = .taskList
             selectedTask = task
+        }
+    }
+
+    private func updateDeadline(_ deadline: Date, for task: TaskContract) {
+        let normalizedDeadline = DeadlineDateOptions.normalized(deadline, relativeTo: .now)
+
+        do {
+            if task.isTaskGroup {
+                task.deadline = normalizedDeadline
+                children(of: task).forEach { $0.deadline = normalizedDeadline }
+            } else {
+                task.deadline = normalizedDeadline
+
+                if
+                    let parentTaskID = task.parentTaskID,
+                    let parent = taskContracts.first(where: { $0.id == parentTaskID && $0.isTaskGroup })
+                {
+                    parent.deadline = children(of: parent).map(\.deadline).max() ?? normalizedDeadline
+                }
+            }
+
+            try modelContext.save()
+            reminderFeedback = L10n.text(
+                "截止日期已更新为 \(deadlineDisplayText(normalizedDeadline))。",
+                english: "Deadline updated to \(deadlineDisplayText(normalizedDeadline))."
+            )
+            reminderFeedbackIsError = false
+
+            Task {
+                await restoreTaskReminders()
+            }
+        } catch {
+            modelContext.rollback()
+            reminderFeedback = L10n.text(
+                "截止日期更新失败：\(error.localizedDescription)",
+                english: "Could not update the deadline: \(error.localizedDescription)"
+            )
+            reminderFeedbackIsError = true
         }
     }
 
@@ -2984,54 +3025,15 @@ struct ContentView: View {
                 !$0.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
                     !$0.evidenceRequirement.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             }) &&
-            draftDeadlinePreset.map { taskDeadline(for: $0, relativeTo: .now) > Date.now } == true
+            DeadlineDateOptions.normalized(draftDeadline, relativeTo: .now) > Date.now
     }
 
     private var isDraftTaskGroup: Bool {
         draftChildren.count >= 2
     }
 
-    private func taskDeadline(for preset: TaskDeadlinePreset, relativeTo date: Date) -> Date {
-        let calendar = Calendar.current
-        let dayOffset: Int
-        switch preset {
-        case .today:
-            dayOffset = 0
-        case .tomorrow:
-            dayOffset = 1
-        case .thisWeekend:
-            let weekday = calendar.component(.weekday, from: date)
-            dayOffset = (8 - weekday) % 7
-        }
-        let targetDay = calendar.date(byAdding: .day, value: dayOffset, to: date) ?? date
-        return calendar.date(bySettingHour: 23, minute: 59, second: 0, of: targetDay) ?? targetDay
-    }
-
-    private func deadlinePreset(for deadline: Date, relativeTo date: Date) -> TaskDeadlinePreset {
-        let calendar = Calendar.current
-        let startOfToday = calendar.startOfDay(for: date)
-        let startOfDeadline = calendar.startOfDay(for: deadline)
-        let days = calendar.dateComponents([.day], from: startOfToday, to: startOfDeadline).day ?? 0
-
-        if days <= 0 { return .today }
-        if days == 1 { return .tomorrow }
-        return .thisWeekend
-    }
-
     private func deadlineDisplayText(_ deadline: Date, relativeTo date: Date = .now) -> String {
-        let calendar = Calendar.current
-        let startOfToday = calendar.startOfDay(for: date)
-        let startOfDeadline = calendar.startOfDay(for: deadline)
-        let days = calendar.dateComponents([.day], from: startOfToday, to: startOfDeadline).day
-
-        switch days {
-        case 0:
-            return L10n.text("今日", english: "Today")
-        case 1:
-            return L10n.text("明日", english: "Tomorrow")
-        default:
-            return L10n.monthAndDay(deadline)
-        }
+        DeadlineDateOptions.displayText(for: deadline, relativeTo: date)
     }
 
     private var pendingTasks: [TaskContract] {

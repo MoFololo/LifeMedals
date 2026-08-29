@@ -121,7 +121,7 @@ test("health identifies the deployed Worker release", async () => {
   const body = await response.json();
 
   assert.equal(response.status, 200);
-  assert.equal(body.release, "2026-08-27-supportive-evidence-1");
+  assert.equal(body.release, "2026-08-28-relevant-effort-auto-verify-1");
   assert.equal(body.monsterServiceConfigured, false);
   assert.equal(response.headers.get("X-LifeMedals-Release"), body.release);
 });
@@ -153,6 +153,9 @@ test("builds a stateless vision request for task generation", () => {
   assert.match(request.input[0].content[1].image_url, /^data:image\/jpeg;base64,/);
   assert.match(request.instructions, /extract every independent executable action/);
   assert.match(request.instructions, /heading such as Next Steps.*not a child task/);
+  assert.match(request.instructions, /Preserve explicit dates exactly/);
+  assert.match(request.instructions, /same calendar date one month later/);
+  assert.equal("deadline_preset" in request.text.format.schema.properties, false);
   assert.match(request.instructions, /own objective, lightweight evidence requirement/);
   assert.match(request.instructions, /names, email addresses, phone numbers/);
   assert.match(request.instructions, /never cause redaction, omission, refusal/);
@@ -195,7 +198,7 @@ test("allows visible personal information during evidence verification", () => {
   assert.match(request.instructions, /printed name is visible text, not biometric identification/i);
 });
 
-test("treats a confirmed scheduled email as completed without accepting a draft", () => {
+test("treats drafts, scheduled emails, and sent emails as task-related effort", () => {
   const generationRequest = buildTaskGenerationOpenAIRequest(
     {
       text: "Write and send my professor an email tomorrow morning.",
@@ -215,11 +218,11 @@ test("treats a confirmed scheduled email as completed without accepting a draft"
 
   assert.match(generationRequest.instructions, /confirmed scheduled-send state/i);
   assert.match(generationRequest.instructions, /Never invent or require a formal application page/i);
-  assert.match(verificationRequest.instructions, /confirmed scheduled send counts as completed and is equivalent to sent/i);
-  assert.match(verificationRequest.instructions, /scheduled time is in the future/i);
-  assert.match(verificationRequest.instructions, /visible conversation context/i);
-  assert.match(verificationRequest.instructions, /attached resume/i);
-  assert.match(verificationRequest.instructions, /clearly unsent draft with no other completion signal is not enough/i);
+  assert.match(verificationRequest.instructions, /visible email conversation, draft, sent message, scheduled message/i);
+  assert.match(verificationRequest.instructions, /task-related effort and must be verified/i);
+  assert.match(verificationRequest.instructions, /writing, drafting, scheduling, or sending/i);
+  assert.match(verificationRequest.instructions, /Do not require proof of recipient, content, delivery, timing, or sent status/i);
+  assert.doesNotMatch(verificationRequest.instructions, /unsent draft.*not enough/i);
 });
 
 test("generate-task forwards the source image without storing response state", async (t) => {
@@ -299,12 +302,21 @@ test("builds a supportive vision request using title-or-criterion verification",
   assert.match(request.input[0].content[0].text, /TASK_TITLE\n完成两道 LeetCode/);
   assert.match(request.input[0].content[0].text, /ACCEPTANCE_CRITERION\n提交显示两道题均为 Accepted 的截图。/);
   assert.doesNotMatch(request.input[0].content[0].text, /EXPECTED_IMAGE_COUNT/);
-  assert.match(request.instructions, /two independent paths to success/i);
-  assert.match(request.instructions, /either path/i);
+  assert.match(request.instructions, /PRIMARY DECISION RULE/i);
+  assert.match(request.instructions, /matching either one is enough/i);
+  assert.match(request.instructions, /any work, effort, activity, artifact, attempt, partial progress/i);
+  assert.match(request.instructions, /Assume the user finished any unseen remainder/i);
+  assert.match(request.instructions, /only Today and Tomorrow is verified/i);
+  assert.match(request.instructions, /criterion asks to show an ordinary date beyond/i);
   assert.match(request.instructions, /machine-learning notes/i);
   assert.match(request.instructions, /RA or job application performed by email/i);
   assert.match(request.instructions, /Never demand a formal application page/i);
   assert.match(request.instructions, /Any 1 to 5 submitted images/i);
+  assert.match(request.instructions, /so blurry, dark, blank, blocked, or unreadable/i);
+  assert.match(request.instructions, /every submitted image is clearly unrelated/i);
+  assert.doesNotMatch(request.instructions, /materially contradict completion/i);
+  assert.doesNotMatch(request.instructions, /clearly show the task remains incomplete/i);
+  assert.doesNotMatch(request.instructions, /unsent draft with no other completion signal is not enough/i);
   assert.equal(request.input[0].content[1].type, "input_image");
   assert.match(request.input[0].content[1].image_url, /^data:image\/jpeg;base64,/);
   assert.deepEqual(
@@ -341,8 +353,8 @@ test("validates task contracts without requiring a photo plan", () => {
     true,
   );
   assert.equal(
-    isTaskContract({ ...baseContract, deadline_preset: "next_weekend" }),
-    false,
+    isTaskContract((({ deadline_preset: _, ...contract }) => contract)(baseContract)),
+    true,
   );
   assert.equal(
     isTaskContract({ ...baseContract, estimated_hours: 0.1 }),
