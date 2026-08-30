@@ -60,4 +60,21 @@ final class DeadlineDateOptionsTests: XCTestCase {
         XCTAssertEqual(calendar.component(.month, from: normalized), 9)
         XCTAssertEqual(calendar.component(.day, from: normalized), 21)
     }
+
+    func testTomorrowDoesNotAlsoShowThisWeekend() throws {
+        let saturday = try XCTUnwrap(
+            calendar.date(from: DateComponents(year: 2026, month: 8, day: 29, hour: 12))
+        )
+        let sunday = try XCTUnwrap(
+            calendar.date(from: DateComponents(year: 2026, month: 8, day: 30, hour: 23, minute: 59))
+        )
+
+        let labels = DeadlineDateOptions.relativeLabels(
+            for: sunday,
+            relativeTo: saturday,
+            calendar: calendar
+        )
+
+        XCTAssertEqual(labels, [L10n.text("明天", english: "Tomorrow")])
+    }
 }

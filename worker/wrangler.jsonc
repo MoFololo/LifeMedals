@@ -54,7 +54,7 @@
 				"GLOBAL_REQUESTS_PER_MINUTE": "20",
 				"MONTHLY_REQUEST_BUDGET": "500",
 				"MONSTER_IMAGES_PER_MINUTE": "2",
-				"MONTHLY_MONSTER_IMAGE_BUDGET": "20"
+				"MONTHLY_MONSTER_IMAGE_BUDGET": "100"
 			},
 			"durable_objects": {
 				"bindings": [

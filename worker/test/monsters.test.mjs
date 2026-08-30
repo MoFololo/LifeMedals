@@ -5,6 +5,7 @@ import {
   buildMonsterConceptOpenAIRequest,
   buildMonsterPrompt,
   buildSpeciesId,
+  classifyMonsterImageReservationRejection,
   decodeImageBase64,
   handleMonsterAsset,
   isCurrentMonsterConcept,
@@ -71,6 +72,24 @@ test("validates queue messages with a bounded level and style", () => {
     () => validateQueueMessage({ speciesId: crypto.randomUUID(), targetLevel: 1, styleVersion: "pixel-v1" }),
     /Invalid queue message/,
   );
+});
+
+test("retries temporary image reservation failures but stops at the monthly ceiling", () => {
+  assert.deepEqual(classifyMonsterImageReservationRejection({ reason: "rate_limited" }), {
+    status: 429,
+    code: "image_rate_limited",
+    retryable: true,
+  });
+  assert.deepEqual(classifyMonsterImageReservationRejection({ reason: "protection_unavailable" }), {
+    status: 503,
+    code: "image_budget_unavailable",
+    retryable: true,
+  });
+  assert.deepEqual(classifyMonsterImageReservationRejection({ reason: "budget_exhausted" }), {
+    status: 503,
+    code: "image_budget_exhausted",
+    retryable: false,
+  });
 });
 
 test("builds categorized species IDs from the simplest English description", () => {

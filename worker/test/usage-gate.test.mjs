@@ -121,7 +121,7 @@ test("health identifies the deployed Worker release", async () => {
   const body = await response.json();
 
   assert.equal(response.status, 200);
-  assert.equal(body.release, "2026-08-28-relevant-effort-auto-verify-1");
+  assert.equal(body.release, "2026-08-30-monster-image-budget-recovery-1");
   assert.equal(body.monsterServiceConfigured, false);
   assert.equal(response.headers.get("X-LifeMedals-Release"), body.release);
 });

@@ -21,6 +21,11 @@ const SPECIES_ID_PATTERN = /^species-(?:solver|builder|career|athlete|life)-[a-z
 const ENGLISH_ALIAS_PATTERN = /^[a-z0-9]+(?:[ _-][a-z0-9]+)*$/;
 const BADGE_KINDS = new Set(["Solver", "Builder", "Career", "Athlete", "Life"]);
 const VARIANT_STATUSES = new Set(["pending", "generating", "ready", "failed"]);
+const IMAGE_RESERVATION_FAILURE_CODES = new Set([
+  "image_budget_exhausted",
+  "image_rate_limited",
+  "image_budget_unavailable",
+]);
 const ATHLETE_TAG_RULES = [
   { tag: "sports.basketball", keywords: ["basketball", "hoops", "篮球"] },
   { tag: "sports.baseball", keywords: ["baseball", "棒球"] },
@@ -466,20 +471,17 @@ export async function processMonsterGeneration(rawMessage, env) {
 
     const budget = await reserveMonsterImageBudget(env);
     if (!budget.allowed) {
-      await failVariant(
-        env.MONSTER_DB,
-        current.id,
-        budget.reason === "budget_exhausted"
-          ? "image_budget_exhausted"
-          : "image_budget_unavailable",
-      );
+      const rejection = classifyMonsterImageReservationRejection(budget);
+      if (rejection.retryable) {
+        await resetVariantPending(env.MONSTER_DB, current.id, rejection.code);
+      } else {
+        await failVariant(env.MONSTER_DB, current.id, rejection.code);
+      }
       throw new MonsterServiceError(
-        503,
-        budget.reason === "budget_exhausted"
-          ? "image_budget_exhausted"
-          : "image_budget_unavailable",
+        rejection.status,
+        rejection.code,
         "Monster image generation is unavailable under the current budget.",
-        false,
+        rejection.retryable,
       );
     }
 
@@ -550,7 +552,7 @@ export async function processMonsterGeneration(rawMessage, env) {
   } catch (error) {
     if (error instanceof MonsterLeaseBusyError) throw error;
     const serviceError = normalizeServiceError(error);
-    if (!new Set(["image_budget_exhausted", "image_budget_unavailable"]).has(serviceError.code)) {
+    if (!IMAGE_RESERVATION_FAILURE_CODES.has(serviceError.code)) {
       await failVariant(env.MONSTER_DB, current.id, serviceError.code);
     }
     throw serviceError;
@@ -585,6 +587,28 @@ export function validateEnsureMonsterInput(body) {
       badgeKind: body.badge_kind,
       level: body.level,
     },
+  };
+}
+
+export function classifyMonsterImageReservationRejection(reservation) {
+  if (reservation?.reason === "budget_exhausted") {
+    return {
+      status: 503,
+      code: "image_budget_exhausted",
+      retryable: false,
+    };
+  }
+  if (reservation?.reason === "rate_limited") {
+    return {
+      status: 429,
+      code: "image_rate_limited",
+      retryable: true,
+    };
+  }
+  return {
+    status: 503,
+    code: "image_budget_unavailable",
+    retryable: true,
   };
 }
 

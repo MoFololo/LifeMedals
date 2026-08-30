@@ -59,17 +59,16 @@ enum DeadlineDateOptions {
         let weekday = calendar.component(.weekday, from: today)
         let weekend = calendar.date(byAdding: .day, value: (8 - weekday) % 7, to: today) ?? today
 
-        var labels: [String] = []
         if selectedDay == today {
-            labels.append(L10n.text("今天", english: "Today"))
+            return [L10n.text("今天", english: "Today")]
         }
         if selectedDay == tomorrow {
-            labels.append(L10n.text("明天", english: "Tomorrow"))
+            return [L10n.text("明天", english: "Tomorrow")]
         }
         if selectedDay == weekend {
-            labels.append(L10n.text("这周末", english: "This Weekend"))
+            return [L10n.text("这周末", english: "This Weekend")]
         }
-        return labels
+        return []
     }
 
     static func displayText(
