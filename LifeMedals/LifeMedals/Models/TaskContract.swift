@@ -24,7 +24,7 @@ enum TaskHierarchyRole: String, Codable {
     case child
 }
 
-/// 任务契约：标题、截止时间、锁定的验收标准、所属勋章、XP 奖励和状态。
+/// 任务契约：标题、任务说明、截止时间、内部核验依据、所属勋章、XP 奖励和状态。
 ///
 /// - Important: `evidenceRequirement` 一旦用户确认任务，即为锁定值；
 ///   核验时它与任务标题分别构成可独立通过的判断依据。
@@ -32,6 +32,8 @@ enum TaskHierarchyRole: String, Codable {
 final class TaskContract {
     var id: UUID = UUID()
     var title: String = ""
+    /// User-facing context. Optional storage keeps existing local stores migration-compatible.
+    var taskDescription: String?
     var deadline: Date = Date.now
     var evidenceRequirement: String = ""
     /// Optional backing values keep existing local stores lightweight-migration compatible.
@@ -121,6 +123,7 @@ final class TaskContract {
     init(
         id: UUID = UUID(),
         title: String,
+        taskDescription: String? = nil,
         deadline: Date,
         evidenceRequirement: String,
         evidenceImageCount: Int = 1,
@@ -143,6 +146,7 @@ final class TaskContract {
     ) {
         self.id = id
         self.title = title
+        self.taskDescription = taskDescription
         self.deadline = deadline
         self.evidenceRequirement = evidenceRequirement
         self.evidenceImageCount = min(max(evidenceImageCount, 1), 5)

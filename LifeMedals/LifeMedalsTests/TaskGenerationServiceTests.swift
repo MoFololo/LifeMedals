@@ -35,6 +35,7 @@ final class TaskGenerationServiceTests: XCTestCase {
         {
           "kind":"single_task",
           "title":"Submit the application",
+          "description":"Use the application link provided by the user.",
           "deadline":"2026-08-30T23:59:00-04:00",
           "evidence_requirement":"Show the submission confirmation.",
           "suggested_badge":"Career",
@@ -47,6 +48,7 @@ final class TaskGenerationServiceTests: XCTestCase {
 
         XCTAssertNil(contract.deadlinePreset)
         XCTAssertNotNil(contract.parsedDeadline)
+        XCTAssertEqual(contract.taskDescription, "Use the application link provided by the user.")
     }
 
     func testTwoValidActionsCreateTaskGroup() throws {
@@ -124,6 +126,25 @@ final class TaskGenerationServiceTests: XCTestCase {
         XCTAssertEqual(contract.children.map(\.monsterTag), ["coding.leetcode", "communication.send_email"])
     }
 
+    func testGeneratedTitlesAreLimitedByLanguage() throws {
+        let english = try decode(#"""
+        {
+          "kind":"single_task",
+          "title":"Write and send the detailed quarterly project status email today",
+          "description":"Include milestones, risks, and next steps.",
+          "deadline":"2026-08-25T23:59:00-04:00",
+          "evidence_requirement":"Show the email draft.",
+          "suggested_badge":"Career",
+          "estimated_hours":1,
+          "monster_tag":"communication.send_email",
+          "monster_match_kind":"existing",
+          "children":[]
+        }
+        """#)
+        XCTAssertEqual(english.title, "Write and send the detailed quarterly project status")
+        XCTAssertEqual(TaskTitleRules.limited("完成今天课程要求的全部十二道练习题"), "完成今天课程要求的全部十")
+    }
+
     private func decode(_ json: String) throws -> GeneratedTaskContract {
         try JSONDecoder().decode(GeneratedTaskContract.self, from: Data(json.utf8))
     }
@@ -133,6 +154,7 @@ final class TaskGenerationServiceTests: XCTestCase {
         {
           "kind":"task_group",
           "title":"Complete all Next Steps",
+          "description":"Complete every listed action.",
           "deadline":"2026-08-25T23:59:00-04:00",
           "deadline_preset":"tomorrow",
           "evidence_requirement":"",
@@ -153,6 +175,7 @@ final class TaskGenerationServiceTests: XCTestCase {
         """
         {
           "title":"\(title)",
+          "description":"Details for \(title).",
           "evidence_requirement":"\(requirement)",
           "evidence_image_count":1,
           "evidence_image_descriptions":["Completion result"],

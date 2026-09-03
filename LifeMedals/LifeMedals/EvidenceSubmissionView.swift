@@ -181,12 +181,6 @@ struct EvidenceSubmissionView: View {
         VStack(alignment: .leading, spacing: 5) {
             Label("证据核验", systemImage: "photo.on.rectangle.angled")
                 .font(PixelTheme.font(.headline))
-            Text("图片副本压缩后保存在本机；只有点击提交后才会发送核验。")
-                .font(PixelTheme.font(.caption))
-                .foregroundStyle(PixelTheme.inkMuted)
-            Text("提交 1–5 张即可；照片只需合理说明任务已经完成。")
-                .font(PixelTheme.font(.caption))
-                .foregroundStyle(PixelTheme.inkMuted)
         }
     }
 
@@ -314,7 +308,7 @@ struct EvidenceSubmissionView: View {
                 HStack(spacing: 9) {
                     ProgressView()
                         .controlSize(.small)
-                    Text("本地副本已保存，正在结合任务标题和验收标准核验…")
+                    Text("正在核验任务证据…")
                         .font(PixelTheme.font(.caption))
                         .foregroundStyle(PixelTheme.inkMuted)
                 }

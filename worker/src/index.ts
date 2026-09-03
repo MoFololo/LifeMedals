@@ -10,6 +10,7 @@ const OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses";
 const MAX_TASK_REQUEST_BYTES = 2 * 1024 * 1024;
 const MAX_EVIDENCE_REQUEST_BYTES = 8 * 1024 * 1024;
 const MAX_TASK_TEXT_LENGTH = 1_000;
+const MAX_TASK_DESCRIPTION_LENGTH = 1_000;
 const MAX_EVIDENCE_REQUIREMENT_LENGTH = 2_000;
 const MAX_EVIDENCE_IMAGES = 5;
 const MAX_IMAGE_BASE64_LENGTH = 1_800_000;
@@ -33,8 +34,13 @@ const TASK_CHILD_SCHEMA = {
     title: {
       type: "string",
       minLength: 1,
-      maxLength: 120,
-      description: "One independent, executable action. Preserve important resource names.",
+      maxLength: 80,
+      description: "A very concise action title: at most 12 characters when Chinese, or 8 words when English.",
+    },
+    description: {
+      type: "string",
+      maxLength: MAX_TASK_DESCRIPTION_LENGTH,
+      description: "A concise summary of the user's concrete details, constraints, resources, and context that do not fit in the title. Empty only when no extra detail was provided.",
     },
     evidence_requirement: {
       type: "string",
@@ -56,6 +62,7 @@ const TASK_CHILD_SCHEMA = {
   },
   required: [
     "title",
+    "description",
     "evidence_requirement",
     "estimated_hours",
     "monster_tag",
@@ -75,8 +82,13 @@ const TASK_CONTRACT_SCHEMA = {
     title: {
       type: "string",
       minLength: 1,
-      maxLength: 120,
-      description: "A concise task title in the same language as the user input.",
+      maxLength: 80,
+      description: "A very concise task title in the user's language: at most 12 characters when Chinese, or 8 words when English.",
+    },
+    description: {
+      type: "string",
+      maxLength: MAX_TASK_DESCRIPTION_LENGTH,
+      description: "A concise summary of detailed content supplied by the user or source image. Keep specifics here instead of making the title long.",
     },
     deadline: {
       type: "string",
@@ -124,6 +136,7 @@ const TASK_CONTRACT_SCHEMA = {
   required: [
     "kind",
     "title",
+    "description",
     "deadline",
     "evidence_requirement",
     "suggested_badge",
@@ -411,6 +424,7 @@ export default {
       );
     }
 
+    contract = normalizeGeneratedTaskText(contract);
     contract = await normalizeGeneratedTaskMonsters(contract, env);
 
     if (!isTaskContract(contract)) {
@@ -917,6 +931,8 @@ export function buildTaskGenerationOpenAIRequest(body, model = DEFAULT_MODEL) {
       "Omit actions visibly marked complete. If all visible actions are complete or the source is purely informational, create one practical review task rather than an empty group.",
       "Use the optional user note to disambiguate the visible actions, without inventing facts that are not in the note or image.",
       "Preserve the user's intent and write the title and evidence requirement in the user's language. With image-only input, use the language implied by the locale.",
+      "Write every title as a very short action label. A Chinese title must contain at most 12 non-whitespace characters. An English title must contain at most 8 words. Apply the same limit to the task-group title and every child title.",
+      "Never pack the user's detailed content into the title. Summarize concrete details, constraints, named resources, conditions, and useful context in description. If the source has multiple actions, give the group a concise overall description and give each child its own relevant description. Use an empty description only when the user truly supplied no additional detail.",
       "Infer one concrete calendar deadline from the user's words. Preserve explicit dates exactly: for example, 'by August 30' means August 30, not the nearest preset.",
       "Interpret relative dates using the supplied current time and timezone: today is the user's current local date, tomorrow is the following local date, and this weekend is the coming Sunday (including today when today is Sunday).",
       "The selectable deadline window is inclusive from the user's local date through the same calendar date one month later. Clamp an explicit date outside that window to the nearest selectable boundary. If no deadline is stated, choose the most reasonable date within the window, usually tomorrow or this weekend.",
@@ -1146,7 +1162,9 @@ export function isTaskContract(value) {
     new Set(["single_task", "task_group"]).has(value.kind) &&
     typeof value.title === "string" &&
     value.title.length > 0 &&
-    value.title.length <= 120 &&
+    isValidTaskTitle(value.title) &&
+    typeof value.description === "string" &&
+    value.description.length <= MAX_TASK_DESCRIPTION_LENGTH &&
     typeof value.deadline === "string" &&
     Number.isFinite(Date.parse(value.deadline)) &&
     /(?:[zZ]|[+-]\d{2}:\d{2})$/.test(value.deadline) &&
@@ -1185,7 +1203,9 @@ function isTaskChild(value) {
     isPlainObject(value) &&
     typeof value.title === "string" &&
     value.title.trim().length > 0 &&
-    value.title.length <= 120 &&
+    isValidTaskTitle(value.title) &&
+    typeof value.description === "string" &&
+    value.description.length <= MAX_TASK_DESCRIPTION_LENGTH &&
     isTaskEvidencePlan(value) &&
     isMonsterDescriptor(value) &&
     typeof value.estimated_hours === "number" &&
@@ -1194,6 +1214,55 @@ function isTaskChild(value) {
     value.estimated_hours <= 8 &&
     Math.round(value.estimated_hours * 4) === value.estimated_hours * 4
   );
+}
+
+function normalizeGeneratedTaskText(contract) {
+  if (!isPlainObject(contract)) return contract;
+  contract.title = normalizeTaskTitle(contract.title);
+  contract.description = normalizeTaskDescription(contract.description);
+  if (Array.isArray(contract.children)) {
+    contract.children = contract.children.map((child) => {
+      if (!isPlainObject(child)) return child;
+      return {
+        ...child,
+        title: normalizeTaskTitle(child.title),
+        description: normalizeTaskDescription(child.description),
+      };
+    });
+  }
+  return contract;
+}
+
+function normalizeTaskDescription(value) {
+  return typeof value === "string"
+    ? Array.from(value.trim()).slice(0, MAX_TASK_DESCRIPTION_LENGTH).join("")
+    : "";
+}
+
+function normalizeTaskTitle(value) {
+  if (typeof value !== "string") return value;
+  const trimmed = value.replace(/\s+/g, " ").trim();
+  if (containsHanCharacter(trimmed)) {
+    let count = 0;
+    return Array.from(trimmed).filter((character) => {
+      if (/\s/u.test(character)) return true;
+      count += 1;
+      return count <= 12;
+    }).join("").trim();
+  }
+  return trimmed.split(/\s+/u).slice(0, 8).join(" ");
+}
+
+function isValidTaskTitle(value) {
+  if (typeof value !== "string" || value.trim().length === 0) return false;
+  if (containsHanCharacter(value)) {
+    return Array.from(value).filter((character) => !/\s/u.test(character)).length <= 12;
+  }
+  return value.trim().split(/\s+/u).length <= 8;
+}
+
+function containsHanCharacter(value) {
+  return /\p{Script=Han}/u.test(value);
 }
 
 function isMonsterDescriptor(value) {

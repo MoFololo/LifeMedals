@@ -93,7 +93,10 @@ struct TaskNotificationService: Sendable {
         let content = UNMutableNotificationContent()
         content.title = L10n.text("任务截止提醒")
         content.subtitle = L10n.text(reminder.title)
-        content.body = L10n.text("任务契约已到截止时间，回来查看验收标准并提交完成证据。")
+        content.body = L10n.text(
+            "任务已到截止时间，回来查看任务说明并提交完成证据。",
+            english: "Your task has reached its deadline. Review the description and submit completion evidence."
+        )
         content.sound = .default
         content.userInfo = ["taskID": reminder.taskID.uuidString]
 

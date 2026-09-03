@@ -235,6 +235,7 @@ test("generate-task forwards the source image without storing response state", a
       output_text: JSON.stringify({
         kind: "single_task",
         title: "报名校园摄影社",
+        description: "根据海报要求完成校园摄影社报名。",
         deadline: "2026-08-24T23:59:00-04:00",
         deadline_preset: "tomorrow",
         evidence_requirement: "提交报名成功页面截图。",
@@ -329,6 +330,7 @@ test("validates task contracts without requiring a photo plan", () => {
   const baseContract = {
     kind: "single_task",
     title: "完成两道 LeetCode",
+    description: "完成两道指定难度的题目。",
     deadline: "2026-08-01T22:00:00+08:00",
     deadline_preset: "this_weekend",
     evidence_requirement: "提交两道题均为 Accepted 的截图。",
@@ -368,11 +370,20 @@ test("validates task contracts without requiring a photo plan", () => {
     isTaskContract({ ...baseContract, estimated_hours: 1.1 }),
     false,
   );
+  assert.equal(
+    isTaskContract({ ...baseContract, title: "这是一个超过十二个字的中文任务标题" }),
+    false,
+  );
+  assert.equal(
+    isTaskContract({ ...baseContract, title: "This task title contains more than eight English words total" }),
+    false,
+  );
 });
 
 test("validates task groups and requires child-specific acceptance criteria", () => {
   const child = (title) => ({
     title,
+    description: `Details for ${title}.`,
     evidence_requirement: `Show completion of ${title}.`,
     estimated_hours: 0.25,
     monster_tag: "study.learning",
@@ -381,6 +392,7 @@ test("validates task groups and requires child-specific acceptance criteria", ()
   const group = {
     kind: "task_group",
     title: "Complete all Next Steps",
+    description: "Finish the listed follow-up actions.",
     deadline: "2026-08-25T23:59:00-04:00",
     deadline_preset: "tomorrow",
     evidence_requirement: "",

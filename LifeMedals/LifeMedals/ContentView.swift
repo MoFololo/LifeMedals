@@ -136,6 +136,7 @@ struct ContentView: View {
     private struct TaskChildDraft: Identifiable {
         let id = UUID()
         var title: String
+        var taskDescription: String
         var evidenceRequirement: String
         var evidenceImageCount: Int
         var evidenceImageDescriptions: [String]
@@ -145,6 +146,7 @@ struct ContentView: View {
 
         init(_ child: GeneratedTaskChild) {
             title = child.title
+            taskDescription = child.taskDescription
             evidenceRequirement = child.evidenceRequirement
             evidenceImageCount = child.evidenceImageCount
             evidenceImageDescriptions = child.evidenceImageDescriptions
@@ -424,6 +426,7 @@ struct ContentView: View {
     @FocusState private var isTaskInputFocused: Bool
 
     @State private var draftTitle = ""
+    @State private var draftTaskDescription = ""
     @State private var draftDeadline = DeadlineDateOptions.defaultSelection()
     @State private var draftEvidenceRequirement = ""
     @State private var draftEvidenceImageCount = 1
@@ -987,6 +990,8 @@ struct ContentView: View {
                         }
                     }
 
+                    taskDescriptionContractField
+
                     if isCompactLayout {
                         VStack(alignment: .leading, spacing: 18) {
                             badgeContractField
@@ -1041,9 +1046,18 @@ struct ContentView: View {
                                                 .textFieldStyle(.plain)
                                                 .font(PixelTheme.font(.headline))
                                                 .lineLimit(1...3)
+                                                .onChange(of: child.title) { _, newValue in
+                                                    if !newValue.isEmpty, !TaskTitleRules.isValid(newValue) {
+                                                        child.title = TaskTitleRules.limited(newValue)
+                                                    }
+                                                }
                                         }
 
-                                        TextField("该子任务的验收标准", text: $child.evidenceRequirement, axis: .vertical)
+                                        Text(TaskTitleRules.limitDescription(for: child.title))
+                                            .font(PixelTheme.font(.caption2))
+                                            .foregroundStyle(PixelTheme.inkMuted)
+
+                                        TextField("任务说明（可选）", text: $child.taskDescription, axis: .vertical)
                                             .textFieldStyle(.plain)
                                             .font(PixelTheme.font(.subheadline))
                                             .foregroundStyle(PixelTheme.inkMuted)
@@ -1077,10 +1091,6 @@ struct ContentView: View {
                             VStack(alignment: .leading, spacing: 10) {
                                 Label("完成时可提交 1–5 张照片", systemImage: "photo.stack")
                                     .font(PixelTheme.font(.subheadline, weight: .semibold))
-                                Text("一张照片就能提交，也可以补充更多角度；不要求固定页面或逐张对应。")
-                                    .font(PixelTheme.font(.subheadline))
-                                    .foregroundStyle(PixelTheme.inkMuted)
-                                    .fixedSize(horizontal: false, vertical: true)
                             }
                             .padding(14)
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -1135,8 +1145,8 @@ struct ContentView: View {
             Text(
                 isDraftTaskGroup
                     ? L10n.text(
-                        "已识别 \(draftChildren.count) 项；确认主任务与每项验收标准后即可保存。",
-                        english: "\(draftChildren.count) actions found. Review the group and each acceptance criterion before saving."
+                        "已识别 \(draftChildren.count) 项；确认主任务与每项任务说明后即可保存。",
+                        english: "\(draftChildren.count) actions found. Review the group and each task description before saving."
                     )
                     : L10n.text(
                         "确认截止日期和证据照片后，即可开始执行。",
@@ -1171,6 +1181,32 @@ struct ContentView: View {
                 .padding(14)
                 .background(PixelTheme.paperRaised, in: PixelCornerShape())
                 .overlay { PixelCornerShape().stroke(PixelTheme.gold.opacity(0.62), lineWidth: 1) }
+                .onChange(of: draftTitle) { _, newValue in
+                    if !newValue.isEmpty, !TaskTitleRules.isValid(newValue) {
+                        draftTitle = TaskTitleRules.limited(newValue)
+                    }
+                }
+
+            Text(TaskTitleRules.limitDescription(for: draftTitle))
+                .font(PixelTheme.font(.caption2))
+                .foregroundStyle(PixelTheme.inkMuted)
+        }
+    }
+
+    private var taskDescriptionContractField: some View {
+        contractField(L10n.text("任务说明", english: "Task description")) {
+            TextField(
+                L10n.text("补充任务的具体内容（可选）", english: "Add task details (optional)"),
+                text: $draftTaskDescription,
+                axis: .vertical
+            )
+            .textFieldStyle(.plain)
+            .font(PixelTheme.font(.body))
+            .lineLimit(3...7)
+            .frame(maxWidth: .infinity)
+            .padding(14)
+            .background(PixelTheme.paperRaised, in: PixelCornerShape())
+            .overlay { PixelCornerShape().stroke(PixelTheme.gold.opacity(0.62), lineWidth: 1) }
         }
     }
 
@@ -1819,50 +1855,20 @@ struct ContentView: View {
                 }
 
                 VStack(alignment: .leading, spacing: 14) {
-                    HStack {
-                        Label("验收标准", systemImage: "doc.text.magnifyingglass")
-                            .font(PixelTheme.displayFont(size: 17))
-                            .foregroundStyle(PixelTheme.ink)
-                        Spacer()
-                        Label("已锁定", systemImage: "lock.fill")
-                            .font(PixelTheme.font(.caption, weight: .semibold))
-                            .foregroundStyle(PixelTheme.inkMuted)
-                            .padding(.horizontal, 11)
-                            .padding(.vertical, 7)
-                            .background(PixelTheme.paper, in: PixelCornerShape(step: 2))
-                            .overlay { PixelCornerShape(step: 2).stroke(PixelTheme.gold.opacity(0.7), lineWidth: 1) }
-                    }
-
-                    Text(L10n.text(task.evidenceRequirement))
-                        .font(PixelTheme.font(.body))
+                    Label("任务说明", systemImage: "text.alignleft")
+                        .font(PixelTheme.displayFont(size: 17))
                         .foregroundStyle(PixelTheme.ink)
+
+                    Text(task.taskDescription?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+                         ? task.taskDescription!
+                         : L10n.text("未添加任务说明", english: "No task description"))
+                        .font(PixelTheme.font(.body))
+                        .foregroundStyle(task.taskDescription?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+                                         ? PixelTheme.ink
+                                         : PixelTheme.inkMuted)
                         .lineSpacing(5)
                         .textSelection(.enabled)
                         .fixedSize(horizontal: false, vertical: true)
-
-                    Divider()
-                        .opacity(0.45)
-
-                    VStack(alignment: .leading, spacing: 8) {
-                        Label("可提交 1–5 张照片", systemImage: "photo.stack")
-                            .font(PixelTheme.font(.subheadline, weight: .semibold))
-                        Text("一张即可提交；证据只需能从任务标题或验收标准中的任一方向合理说明完成情况。")
-                            .font(PixelTheme.font(.subheadline))
-                            .foregroundStyle(PixelTheme.inkMuted)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-
-                    Divider()
-                        .opacity(0.45)
-
-                    Text(
-                        L10n.text(
-                            "创建于 \(L10n.date(task.createdAt, dateStyle: .long, timeStyle: .short))",
-                            english: "Created \(L10n.date(task.createdAt, dateStyle: .long, timeStyle: .short))"
-                        )
-                    )
-                        .font(PixelTheme.font(.caption))
-                        .foregroundStyle(PixelTheme.inkMuted.opacity(0.72))
                 }
                 .padding(22)
                 .pixelSurface(fill: PixelTheme.paperRaised, border: PixelTheme.gold, step: 4, hasShadow: true)
@@ -2356,6 +2362,7 @@ struct ContentView: View {
                 }
 
                 draftTitle = contract.title
+                draftTaskDescription = contract.taskDescription
                 draftDeadline = DeadlineDateOptions.normalized(deadline, relativeTo: .now)
                 draftEvidenceRequirement = contract.evidenceRequirement
                 draftEvidenceImageCount = contract.evidenceImageCount
@@ -2391,10 +2398,10 @@ struct ContentView: View {
         let requirement = draftEvidenceRequirement.trimmingCharacters(in: .whitespacesAndNewlines)
         let wasTaskGroup = isDraftTaskGroup
         guard
-            !title.isEmpty,
+            TaskTitleRules.isValid(title),
             (isDraftTaskGroup || !requirement.isEmpty),
             draftChildren.allSatisfy({
-                !$0.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+                TaskTitleRules.isValid($0.title) &&
                     !$0.evidenceRequirement.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             })
         else { return }
@@ -2423,6 +2430,7 @@ struct ContentView: View {
             if wasTaskGroup {
                 let parent = TaskContract(
                     title: title,
+                    taskDescription: draftTaskDescription.trimmingCharacters(in: .whitespacesAndNewlines),
                     deadline: deadline,
                     evidenceRequirement: "",
                     evidenceImageCount: 1,
@@ -2444,6 +2452,7 @@ struct ContentView: View {
                     let snapshot = draftMonsterSnapshot(for: draft.id.uuidString)
                     return TaskContract(
                         title: draft.title.trimmingCharacters(in: .whitespacesAndNewlines),
+                        taskDescription: draft.taskDescription.trimmingCharacters(in: .whitespacesAndNewlines),
                         deadline: deadline,
                         evidenceRequirement: draft.evidenceRequirement.trimmingCharacters(in: .whitespacesAndNewlines),
                         evidenceImageCount: draft.evidenceImageCount,
@@ -2472,6 +2481,7 @@ struct ContentView: View {
                 let snapshot = draftMonsterSnapshot(for: "single")
                 let task = TaskContract(
                     title: title,
+                    taskDescription: draftTaskDescription.trimmingCharacters(in: .whitespacesAndNewlines),
                     deadline: deadline,
                     evidenceRequirement: requirement,
                     evidenceImageCount: draftEvidenceImageCount,
@@ -2501,6 +2511,7 @@ struct ContentView: View {
             draftSourceImageData = nil
             draftContractSourceImageData = nil
             draftChildren = []
+            draftTaskDescription = ""
             draftMonsterTag = nil
             draftMonsterMatchKind = nil
             draftMonsterPreviewStates = [:]
@@ -2961,7 +2972,8 @@ struct ContentView: View {
         case "account":
             isShowingSettings = true
         case "review":
-            draftTitle = "完成一次 30 分钟专注阅读"
+            draftTitle = "完成专注阅读"
+            draftTaskDescription = "专注阅读 30 分钟，并记录本次阅读的关键收获。"
             draftEvidenceRequirement = "提交计时结束页面，并确保阅读时长和书名清晰可见。"
             draftEvidenceImageCount = 2
             draftEvidenceImageDescriptions = ["计时结束页面", "本次阅读的书籍页面"]
@@ -2976,7 +2988,8 @@ struct ContentView: View {
                 modelContext.insert(userBadge)
             }
             let task = TaskContract(
-                title: "完成一次 30 分钟专注阅读并记录关键收获",
+                title: "完成专注阅读",
+                taskDescription: "专注阅读 30 分钟，并记录本次阅读的关键收获。",
                 deadline: .now.addingTimeInterval(86_400),
                 evidenceRequirement: "提交两张照片，分别证明专注时长和本次阅读内容。",
                 evidenceImageCount: 2,
@@ -3019,10 +3032,10 @@ struct ContentView: View {
     }
 
     private var canSaveDraft: Bool {
-        !draftTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+        TaskTitleRules.isValid(draftTitle) &&
             (isDraftTaskGroup || !draftEvidenceRequirement.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) &&
             (!isDraftTaskGroup || draftChildren.allSatisfy {
-                !$0.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+                TaskTitleRules.isValid($0.title) &&
                     !$0.evidenceRequirement.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             }) &&
             DeadlineDateOptions.normalized(draftDeadline, relativeTo: .now) > Date.now
@@ -3496,8 +3509,8 @@ private struct PixelEvidenceVerificationOverlay: View {
                         isCompleted
                             ? completionMessage
                             : L10n.text(
-                                "公会鉴定师正在结合标题与验收标准判断…",
-                                english: "The guild appraiser is checking the title and acceptance criterion…"
+                                "公会鉴定师正在核验任务证据…",
+                                english: "The guild appraiser is checking the task evidence…"
                             )
                     )
                         .font(PixelTheme.font(.subheadline))
