@@ -1,159 +1,205 @@
-# 怪物素材服务上线清单
+# Monster Service Deployment and Operations Runbook
 
-本文只描述让现有 iOS 怪物预览与图鉴真正获得图片所需的服务端工作。执行这些步骤会创建或修改 Cloudflare/OpenAI 资源；当前 iOS 实现没有代替你执行部署。
+This runbook covers the Cloudflare/OpenAI service that supplies generic monster artwork to the existing client. It does not store or process personal discovery state.
 
-## 1. 准备账号与密钥
+## Current environment status
 
-1. 在 OpenAI API 项目中确认组织已具备 GPT Image 使用资格，并启用账单与支出告警。
-2. 创建仅供 `lifemedals-api` 使用的 OpenAI API key。
-3. 在 `worker/` 中通过交互式命令保存 Secret，不要把值写入源码、`wrangler.jsonc`、shell 历史或 iOS：
+| Environment | API Worker | OpenAI and usage gate | D1/R2/Queue monster bindings | Status |
+| --- | --- | --- | --- | --- |
+| Staging | `lifemedals-api-staging` | Configured | Configured | Deployed; health returned 200 on 2026-09-03 |
+| Production | `lifemedals-api` | Configured by the base Worker setup | Not present in committed top-level config | Monster promotion pending |
 
-   ```bash
-   npx wrangler secret put OPENAI_API_KEY --env staging
-   ```
+The staging configuration currently names:
 
-GPT Image 2 官方资料：
+- D1: `lifemedals-monsters-staging`
+- R2: `lifemedals-monster-assets-staging`
+- Queue: `lifemedals-monster-generation-staging`
+- Dead-letter queue: `lifemedals-monster-generation-dlq-staging`
+- Style: `grotesque-pixel-v2`
+- Image prompt: `monster-image-v4`
+- Concept prompt: `monster-concept-v3`
+- Image model: `gpt-image-2`
 
-- <https://developers.openai.com/api/docs/models/gpt-image-2>
-- <https://developers.openai.com/api/docs/guides/image-generation>
+Resource identifiers already committed in `wrangler.jsonc` are configuration, not secrets. Never commit the OpenAI key or Cloudflare API credentials.
 
-## 2. 创建 Cloudflare 资源
+## 1. Prerequisites and secrets
 
-先登录正确的 Cloudflare 账号并确认 `npx wrangler whoami`。建议先建立 staging，再建立 production。以下名称可按环境加后缀：
+Use the correct Cloudflare account and an OpenAI project with GPT Image access, billing, and spending alerts.
 
 ```bash
 cd worker
-npx wrangler d1 create lifemedals-monsters --location enam --binding MONSTER_DB --update-config
-npx wrangler r2 bucket create lifemedals-monster-assets --location enam --binding MONSTER_ASSETS --update-config
-npx wrangler queues create lifemedals-monster-generation
-npx wrangler queues create lifemedals-monster-generation-dlq
+npx wrangler whoami
+npx wrangler secret put OPENAI_API_KEY --env staging
 ```
 
-在 `wrangler.jsonc` 中加入：
+Enter the secret only at Wrangler's interactive prompt. Do not place it in source, `wrangler.jsonc`, command arguments, shell history, iOS configuration, or logs.
 
-- D1 binding：`MONSTER_DB`
-- R2 binding：`MONSTER_ASSETS`
-- Queue producer：`MONSTER_GENERATION_QUEUE`
-- 同一个 Worker 的 Queue consumer，并配置 `max_retries` 与 dead-letter queue
-- `nodejs_compat`
-- Worker observability 与采样率
-- 非 Secret 版本值：`MONSTER_STYLE_VERSION=grotesque-pixel-v2`、`MONSTER_PROMPT_VERSION=monster-image-v4`、`MONSTER_CONCEPT_PROMPT_VERSION=monster-concept-v3`、`MONSTER_IMAGE_MODEL=gpt-image-2`
-
-Cloudflare 要求 Worker 通过 Wrangler bindings 访问 D1、R2 与 Queue，而不是在 Worker 内调用 Cloudflare 管理 REST API：
-
-- <https://developers.cloudflare.com/d1/worker-api/>
-- <https://developers.cloudflare.com/r2/api/workers/workers-api-reference/>
-- <https://developers.cloudflare.com/queues/configuration/configure-queues/>
-
-## 3. 建立 D1 schema 与种子分类
-
-创建 migration：
+Before production promotion, set the production secret separately:
 
 ```bash
-npx wrangler d1 migrations create lifemedals-monsters create_monster_catalog
+npx wrangler secret put OPENAI_API_KEY
 ```
 
-Migration 至少建立：
+## 2. Service boundaries
 
-- `monster_species`
-- `monster_aliases`
-- `monster_variants`
+The service accepts generic catalog identifiers only:
 
-`monster_variants` 必须对 `species_id + level + style_version` 建立唯一约束，状态支持 `pending / generating / ready / failed`。图片只在 D1 保存 object key、content type、byte size、hash、model/prompt/style 版本与错误摘要，不能保存 Base64。
+- canonical English tag;
+- medal family;
+- level 1 through 9;
+- server-controlled style and prompt versions.
 
-先本地应用和测试，再应用远程 migration：
+It must reject or ignore user identity, task text, evidence, custom prompts, supplied images, monster names, and arbitrary storage keys. D1/R2/Queue must never contain personal tasks, EXP, evidence, or discoveries.
+
+Worker bindings access D1, R2, Durable Objects, and Queues directly. Runtime code must not use Cloudflare management API tokens.
+
+## 3. Schema and taxonomy
+
+The committed migration chain is:
+
+1. `0001_create_monster_catalog.sql`
+2. `0002_add_monster_concepts.sql`
+3. `0003_normalize_monster_taxonomy.sql`
+4. `0004_add_distinct_sport_species.sql`
+
+It creates and evolves `monster_species`, `monster_aliases`, `monster_concepts`, and `monster_variants`. Variants are unique by species, level, and style version and use `pending`, `generating`, `ready`, or `failed` states. D1 stores only object keys, content type, byte size, content hash, model/prompt/style versions, leases, and safe error summaries—not image Base64.
+
+Aliases are lowercase English. Non-English user input is translated and normalized by task generation. Named sports stay separate, and species IDs follow `species-[medaltype]-[description]`.
+
+Apply migrations locally before remote deployment:
 
 ```bash
-npx wrangler d1 migrations apply lifemedals-monsters --local
-npx wrangler d1 migrations apply lifemedals-monsters --remote
+cd worker
+npx wrangler d1 migrations apply lifemedals-monsters-staging --local --env staging
+npx wrangler d1 migrations apply lifemedals-monsters-staging --remote --env staging
 ```
 
-插入种子 taxonomy 与 aliases，至少覆盖：
+For production, create the production D1 resource, add its binding to the top-level configuration, and use its exact database name in the equivalent remote command. Never guess or reuse the staging database ID.
 
-- `coding.leetcode`
-- `study.statistics`
-- `fitness.workout`
-- `sports.basketball`
-- `sports.baseball`
-- `sports.tennis`
-- `sports.swimming`
-- `communication.send_email`
-- `chores.take_out_trash`
+## 4. API contract
 
-alias 只保存小写英文与数字，不为每种输入语言分别维护翻译。任务生成模型负责把中文或其他语言的活动归类并翻译为英文 taxonomy。物种 ID 必须使用 `species-[medaltype]-[description]`，description 采用最简单的单词；必须使用两个单词时直接连接在最后一个 `-` 后面。
+Existing endpoints:
 
-## 4. 实现客户端所需 API
+- `GET /health`
+- `POST /generate-task`
+- `POST /verify-evidence`
 
-保留现有 `/health`、`/generate-task`、`/verify-evidence`，新增：
+Monster endpoints:
 
 ### `POST /monster-variants/ensure`
 
-只接受：
+Accepted request fields:
 
-- `canonical_tag`
-- `badge_kind`
-- `level`（1...9）
+```json
+{
+  "canonical_tag": "sports.tennis",
+  "badge_kind": "athlete",
+  "level": 3
+}
+```
 
-必须重新规范化 tag、限制长度和字符、限制 body 大小，并忽略/拒绝怪物名、Prompt、图片、用户 ID、任务内容和证据。使用 D1 唯一约束与 `INSERT OR IGNORE` 幂等创建；已 ready 立即返回，pending/generating 返回当前状态，新 variant 只入队一次。
+The handler normalizes and validates the tag, badge, level, and body size. D1 uniqueness plus idempotent inserts ensure concurrent requests reuse one variant. A ready variant returns immediately; a new or retryable variant is queued without exposing generation internals.
 
 ### `GET /monster-variants/{canonicalTag}/{level}`
 
-返回统一 envelope：
+The response uses a stable envelope:
 
 ```json
 {
   "variant": {
     "variant_id": "...",
     "status": "ready",
-    "image_url": "https://assets.example.com/monsters/...webp",
+    "image_url": "https://.../monster-assets/monsters/...webp",
     "style_version": "grotesque-pixel-v2"
   }
 }
 ```
 
-pending、generating、failed 时 `image_url` 为 `null`。不存在可返回 404；不要返回 D1/R2/OpenAI 凭证。对 GET 设置短缓存，对 ready 元数据设置合理缓存，并对 ensure/GET 使用现有全局 Usage Gate 或独立怪物限流。
+`image_url` is `null` while pending, generating, or failed. The response never contains D1, R2, Cloudflare, or OpenAI credentials.
 
-## 5. 实现 Queue consumer 与 GPT Image 生成链
+### `GET /monster-assets/{objectKey}`
 
-Consumer 对每条消息重新读取 D1；ready 立即确认，generating 使用租约/更新时间避免并发重复，failed 只允许受控重试。
+Only valid immutable monster object paths are accepted. The handler reads R2 and returns the stored content type, ETag, and cache metadata. It does not list buckets or permit upload/delete operations.
 
-生成规则：
+## 5. Generation pipeline
 
-1. Level 1 根据服务端 visual DNA 与固定模板调用 Image API generation。visual DNA 必须遵守 [`monster-image-spec.md`](monster-image-spec.md)：先选 1–2 个强关联 `signature_objects`，再把每一个锚点融入怪物身体、主轮廓或装备。
-2. Level N 必须等待 1...N-1 ready，并优先使用 Level N-1 的 R2 图片调用 image edit，保持同一物种连续进化。
-3. GPT Image 参数由服务端固定为 `model=gpt-image-2`、方形尺寸、`quality=low`、WebP 与适当压缩；客户端不能覆盖。
-4. Prompt 固定 family-friendly、无血腥、无具体受版权保护角色模仿，并包含稳定 visual DNA、level progression、style/prompt version。
-5. 解码 OpenAI 返回的图片后计算内容 hash，写入不可变 R2 key：`monsters/{styleVersion}/{canonicalTag}/level-{level}-{hash}.webp`。
-6. R2 成功后再把 D1 variant 原子更新为 ready；失败写入安全错误摘要并抛出，让 Queue 重试。不要记录 API key、完整图片 Base64 或用户任务。
+1. The consumer reloads variant state from D1 and claims a time-bounded generation lease.
+2. Level 1 derives stable visual DNA and one or two required signature objects using the server concept prompt.
+3. Level N waits until Level N-1 is ready and then uses that immutable R2 image as the edit input.
+4. The server fixes the model, square size, low quality, WebP output, compression, safety rules, and prompt versions. Clients cannot override them.
+5. The result is decoded, validated, hashed, and written to `monsters/{styleVersion}/{canonicalTag}/level-{level}-{hash}.webp`.
+6. Only after R2 succeeds does D1 atomically mark the variant ready.
+7. Safe failures update D1 and throw when Queue retry is appropriate. Logs exclude secrets, full Base64 images, and private task content.
 
-为图片生成设置独立的每分钟与每月预算。现有任务生成/核验请求预算不能自动覆盖 Queue consumer 的 OpenAI 调用。
+Every concept and image must comply with [Monster image specification](monster-image-spec.md).
 
-## 6. 配置公开图片域名
+## 6. Usage protection and recovery
 
-为 R2 配置只读自定义域名/CDN，例如 `assets.lifemedals.app`。公开响应至少设置：
+Task generation and evidence verification use the shared Durable Object limits configured by:
 
-- 正确的 `Content-Type: image/webp`
-- 内容 hash 对应的 `ETag`
-- `Cache-Control: public, max-age=31536000, immutable`
-- 禁止列目录、上传和删除
+- `GLOBAL_REQUESTS_PER_MINUTE`
+- `MONTHLY_REQUEST_BUDGET`
 
-iOS 只接受 HTTPS 图片且限制为 10 MB，因此生成端应在写入前验证格式和大小。
+Monster images use an independent reservation path and:
 
-## 7. 验证与部署顺序
+- `MONSTER_IMAGES_PER_MINUTE`
+- `MONTHLY_MONSTER_IMAGE_BUDGET`
 
-1. 为 normalization、D1 幂等、并发 ensure、Queue 重试、等级依赖、R2 写入失败和 OpenAI 错误补测试。
-2. 运行 `npm test`、`npx wrangler types`、TypeScript 检查和 `npx wrangler deploy --dry-run`。
-3. 部署 staging，配置 staging Secret，应用 staging migration。
-4. 并发调用同一个 tag + level，确认只产生一条 variant 和一次有效生成。
-5. 测试 Level 3 首次请求能够按 1→2→3 顺序生成。
-6. 确认 iOS 确认页先显示未知怪物，ready 后自动显示图片；完成时 ready 图片进入图鉴，未 ready 时先保存未知发现并稍后替换。
-7. 查看 Queue dead-letter、Worker 结构化日志、OpenAI 用量和 R2 对象，再发布 production。
-8. 最后把生产 Worker 根地址配置为 `LifeMedalsAPIBaseURL`。Debug 构建默认使用 `lifemedals-api-staging`，Release 构建默认使用 `lifemedals-api`；需要临时切换时可用 `LIFEMEDALS_API_BASE_URL` 覆盖。
+The current staging defaults are two image reservations per minute and 100 per UTC month. These counters limit request volume, not dollar spend; retain OpenAI project spending alerts.
 
-## 8. 上线验收标准
+Temporary budget exhaustion must not permanently poison a variant. The current code records a retryable state and allows a later ensure/consumer pass after the budget window resets. Permanent input or safety failures remain controlled failures.
 
-- 两个用户请求同一 tag + level 时复用同一张图片。
-- abandoned draft 最多只产生通用素材，不产生任何用户记录；D1/R2 不出现任务文字、证据或身份。
-- Worker/OpenAI 暂时失败时，iOS 仍可保存、核验、记 EXP 和写入未知发现。
-- 图片生成完成后，重新进入或停留在怪物图鉴会把未知占位替换为真实图片。
-- iOS 包、日志和网络请求中不存在 OpenAI key、Cloudflare token 或 R2 管理凭证。
+## 7. Verification before deployment
+
+```bash
+cd worker
+npm test
+npm run check
+npx wrangler deploy --dry-run --env staging
+```
+
+Also verify the complete migration chain against a fresh local D1 database. The tests should cover normalization, alias lookup, idempotent/concurrent ensure, generation leases, level dependencies, R2 failure, OpenAI failure, asset-key validation, budget enforcement, and recovery after temporary budget exhaustion.
+
+## 8. Staging deployment and smoke test
+
+Apply remote migrations before deploying code that requires them:
+
+```bash
+cd worker
+npx wrangler d1 migrations apply lifemedals-monsters-staging --remote --env staging
+npx wrangler deploy --env staging
+```
+
+Then verify:
+
+1. `/health` reports `openaiConfigured`, `usageProtectionConfigured`, and `monsterServiceConfigured` as true.
+2. Concurrent ensures for the same tag/level produce one reusable variant.
+3. A first request for Level 3 eventually builds Level 1, then 2, then 3.
+4. R2 responses are valid WebP assets with immutable caching metadata.
+5. The iOS confirmation page transitions from the unknown silhouette to ready art.
+6. Verification can save an unknown discovery and the Atlas later replaces it with ready art.
+7. Queue retries and dead-letter behavior are visible in Cloudflare, without sensitive log data.
+8. OpenAI usage and the independent image budget increase as expected.
+
+## 9. Production promotion
+
+Production promotion is still pending. Use separate production resources rather than renaming or reusing staging:
+
+1. Create production D1, R2, generation Queue, and dead-letter Queue resources.
+2. Add their exact bindings to the top-level `wrangler.jsonc` configuration.
+3. Configure production style/model/budget variables and the encrypted OpenAI secret.
+4. Apply all migrations to the production D1 database.
+5. Run the same smoke tests against production with a small budget.
+6. Confirm Release uses the production Worker base URL.
+7. Monitor errors, dead letters, OpenAI spend, R2 object growth, and D1 variant state during rollout.
+
+Do not promote solely because `/health` is green. Validate actual ensure, sequential generation, asset delivery, and client refresh behavior.
+
+## 10. Acceptance criteria
+
+- Multiple users requesting one tag/level reuse one global image.
+- Abandoned drafts can create only generic catalog assets and no personal records.
+- Worker/OpenAI failures do not block local saves, verification, notifications, EXP, or discovery persistence.
+- A pending discovery automatically gains artwork after the variant becomes ready.
+- The iOS bundle, requests, and logs contain no OpenAI key, Cloudflare token, or R2 management credential.
+- Existing R2 images are immutable; art revisions use a new style version and object key.

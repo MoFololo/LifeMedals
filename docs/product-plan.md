@@ -1,362 +1,181 @@
-# 人生勋章 App —— 产品与技术计划书
+# LifeMedals Product and Technical Plan
 
-> **2026-08-08 范围更新**：v1 已扩展为 macOS+iOS 多平台客户端，并共享 Sign in with Apple 与 SwiftData/CloudKit 私有数据库同步。会员、StoreKit 和服务端账户/用量体系仍留到 v2。
+> Updated 2026-09-03. This document describes the implemented multi-platform MVP and separates it from future commercial work.
 
----
+## 1. Product thesis
 
-## 1. 核心洞察
+Checking off an ordinary to-do provides weak feedback. LifeMedals connects game-like progression to real work through three mechanisms:
 
-游戏里做完一件事有动力，是因为有明确的奖励和成就感；日常 To Do 打个勾，反馈太弱了。
+1. **Contract:** AI turns an imprecise intention or source image into an editable task contract.
+2. **Evidence:** completion is supported by one to five natural evidence images and a forgiving three-state AI verdict.
+3. **Accumulation:** verified work becomes medal EXP, history, and a reusable monster discovery rather than disappearing into a completed list.
 
-我想做的这个 App，就是把"游戏化反馈"接到"真实生活任务"上，靠三样东西实现：
+The product should motivate rather than police. It is not an academic grader, auditor, application tracker, or anti-cheating system.
 
-1. **契约化**：把模糊的想法变成一份 AI 生成、用户确认的"任务契约"（标题、截止时间、验收标准、所属勋章）。
-2. **证据化**：完成不是自我声明，而是提交证据，由 AI 核验。
-3. **积累化**：每次验证通过都沉淀成经验值和可回顾的成就档案，而不是消失在已完成列表里。
+## 2. Core experience
 
----
-
-## 2. 产品思路
-
-差异化不能停留在"AI 查截图"这件事本身，而要落在**可验证的成就积累**上——这是勋章系统真正要解决的问题。
-
-三态核验结果（Verified / Need More Proof / Not Verified）比强行二选一更合理，能减少"被机器人冤枉"的挫败感。
-
-MVP 先服务一类高粘性用户（在校/求职学生），比一开始做"管理所有人的所有目标"更容易做出手感。第一版不做金钱惩罚、社交排行榜、复杂防作弊——这些都是"以后再说"的功能，现在加只会拖慢进度。
-
-**一句话生成任务契约 + 生成后可编辑确认**，是这个产品的核心体验：用户不仅能同意 AI 生成的契约，还能改时间、改标题、改所属勋章。这样即使 AI 生成得不够准，用户也能在执行前修正，而不是执行后才发现契约不合理。这一点要作为核心体验重点打磨。
-
-**勋章 + EXP 系统**是把"身份空间"（Builder / Solver / Athlete...）具象化、可量化的方式：
-
-> 身份空间 = 勋章类别，完成任务 = 经验值，长期积累 = 等级/称号
-
-这样"过去三个月我完成了 46 道算法题、去了 18 次健身房"这种长期身份感，就自然由勋章等级呈现出来，不需要额外做一套统计页面。
-
-关于"证据设计要轻量"——**这不是为了防作弊，而是为了不让提交证据这件事本身变成新的拖延源**。比如健身任务，与其要求前后两张自拍，不如允许一张训练记录截图或 Apple Health 截图。轻量的证据要求，本质上是留存率问题，不是诚信问题。
-
----
-
-## 3. 核心产品闭环
-
-```
-说一句话 → AI生成任务契约(可编辑) → 用户确认 → 执行 → 提交证据 → AI核验 → 勋章+EXP → 存入Library
+```text
+Text or source image
+  -> editable task or task group
+  -> local save and deadline reminder
+  -> execution
+  -> 1-5 evidence images
+  -> Verified / Need More Proof / Not Verified
+  -> monster reveal
+  -> medal EXP and achievement history
 ```
 
-示例：
+The user may edit the title, description, deadline, evidence requirement, medal, and estimated effort before confirmation. After saving, the evidence requirement is locked so verification cannot silently change the agreement.
 
-用户输入：`明天晚上10点前做两道LeetCode Medium`
+If the input contains multiple independent actions, the service returns a task group. The parent is an organizational container; each child owns its evidence, status, EXP, and monster encounter. Finishing all children reconciles the parent exactly once.
 
-AI 生成（可编辑）：
-- 标题：完成两道 LeetCode Medium
-- 截止时间：明天 22:00
-- 验收标准：提交两张 Accepted 页面截图，需可见题目名称、难度、Accepted 状态
-- 所属勋章：Solver（+40 XP）
+## 3. Current scope
 
-用户点"确认"（或先改动时间/勋章再确认）→ 执行 → 上传截图 → AI 判定 Verified → 生成成就卡，Solver 勋章 +40 XP，加入 Library。
+The implemented MVP supports:
 
----
+- Natural-language and image-based task creation.
+- Short, validated titles and separate task descriptions.
+- Task groups for multiple independently actionable items.
+- Five medal families: Solver, Builder, Career, Athlete, and Life.
+- SwiftData local persistence and CloudKit-compatible models.
+- Sign in with Apple with a Keychain session, plus an offline entry path.
+- Unfinished, completed, and overdue task views.
+- Local deadline notifications.
+- Camera, photo library, and file evidence on iOS; macOS also supports drag-and-drop and paste.
+- Flexible one-to-five-image evidence batches.
+- AI verification with retryable failures and three verdicts.
+- Independent medal EXP, nine ranks, achievement history, and reward animation.
+- Reusable task monsters, asynchronous artwork, discoveries, and a personal Monster Atlas.
+- English and Chinese in-app copy.
 
-## 4. 勋章与成长系统设计
+The current MVP does not include:
 
-### 4.1 默认勋章类别（可让用户自定义新增）
-| 勋章 | 对应场景 |
-|---|---|
-| Solver | LeetCode、考试、刷题 |
-| Builder | 项目开发、发布 |
-| Career | 投简历、面试准备 |
-| Athlete | 健身、跑步、运动 |
-| Scholar | 课程学习、阅读 |
-| Life Admin | 订票、缴费、预约（v1 暂不做，见下文隐私提示） |
+- StoreKit products, subscriptions, purchase restoration, or entitlements.
+- Per-user server quotas, billing ledgers, or a LifeMedals account backend.
+- Server-side task, evidence, medal, EXP, or discovery storage.
+- Social feeds, friends, leaderboards, monetary penalties, or general AI chat.
+- Anti-cheating measures such as GPS or capture watermarks.
+- Production App Store assets, TestFlight validation, or completed physical-device CloudKit acceptance.
 
-### 4.2 三层反馈
-1. **即时反馈**：验证通过动画 + 具体反馈文案（"你今天完成了两道Medium，其中一道是动态规划，这是你本周第5道题"）+ EXP 到账动画。
-2. **短期反馈**：首页展示本周各勋章完成率、连续完成天数（streak）、比上周多做了什么。
-3. **长期反馈**：勋章等级/称号（如 Solver Lv.5"算法学徒"），以及可回顾的成就时间线。
+Tasks whose proof would expose sensitive booking, payment, or identity information should remain out of the initial test set.
 
-### 4.3 等级机制
-- 每个勋章独立计算 EXP 和等级，避免"一个类别刷经验，另一个类别荒废"却显得整体等级很高的失真感。
-- **XP 来源**：生成任务契约时，AI 只预估完成任务所需的专注时间（`estimated_hours`，0.25–8 小时，15 分钟为最小颗粒度），不直接给 XP 数值；客户端按固定汇率 **1 小时 = 100 XP** 换算成 `xpReward`（例如预估 0.5 小时 = 50 XP）。这个汇率是产品规则，写死在客户端，不受 AI 影响。
-- **等级曲线**：9 个固定段位，从青铜开始，按累计 EXP 晋升，总计 50,000 EXP 可达到最高的王者段位：
+## 4. Medal and progression system
 
-  | 段位 | 所需经验 | 累计经验 | 大约需要时间 |
-  |---|---|---|---|
-  | 青铜（初始） | — | 0 | — |
-  | 青铜 → 白银 | 1000 | 1,000 | 10 小时 |
-  | 白银 → 黄金 | 2000 | 3,000 | 20 小时 |
-  | 黄金 → 铂金 | 3000 | 6,000 | 30 小时 |
-  | 铂金 → 翡翠 | 4000 | 10,000 | 40 小时 |
-  | 翡翠 → 钻石 | 6000 | 16,000 | 60 小时 |
-  | 钻石 → 大师 | 8000 | 24,000 | 80 小时 |
-  | 大师 → 宗师 | 10000 | 34,000 | 100 小时 |
-  | 宗师 → 王者 | 16000 | 50,000 | 160 小时 |
+Every medal family maintains its own EXP and rank. The AI estimates effort from 0.25 through 8 hours in quarter-hour increments; the client applies the fixed rule `100 XP = 1 estimated hour`. The model never chooses an arbitrary XP award.
 
-- **外观**：目前所有段位共用同一个占位图标/外观，暂不做视觉区分；但等级计算逻辑（`BadgeRank`）按段位单独暴露图标属性，预留了未来给每个段位换上专属勋章美术/图标的空间，不需要改动等级计算或 UI 调用方式。
+| Rank | EXP required from prior rank | Cumulative EXP |
+| --- | ---: | ---: |
+| Bronze | Initial | 0 |
+| Silver | 1,000 | 1,000 |
+| Gold | 2,000 | 3,000 |
+| Platinum | 3,000 | 6,000 |
+| Emerald | 4,000 | 10,000 |
+| Diamond | 6,000 | 16,000 |
+| Master | 8,000 | 24,000 |
+| Grandmaster | 10,000 | 34,000 |
+| Champion | 16,000 | 50,000 |
 
-### 4.4 v2 任务怪物与怪物图鉴（iOS 客户端阶段）
+EXP persistence must complete before reward animation begins. Animations may celebrate state but must never be required for state correctness.
 
-任务怪物把每个可独立核验的任务变成一次“遭遇”。AI 建议宽泛、可复用的 canonical tag；iOS 在用户最终确认任务时，根据最终选择的勋章读取当时的 `BadgeRank.rawValue`，将 Level 1...9 锁入 `TaskContract`。本任务完成后即使 EXP 令勋章升级，也不能回写本次怪物等级。任务组父容器没有证据和怪物，每个 child task 分别拥有 tag、level 和发现流程。
+## 5. Evidence policy
 
-数据必须保持两层隔离：
+Evidence should be something the user naturally produces: an Accepted screen, notes, an email thread, a repository result, a workout log, or a photo of completed work.
 
-1. **全球怪物素材库（后续 Worker 阶段）**：D1 保存通用 species、alias、variant 状态和 visual DNA；R2 保存系统生成的通用 WebP；Queue 负责按等级链异步生成。`canonicalTag + level + styleVersion` 全局幂等，不保存任何用户身份、任务、证据、EXP 或发现记录。
-2. **用户个人发现状态（已实现）**：`MonsterDiscovery` 只存在 SwiftData/CloudKit 私有数据库，保存 tag、level、styleVersion、图片公开 URL、首次来源任务和击败次数。应用通过来源任务 ID 防止重复核验回调重复计数。
+- Any batch of one to five images may be submitted.
+- The title and locked evidence requirement are two independent pass paths. Credible support for either can be enough for `Verified`.
+- Relevant boundary cases without a clear contradiction should lean toward verification.
+- `Need More Proof` lets the user add another batch.
+- A transport or service failure leaves the batch pending and retryable.
+- The service returns `{verdict, explanation}` through Structured Outputs.
 
-iOS 显示规则：AI 返回任务契约后，确认页使用最终 badge 对应等级查询全球素材；ready 时允许预览对应怪物，缺失或 generating 时显示代码原生的像素深色轮廓和问号并触发后台 ensure。保存后到完成前的任务详情仍保持未知遭遇。Verified 时再次刷新素材，先持久化任务、发现与 EXP，再依次播放“怪物揭晓 → 勋章/EXP”。图片尚未 ready 时仍保存未知发现并显示“正在显形”；图鉴停留期间持续刷新，ready 后自动替换。成就页保留勋章 Library，并增加怪物图鉴 Tab；图鉴只展示本人发现，按物种显示 1–9 级进化路线，未发现等级保持锁定。远程图片写入 iOS Caches 目录，浏览后离线仍尽量可见。
+The client creates a JPEG copy with a maximum 1,800-pixel edge and a target size of approximately 1 MB, then stores it with SwiftData external storage. Original media is not copied permanently into the app.
 
-客户端 API 权限保持最小：只发送 canonical tag、display name、badge kind 和 level 到 `POST /monster-variants/ensure`，并通过只读 GET 刷新 variant；客户端不能提交 Prompt，不能持有 OpenAI Key、Cloudflare Token、D1/R2 管理凭证。生图应由后续 Worker 使用服务端固定模板和 GPT Image 2 完成，Secret 只配置为 `OPENAI_API_KEY`。本轮没有修改/部署 Worker，也没有创建 D1、R2 或 Queue，因此图片生成属于明确的外部待办，而本地任务、轮廓、发现和图鉴元数据闭环可独立运行。
+## 6. Monster system
 
----
+Each independently verifiable task receives a reusable lowercase English taxonomy tag. The client locks the monster level to the selected medal's current rank at confirmation time. A later rank-up does not alter that encounter.
 
-## 5. MVP 范围
+The system has a strict privacy split:
 
-### v1 做的四类任务（证据形态清晰、我自己就是种子用户）
-1. LeetCode / 课程学习
-2. 项目开发
-3. 投递求职申请
-4. 健身 / 运动
+| Scope | Storage | Contents |
+| --- | --- | --- |
+| Global catalog | Cloudflare D1 | species, English aliases, visual DNA, variant state and safe generation metadata |
+| Global artwork | Cloudflare R2 | immutable generated WebP files |
+| Generation work | Cloudflare Queue | generic tag/level/style work only |
+| Personal state | SwiftData/private CloudKit | discoveries, source task IDs, defeat counts, and cached public URLs |
 
-### v1 暂不做
-- 订机票等涉及姓名、订单号、支付信息的任务（隐私/合规风险，且证据形态复杂）——可以作为 v1.x 的加分项，不必完全排除，只是不放进第一版
-- iOS TestFlight/App Review 与最终 Mac/iPhone 跨设备验收（多平台基础客户端已进入 v1）
-- 复杂防作弊机制（GPS、实时拍摄水印等）
-- 社交排行榜、好友监督
-- 金钱惩罚
-- 通用 AI 聊天助手功能
-- StoreKit 订阅、会员权益、entitlement 校验和按用户统计 AI 配额
+The confirmation screen calls `POST /monster-variants/ensure` and briefly polls `GET /monster-variants/{tag}/{level}`. A ready image may be previewed; otherwise a local unknown silhouette appears. Saved unfinished tasks keep the encounter hidden. After evidence is verified, the app refreshes the variant, atomically persists task/discovery/EXP state, reveals the monster, and then plays the medal reward.
 
-### v1 的登录与付费边界
+Artwork unavailability is non-blocking. An unknown discovery may be stored first and updated when the Atlas later sees a ready variant. Public HTTPS images are cached in the app's cache directory for offline viewing.
 
-- v1 使用系统 Sign in with Apple，并把稳定用户标识保存在钥匙串；启动时检查凭证是否撤销。
-- 登录页保留离线入口，登录状态不阻塞本地数据和 AI 主链路。
-- CloudKit 使用设备 iCloud 账户，Sign in with Apple 使用应用授权身份；两者不得混为一个账户。
-- v1 不做会员制度、付费订阅、StoreKit、entitlement、恢复购买、账户删除或按用户统计 AI 用量。
-- v1 只服务开发与有限内测，用全局请求限制、OpenAI 项目用量/支出告警和代理端硬预算上限控制成本，不按公开商业产品规模设计。
-- 真实账户、会员、订阅和用量计费整体推迟到 v2，避免商业化工作干扰 MVP 核心闭环验证。
+Named sports must not collapse into `fitness.workout`. Basketball, baseball, tennis, swimming, and other explicit sports have separate `sports.*` tags. See [Monster image specification](monster-image-spec.md).
 
----
+## 7. Client architecture
 
-## 6. 技术方案
+One SwiftUI target serves macOS, iOS, and iPadOS. Shared code owns business state, SwiftData, AI services, notifications, and most UI. Small adapters isolate AppKit/UIKit image types, camera preview, ImageIO compression, WebKit representables, window commands, and compact layout differences.
 
-### 6.1 客户端：SwiftUI 多平台（macOS + iOS）
+The UI uses the repository's current light pixel-art system (`PixelTheme`, pixel cards, pixel tabs, and medal artwork). New work should extend this system rather than restoring the earlier Liquid Glass design described in historical commits.
 
-客户端采用一个 macOS+iOS 多平台 target，**SwiftUI 是明显最优选择**，原因：
+Current navigation:
 
-- 一套 Swift 代码库和 target，通过 SwiftUI 的自适应布局共享绝大部分业务逻辑与 UI，只在系统控件不可跨平台复用时做小范围适配。
-- 原生体验：可以直接用系统的通知、图片选择器（PhotosPicker）、Vision 框架（本地做初步 OCR/图像预处理，减少调用 AI 的次数和成本）、快捷指令（Shortcuts）等，"用着方便"这个诉求原生实现比网页/Electron 更容易达到。
-- 天然对接 Mac App Store 和 iOS App Store 的分发路径，不需要中途换技术栈。
-- 用 Swift Concurrency（async/await）处理"提交证据 → 调用后端 → 等待AI核验"这类异步流程，代码简洁。
+- iPhone: bottom navigation for Create, Tasks, and Achievements.
+- macOS: shared top-level navigation adapted to the larger window.
+- Tasks: Unfinished, Completed, and Overdue tabs; iOS supports narrow edge swipes between them.
+- Achievements: Medals and Monster Atlas tabs with the same directional transition behavior.
+- Task detail: iOS left-edge swipe returns to the list.
 
-不做 Electron / 网页套壳：不是网页产品，而且 Electron 做出来的 Mac 应用在系统集成和体验上天然弱于原生 SwiftUI。
+All meaningful motion must honor Reduce Motion. Pure-icon controls need accessibility labels, and physical-device VoiceOver validation remains pending.
 
-#### 6.1.1 UI 风格与交互规范（后续实现必须遵守）
+## 8. Local data and sync
 
-这部分是 LifeMedals 的 UI 单一事实来源。后续 AI 新增或修改页面时，应优先延续这里定义的视觉语言、导航结构和状态流，不得自行恢复旧版紫色暗色风格或引入另一套设计系统。当前实现可参考 `LifeMedals/LifeMedals/GlassBackground.swift`、`ContentView.swift`、`LoginView.swift` 和 `PlatformWheelDatePicker.swift`。
+SwiftData is the source of truth for user business data. Local create, edit, browsing, notifications, EXP, and evidence history do not depend on the network.
 
-**视觉基调：明亮的 Apple 平台原生 Liquid Glass**
+Core models:
 
-- 全应用固定使用浅色外观，以白色为主画布；背景可以有非常低饱和度、低透明度的浅蓝、薄荷绿和暖白光晕，为玻璃折射提供层次，但不能出现紫色暗色渐变、大面积深色底或霓虹游戏风。
-- 可交互表面优先使用系统原生 `glassEffect`，相邻或会融合的玻璃组件使用 `GlassEffectContainer`。卡片通常使用连续圆角矩形，顶部导航和轻量操作使用 Capsule，勋章图标可以使用 Circle。
-- 普通容器使用 `.glassEffect(.regular, in: ...)`；按钮和 Tab 使用 `.regular.interactive()`；选中态只加入轻量的 accent tint。不要用厚重描边、强投影或不透明色块模拟玻璃。
-- 文本以 `.primary`、`.secondary`、`.tertiary` 建立层级；橙色用于勋章和 EXP，绿色只用于成功反馈，accent color 用于当前选中项与主要操作。颜色应克制，不要让 tint 覆盖玻璃的白色透明感。
-- 保持宽松留白、居中内容和清晰层级。主内容推荐限制在约 790 pt，窗口最小尺寸为约 920 × 680；避免把大量卡片同时堆在首屏。
+- `BadgeCategory`
+- `UserBadge`
+- `TaskContract`
+- `Evidence`
+- `XPLog`
+- `MonsterDiscovery`
 
-**固定页面结构与出现顺序**
+Models use stable UUIDs, optional relationships where CloudKit requires them, and no SwiftData uniqueness constraints unsupported by CloudKit. The Release configuration uses the private `iCloud.noorg.LifeMedals` container. Debug defines `LIFEMEDALS_LOCAL_DEVELOPMENT`, explicitly disables the cloud database and cloud entitlements, and presents local-development status in the UI.
 
-1. 未进入应用时先显示白色玻璃登录页，提供官方“使用 Apple 登录”和“离线使用”；Apple 登录创建钥匙串会话，但不改变本地功能权限。
-2. 进入应用后默认显示“新任务”页。macOS 顶部使用居中的 Liquid Glass Tab；iPhone 使用底部主导航和紧凑顶部账户入口，均切换“新任务 / 任务 / 勋章”。
-3. “新任务”页内部必须是两态状态机，而不是同时并排显示输入卡和契约卡：
-   - `composing`：用户输入任务。
-   - `reviewing`：用户确认 AI 生成的任务契约。
-4. “任务”页读取 SwiftData 中已保存的 `TaskContract`，显示任务标题、截止时间、所属勋章和 EXP；无数据时显示克制的玻璃空状态。
-5. “勋章”页按勋章类别展示独立等级、EXP 和任务数，不能合并为一个总等级。
+The CloudKit integration and sync monitor exist, but paid-team signing, schema activation, physical-device sync, conflict handling, offline recovery, and evidence-image synchronization still require acceptance testing. After a production CloudKit schema is published, model changes must remain additive and migration-safe.
 
-**新任务输入态（`composing`）**
+## 9. Worker architecture and privacy
 
-- 输入控件位于页面视觉中心，使用无边框、无背景的多行 `TextField`，进入页面或从其他 Tab 返回时自动获得焦点。
-- 输入为空时，中心区域只显示持续闪烁的系统文本光标，不放输入框边框、常驻卡片或大段占位文案。整个中心区域可点击以重新聚焦。
-- 用户输入任意非空白字符后，提交按钮在输入框下方以平滑的淡入、位移和轻微缩放动画出现；清空输入后按钮消失。
-- AI 请求期间按钮显示系统 `ProgressView` 并禁止重复提交。断网、超时或服务错误时必须保留原始输入，并在原位显示可重试反馈，不能因为页面切换或失败清空草稿。
+The Cloudflare Worker reads `OPENAI_API_KEY` only from an encrypted secret. It provides:
 
-**契约确认态（`reviewing`）**
+- task generation and evidence verification through OpenAI Responses API;
+- structured request limits and safe error envelopes;
+- an atomic SQLite Durable Object rate and monthly request gate;
+- D1/R2/Queue-based monster generation with a separate image budget;
+- immutable public monster asset delivery.
 
-- AI 成功生成后，“新任务”页自身切换为契约确认界面，不打开新窗口，不把输入和确认界面并排展示，也不自动跳到任务列表。
-- 契约字段包括任务标题、截止时间、验收标准、所属勋章和完成奖励；保存前允许编辑。验收标准在保存后锁定，后续 AI 核验不得重新解释或修改。
-- 提供返回输入态的轻量操作，返回时保留原输入；主要操作是“确认并保存到本机”。只有标题和验收标准均非空时才允许保存。
-- 保存成功后显示短暂的绿色玻璃 Toast，清空已提交的输入，自动切回 `composing` 并恢复中心光标焦点。保存失败则停留在确认态并展示错误，不得丢失契约内容。
+The staging environment is deployed and healthy. Production currently lacks the monster storage bindings present in staging and must be promoted separately.
 
-**日期滚轮规范**
+The Worker must never persist a user's task, evidence, medals, EXP, or discoveries. Evidence exists only in the active request and is forwarded with `store: false`. Logs must exclude API keys, image Base64, and private task content.
 
-- iOS target 使用原生 SwiftUI 写法：
+## 10. Commercial phase
 
-  ```swift
-  @State var date = Date()
+A later commercial release may add:
 
-  DatePicker("Select Date", selection: $date)
-      .datePickerStyle(.wheel)
-  ```
+1. server validation of Sign in with Apple and an app session;
+2. StoreKit 2 auto-renewable subscriptions;
+3. `appAccountToken` linkage and signed transaction validation;
+4. minimal `UserAccount`, `SubscriptionEntitlement`, and `UsageLedger` records;
+5. per-user quotas and rate limits;
+6. purchase restoration, refund/expiry handling, and account deletion with token revocation.
 
-- Apple 将 `WheelDatePickerStyle` 在 macOS 上标记为 unavailable，因此 macOS 不能直接编译上述 modifier。macOS 应使用 `PlatformWheelDatePicker` 提供等效的日期、小时、分钟三列滚轮，并保持 SwiftUI `Binding<Date>` 接口；不要因此退回旧式紧凑日期输入框。
-- 平台差异必须封装在日期控件内部，业务页面只绑定 `draftDeadline`，不要在 `ContentView` 中散布条件编译逻辑。
+iCloud identity, App Store purchase ownership, and Sign in with Apple identity remain separate systems. Even in this phase, the server must not gain access to private tasks or evidence.
 
-**动画与可用性**
+## 11. Acceptance priorities
 
-- 登录进入主界面、顶部 Tab 切换以及 `composing ↔ reviewing` 使用约 0.3–0.5 秒的系统 `.smooth` 或 `.snappy` 动画。推荐组合轻微位移、淡入淡出和不超过约 2% 的缩放；避免大幅弹跳、旋转或炫技式转场。
-- 状态切换必须由明确枚举驱动（例如 `AppPage`、`CreationPhase`），不要用多个互相冲突的布尔值拼页面状态。
-- 所有纯图标操作都要有 accessibility label；玻璃按钮保持足够点击区域和禁用态反馈。动画不能延迟本地保存，也不能成为业务状态正确性的前提。
-- 新页面必须同时实现加载、空数据、错误和成功反馈，并验证浅色模式下的文字对比度。除非产品规范明确更新，否则不要增加深色主题分支。
+1. Use the product daily for one to two weeks and record generation quality, evidence friction, and motivational impact.
+2. Validate all core flows on physical iPhones, including permissions, rotation, keyboard behavior, Dynamic Type, VoiceOver, and Reduce Motion.
+3. Validate Mac/iPhone CloudKit convergence, offline edits, conflicts, and large evidence fields with paid-team signing.
+4. Exercise staging monster generation, budget recovery, sequential level evolution, caching, and dead-letter behavior.
+5. Promote monster resources to production only after staging acceptance.
+6. Run a five-to-ten-person beta before App Store preparation.
 
-### 6.2 数据层：SwiftData 本地优先 + CloudKit
-
-任务、证据、勋章和 EXP 都以 **SwiftData 本地数据库**为唯一业务数据源。创建任务、编辑契约、浏览 Library、累计 EXP 等操作直接读写设备本地，不依赖网络，也不需要等待远程数据库响应。
-
-当前 macOS target 使用 `iCloud.noorg.LifeMedals` 私有 CloudKit 数据库。Mac 和未来 iPhone target 必须复用同一套 SwiftData schema 与容器；无网络时继续写本地数据库，恢复网络后由 SwiftData/Core Data CloudKit 镜像自动上传、下载与合并。应用展示 iCloud 未登录、同步中、同步完成和同步失败状态，但这些状态不能阻塞本地使用。
-
-普通 Debug 配置定义 `LIFEMEDALS_LOCAL_DEVELOPMENT`，明确关闭 CloudKit database 和云端 entitlements，供免费 Personal Team 做本机开发；Release 保留 Sign in with Apple、CloudKit 和 Push Notifications。界面必须明确显示当前是本地开发模式，不能把本机保存误报为已同步。
-
-CloudKit 不支持 SwiftData 唯一约束或非可选关系，因此模型使用稳定 UUID 做应用标识，关系保持可选。CloudKit schema 发布到 Production 后只能做增量演进，任何模型删除或不兼容改名都必须先设计迁移方案。
-
-### 6.3 证据图片：本地优先并随 SwiftData 同步
-
-用户选择的证据图片先保存在当前设备，并由 SwiftData 模型记录元数据和关联关系；大字段使用外部存储，并由 SwiftData/CloudKit 镜像同步。图片不上传到 Supabase Storage 或自建对象存储。
-
-为控制本地存储体积，并兼顾未来可能的同步，客户端在保存前生成尺寸和质量适中的证据副本；原始照片无需长期复制进应用。成就卡按数据动态渲染，不额外存成图片文件。
-
-### 6.4 v1 登录与同步状态
-
-登录页使用 Apple 官方按钮发起授权，只请求姓名并将不透明用户标识写入钥匙串，不自行保存密码。应用启动时检查凭证状态，撤销后回到登录页；临时网络错误保留本机会话。登录页和主界面都要显示独立的 iCloud 状态，并允许用户离线进入。
-
-### 6.5 v2 服务端账户与付费：StoreKit 2
-
-LifeMedals 需要一个服务账户来识别会员并控制 LLM 成本，但不应强迫用户为了本地功能先注册：
-
-1. 应用启动后直接进入本地功能，SwiftData 不依赖登录状态。
-2. 用户第一次购买会员时，将现有 Sign in with Apple 身份升级为后端可验证的 LifeMedals 服务账户。
-3. 会员通过 StoreKit 2 自动续期订阅购买；客户端支持购买、恢复购买、`Transaction.currentEntitlements` 检查和交易更新监听。
-4. 购买时使用稳定的 `appAccountToken` 将 StoreKit 交易关联到 LifeMedals 账户。
-5. 后端验证 Apple 签名交易，并以原始交易 ID 跟踪订阅状态、续费、退款和撤销。
-6. 设置页提供完整账户删除入口；删除时清理服务端账户及非必要关联数据并撤销 Sign in with Apple token。若仍有自动续期订阅，要明确提示用户前往 App Store 管理或取消订阅。
-
-三套身份必须保持职责分离：iCloud 账号用于 CloudKit 数据同步，App Store 账号拥有购买记录，Sign in with Apple 创建 LifeMedals 应用身份。它们可能属于同一个人，但技术上不能互相替代。
-
-以上全部属于 v2，不计入 v1 的开发、测试或验收。
-
-### 6.6 后端：v1 最小代理，v2 商业化网关
-
-OpenAI API Key 不能放在客户端。v1 使用一个最小代理跑通请求链路：校验请求格式和大小，从服务端环境变量 `OPENAI_API_KEY` 读取 Key，调用 OpenAI Responses API（默认使用兼顾能力与成本的 `gpt-5.6-terra`），并通过 Structured Outputs 返回结构化结果。v1 只加入全局限流、OpenAI 项目用量/支出告警和代理端硬预算上限，不建立账户、订阅或个人额度数据库。
-
-v2 才将代理升级为账户、计费与 AI 网关，并连接小型持久化存储。它负责：
-
-1. 验证 Sign in with Apple 身份并签发/校验应用会话。
-2. 验证 StoreKit 签名交易与当前订阅 entitlement。
-3. 保存最小账户、订阅状态、计费周期 AI 用量和限流记录。
-4. 校验请求格式、大小、会员/免费额度和调用频率。
-5. 从服务端环境变量 `OPENAI_API_KEY` 读取 Key，调用 OpenAI Responses API并通过 Structured Outputs 返回结构化结果。
-
-后端**不得持久化**任务契约、勋章、XP、Library 或证据图片。核验图片只在单次请求期间短暂处理，完成后即丢弃。可在后续加入 App Attest / DeviceCheck 等客户端完整性校验。
-
-服务端最小数据模型：
-
-- `UserAccount`：内部 UUID、Sign in with Apple 稳定标识、创建时间和账户状态。
-- `SubscriptionEntitlement`：用户、StoreKit 产品 ID、原始交易 ID、状态、有效期和最近验证时间。
-- `UsageLedger`：用户、计费周期、契约生成次数、证据核验次数及用量上限。
-- `RateLimitEvent`：必要的限流计数或短期风控信息，不记录用户任务内容。
-
-### 6.7 AI 调用与成本控制
-
-1. **任务契约生成**（文本→结构化 JSON）
-   - 输入用户一句话，使用 OpenAI Responses API 的 Structured Outputs 按 JSON Schema 输出 `{title, deadline, evidence_requirement, suggested_badge, estimated_hours}`；不再由 AI 规定精确照片数量或逐张拍摄计划；`estimated_hours`（0.25–8，15 分钟颗粒度）由客户端按 1 小时 = 100 XP 换算成任务的 XP 奖励，AI 不直接输出 XP
-   - 客户端渲染成可编辑表单，用户改完后再确认
-
-2. **证据核验**（多模态：图片+标题+已确认的验收标准）
-   - 把用户同一批次提交的任意 1–5 张截图作为图像输入，连同任务标题和之前确认的验收标准一起发给 OpenAI Responses API；不再发送或核对精确照片计划
-   - 使用 Structured Outputs 返回 `{verdict: "Verified"|"Need More Proof"|"Not Verified", explanation}`
-   - **关键原则**：标题或验收标准任一得到合理证据支持即可通过；相关且可信、没有明显矛盾的边界情况倾向通过。学习笔记不必逐项对照原课件，邮件申请也不要求现实中不存在的正式申请页面
-
-v1 仅在开发和有限内测范围内通过全局限流、请求大小限制、OpenAI 项目用量/支出告警和代理端硬预算上限控制成本。v2 再在每次调用前验证账户、entitlement、剩余额度和限流状态，并在调用成功后原子地计入用户用量。免费版、Pro 周期额度和额外 StoreKit consumable 都属于 v2。
-
-### 6.8 SwiftData 核心模型（简要）
-
-- `BadgeCategory`：勋章类别（Solver / Builder / Athlete...），支持用户自定义。
-- `UserBadge`：每个类别的当前累计 EXP、等级（对应 `BadgeRank` 的 9 个固定段位，青铜到王者）。
-- `TaskContract`：任务契约（标题、截止时间、锁定的验收标准、兼容旧数据的可选照片计划元数据、所属勋章、XP 奖励、状态）。
-- `Evidence`：证据图片、提交批次与顺序、提交时间、三态核验结果和解释。
-- `XPLog`：每次 EXP 变动记录，关联任务和勋章，用于周报与历史回顾。
-
-模型使用稳定的 UUID 标识和 CloudKit 所需的可选关系，状态字段采用可持久化的原始值，避免未来增加枚举值时破坏已有数据。
-
-### 6.9 v1 在线与登录边界
-
-| 功能 | 网络 | Apple 登录 | 会员/额度 |
-|---|---|---|---|
-| 创建、编辑、查看任务 | 不需要 | 不需要 | 不需要 |
-| 提交和查看本地证据 | 不需要 | 不需要 | 不需要 |
-| 勋章、EXP、Library、本地通知 | 不需要 | 不需要 | 不需要 |
-| CloudKit 自动同步 | 需要；离线先保存在本机 | 不依赖，使用设备 iCloud | 不需要 |
-| AI 生成任务契约 | 需要 | 不影响，可离线进入 | v1 不提供会员/个人额度 |
-| AI 核验证据 | 需要 | 不影响，可离线进入 | v1 不提供会员/个人额度 |
-
-AI 请求失败时保留用户当前输入和待核验记录，允许稍后重试；网络故障不能造成任务或证据丢失。
-
----
-
-## 7. 分步开发路线图
-
-**Step 0：环境搭建**
-建立 SwiftUI Xcode 项目并配置 macOS+iOS 多平台 target；申请 OpenAI API Key，并在选定代理平台后只以 `OPENAI_API_KEY` 配置到代理服务端的加密环境变量/Secret，不进客户端。
-
-**Step 1：SwiftData 本地模型与持久化**
-实现 CloudKit 兼容的 SwiftData 模型和 model container；验证单台 Mac 上的离线增删改查和重启后的持久化。本地功能不设置登录硬门槛。
-
-**Step 2：Apple 登录 + AI 代理 + 任务契约生成**
-接入 Sign in with Apple、钥匙串会话和可跳过的离线入口；部署带全局限流和预算保护的最小 `generate-task` 代理。客户端收到结构化契约后渲染可编辑表单，确认后写入 SwiftData。
-
-**Step 3：任务列表与本地状态**
-SwiftUI 做主界面：待办任务列表、截止时间提醒（本地通知）。
-
-**Step 4：证据提交与AI核验**
-客户端按任务的 1–5 张证据计划，通过 PhotosPicker、本地文件、拖放或粘贴组装一次提交 → 生成并保存带批次 ID 的本地证据副本 → 调用最小核验代理 → 展示 Verified / Need More Proof / Not Verified → 把整批结果写入 SwiftData。登录状态不参与核验判断，服务端不持久化图片，证据记录和压缩图片由 CloudKit 镜像同步。
-
-**Step 5：勋章与成就系统**
-EXP 累加逻辑、等级计算、Library 页面（按勋章分类回顾历史任务和截图）、每周小结页面。
-
-**Step 6：自用内测**
-自己作为第一个用户，用一到两周，重点看："契约生成准不准"、"证据要求是否太麻烦"、"完成后的反馈是否真的有动力感"。
-
-**Step 7：小范围内测**
-找 5-10 个同学/朋友用起来，重点收集"AI 生成的验收标准是否合理"和"误判率"两个问题的反馈。
-
-**Step 8：打磨与上架准备**
-优化 UI 细节、补充空状态/错误态，验证登录页可跳过且不会阻塞任何 v1 功能；准备 Mac App Store 上架素材（如果打算上架）。v1 不测试购买、会员或订阅。
-
-**Step 9：迁移到 iOS**
-现有 target 已升级为 macOS+iOS 多平台 target，并完成 AppKit/UIKit 图片、ImageIO 压缩、相机、WKWebView、底部导航和首轮小屏布局适配。剩余工作是 iPhone 真机验收、动态字体/键盘/窄屏打磨、App Icon、TestFlight 与上架资料。
-
-**Step 10：CloudKit 同步**
-兼容 schema、私有容器、同步状态 UI 和 iOS 基础 target 已完成。付费 Apple Developer Team 激活容器后，验证 Mac/iPhone 双向同步、断网恢复、冲突和证据图片，并在分发前把开发 schema 发布到 Production。
-
-**v2：真实账户、会员与订阅（不计入 v1 roadmap）**
-接入 StoreKit 2 和服务端账户体系；使用现有 Sign in with Apple 身份实现 entitlement、周期 AI 配额、购买/恢复/退款处理、账户删除与 token 撤销。后端从 v1 最小代理升级为账户、计费和用量网关，但仍不存储任务、勋章、XP、Library 或证据图片。
-
----
-
-## 8. 风险与应对
-
-- **AI 误判**：保留三态核验结果，允许用户补交证据或申诉，第一版不设金钱惩罚可以让误判的代价降到最低。
-- **证据门槛**：每类任务的默认证据要求尽量选"用户本来就会产生的东西"（LeetCode 的 Accepted 截图、Apple Health 的运动记录），减少"为了证明而额外做的动作"。
-- **隐私敏感任务先不做**：订机票这类涉及个人信息的任务证据，放到后续版本，且需要考虑截图脱敏（比如生成契约时提醒用户可以裁剪掉姓名/订单号）。
-- **CloudKit schema 风险**：发布到 Production 前完成模型审查和真实设备测试；发布后只做兼容的增量演进。
-- **v1 范围膨胀**：Apple 登录与同步进入 v1，但 StoreKit、会员、个人额度、服务端账户和账户删除仍推迟到 v2。
-- **v1 内测 AI 成本失控**：限制测试人数、请求大小和全局频率，设置 OpenAI 项目用量/支出告警，并由代理端实施硬预算拒绝逻辑；v1 不承诺公开规模服务。
-- **v2 AI 成本超过会员收入**：不承诺无限调用；为免费版和各会员档设置清晰的周期额度，并由后端验证 entitlement 和统计用量。
-- **不要一开始就想"完美系统"**：MVP 的意义是尽快验证"这个反馈机制是否真的比打勾更有动力"，这是产品成立与否的核心假设，值得优先验证，而不是优先把技术做全。
-
----
-
-## 9. 命名与 Slogan 建议（仅供参考）
-
-- **实锤**（中文语境很贴切，"实锤"本身就是"石锤的证据"的网络流行语，直接对应"用证据说话"的核心概念）
-  - Slogan：拿实锤，攒成就
-- **Proofed**
-  - Slogan：Don't just check it off. Prove it.
-- **见证 / Witness**
-  - Slogan：让现在的你，见证未来的你完成承诺
+The product hypothesis is not that every possible productivity feature can be built; it is that verified, collectible progress feels meaningfully more motivating than checking a box.

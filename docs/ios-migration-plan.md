@@ -1,65 +1,72 @@
-# LifeMedals iOS 迁移计划
+# LifeMedals iOS Migration and Acceptance Plan
 
-## 技术路线
+## Approach
 
-使用现有 SwiftUI target 构建 macOS 与 iOS 多平台应用，而不是复制第二套客户端。两个平台共享 SwiftData schema、CloudKit 私有容器、Apple 登录、AI 服务、通知和业务 UI；仅为图片、相机、WebKit、窗口命令及紧凑布局保留平台适配代码。
+LifeMedals uses the existing SwiftUI target for macOS, iOS, and iPadOS. The platforms share their SwiftData schema, private CloudKit container, Sign in with Apple session, AI services, notification logic, and business UI. Platform adapters are limited to images, camera preview, WebKit, window commands, and compact layouts.
 
-## 阶段与状态
+## Status
 
-### 1. 多平台基础（已完成）
+### 1. Multi-platform foundation — complete
 
-- [x] target 支持 `macosx`、`iphoneos` 和 `iphonesimulator`
-- [x] 配置 iPhone/iPad device family、iOS 部署版本、相机和照片权限说明
-- [x] Debug 继续使用无云端 entitlement 的本地开发模式
-- [x] Release 复用 `iCloud.noorg.LifeMedals`、Sign in with Apple 和通知 entitlement
-- [x] macOS 与 iOS Debug 编译验证通过
+- [x] Support `macosx`, `iphoneos`, and `iphonesimulator` in one target.
+- [x] Configure iPhone/iPad device families, iOS deployment target, and camera/photo usage descriptions.
+- [x] Keep Debug in local-development mode without cloud entitlements.
+- [x] Keep Release entitlements for `iCloud.noorg.LifeMedals`, Sign in with Apple, and notifications.
+- [x] Build macOS and iOS Simulator Debug configurations.
 
-### 2. 平台 API 与首轮 UI 适配（已完成）
+### 2. Platform APIs and responsive UI — complete
 
-- [x] AppKit/UIKit 图片显示统一到共享适配层
-- [x] 图片压缩改为跨平台 ImageIO 实现
-- [x] WKWebView 勋章动画同时支持 `NSViewRepresentable` 与 `UIViewRepresentable`
-- [x] 相机预览同时支持 AppKit 与 UIKit，并接入证据提交页
-- [x] iPhone 使用紧凑顶部栏和底部主导航
-- [x] 登录页、任务契约表单、证据槽位和账户面板适配小屏宽度
-- [x] iOS 支持相机、PhotosPicker 与文件选择；macOS 继续支持拖放和 `⌘V`
+- [x] Provide shared AppKit/UIKit image adapters.
+- [x] Use cross-platform ImageIO compression.
+- [x] Support both `NSViewRepresentable` and `UIViewRepresentable` for the WebKit medal animation.
+- [x] Support AppKit/UIKit camera preview.
+- [x] Add compact iPhone navigation and responsive creation, task, evidence, account, and reward screens.
+- [x] Support camera, PhotosPicker, and files on iOS; retain drag-and-drop and paste on macOS.
+- [x] Add task groups with stacked-card collapsed state and animated child expansion.
+- [x] Add Unfinished/Completed/Overdue and Medals/Monster Atlas transitions.
+- [x] Add narrow iOS edge-swipe navigation without replacing task-row swipe actions.
+- [x] Honor Reduce Motion in task, tab, monster, and reward transitions.
 
-### 3. 真机与跨设备验收（下一阶段）
+### 3. Automated and simulator checks — substantially complete
 
-- [ ] 使用付费 Apple Developer Team 激活 CloudKit 容器和签名配置
-- [ ] 在 iPhone 真机验证相机权限、照片权限、拍照方向和压缩结果
-- [ ] 验证本地通知授权、前台展示、截止提醒与重启恢复
-- [ ] 验证 Apple 登录首次授权、取消、撤销和离线会话
-- [ ] 验证 Mac/iPhone 新增、编辑、核验、EXP 与证据图片双向同步
-- [ ] 验证断网编辑、恢复联网、并发修改和同步冲突
-- [ ] 在 CloudKit Console 检查开发 schema，再发布到 Production
+- [x] Add XCTest coverage for deadlines, task generation, task groups, taxonomy, discovery idempotency, and artwork synchronization.
+- [x] Add Debug screenshot routes for representative pages.
+- [x] Inspect standard iPhone simulator layouts and build the current iOS target successfully.
+- [ ] Add critical end-to-end UI smoke tests.
+- [ ] Repeat visual QA on a small iPhone, standard iPhone, Pro Max, and iPad.
 
-### 4. iOS 产品级打磨
+### 4. Physical-device and CloudKit acceptance — next
 
-- [x] 在标准 iPhone 模拟器逐页检查首页、任务、契约、详情、勋章、账户与奖励动画
-- [x] 修复导航栏账户入口、启动抢焦点、Tab Bar 键盘遮挡和任务行双重横滑手势
-- [x] 修复竖向 ScrollView 采用桌面理想宽度造成的整页横向溢出
-- [x] 为双图证据槽、证据历史卡、账户弹窗和奖励动画增加紧凑布局
-- [x] 奖励动画支持 Reduce Motion，并在 iOS 使用全屏模态避免导航容器裁切
-- [ ] 用 iPhone SE 尺寸、标准 iPhone、Pro Max 和 iPad 做逐页视觉 QA
-- [ ] 优化键盘避让、动态字体、VoiceOver、横竖屏策略和触控目标
-- [ ] 为证据历史卡片、勋章动画和较长任务标题补充窄屏边界测试
-- [ ] 添加 SwiftData 服务测试和关键 UI smoke test
-- [ ] 评估是否继续支持 iPad；若支持，增加双栏/宽屏布局
+- [ ] Activate signing and the CloudKit container with a paid Apple Developer Team.
+- [ ] Validate camera/photo permissions, capture orientation, and compressed output on iPhone.
+- [ ] Validate local notification authorization, foreground presentation, deadline delivery, and restoration after launch.
+- [ ] Validate initial Apple authorization, cancellation, revocation, offline session behavior, and sign-out.
+- [ ] Validate Dynamic Type, VoiceOver order and labels, touch targets, keyboard avoidance, and orientation policy.
+- [ ] Validate Reduce Motion and offline monster-artwork caching.
+- [ ] Validate Mac/iPhone synchronization for tasks, task groups, edits, evidence, verdicts, EXP, and discoveries.
+- [ ] Validate offline edits, reconnection, concurrent changes, conflicts, and large evidence-image fields.
+- [ ] Inspect the development schema in CloudKit Console and publish it to Production before distribution.
 
-### 5. TestFlight 与上架
+### 5. TestFlight and distribution — pending
 
-- [ ] 制作 iOS App Icon、Launch Screen 和各设备截图
-- [ ] 补齐隐私清单、隐私政策、相机/照片/iCloud/AI 数据说明
-- [ ] 在 App Store Connect 创建 iOS 平台版本并配置 Sign in with Apple
-- [ ] Archive/Validate，解决签名、entitlement 与隐私检查问题
-- [ ] TestFlight 内测，完成崩溃、性能、网络失败和迁移回归
-- [ ] 提交 App Review
+- [ ] Produce the iOS icon, launch experience, and device screenshots.
+- [ ] Complete the privacy manifest, privacy policy, and camera/photo/iCloud/AI disclosures.
+- [ ] Create the iOS version in App Store Connect and configure Sign in with Apple.
+- [ ] Archive and validate signing, entitlements, and privacy declarations.
+- [ ] Run a TestFlight beta covering crashes, performance, network failure, and data migration.
+- [ ] Submit to App Review.
 
-## 验收标准
+## Acceptance criterion
 
-iOS 版本达到可内测状态时，必须能在 iPhone 上独立跑通“生成契约 → 保存 → 本地提醒 → 拍照/选图 → AI 核验 → EXP/勋章 → Library”，断网不丢本地数据；恢复联网后，同一 iCloud 账户下的 Mac 与 iPhone 数据最终一致。
+An iPhone beta must independently complete:
 
-## Debug 截图回归入口
+```text
+Generate contract -> save -> receive reminder -> capture/select proof
+-> verify -> reveal monster -> award EXP -> review achievements
+```
 
-Debug 构建可通过 `LIFEMEDALS_DEBUG_PAGE` 打开 `tasks`、`medals`、`atlas`、`account`、`review`、`task-detail` 或 `award` 场景。该入口仅用于模拟器截图回归，不会进入 Release 构建的正常用户流程。
+Local data must survive network loss. When connectivity returns, Mac and iPhone using the same iCloud account must eventually converge without duplicating EXP or monster defeats.
+
+## Debug screenshot routes
+
+Set `LIFEMEDALS_DEBUG_PAGE` in a Debug scheme to open `tasks`, `medals`, `atlas`, `account`, `review`, `task-detail`, or `award`. These routes exist only for simulator screenshot regression and do not alter the Release user flow.
