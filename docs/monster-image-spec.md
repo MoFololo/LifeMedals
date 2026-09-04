@@ -1,57 +1,60 @@
-# LifeMedals 怪物形象生成规范
+# LifeMedals Monster Image Specification
 
-## 目标
+## Goal
 
-每个怪物物种必须让用户只看轮廓和核心物件就能辨认其任务类别。勋章类别只决定物种家族，不得代替具体任务语义；例如篮球和游泳同属 Athlete，但必须是两个物种。
+A user should recognize a monster's task category from its silhouette and core objects without reading a label. A medal family groups species but never replaces the task's concrete meaning. Basketball and swimming both belong to Athlete, yet must remain different species.
 
-## 1. Taxonomy 先决定物种
+## 1. Taxonomy defines the species
 
-- `monster_tag` 描述可复用的具体活动，不描述某一次任务。
-- 已明确命名的运动必须保留项目：篮球使用 `sports.basketball`，游泳使用 `sports.swimming`，不能降级为 `fitness.workout`。
-- `fitness.workout` 只用于健身房、力量训练或未指明项目的一般锻炼。
-- 其他勋章遵守同样原则：倒垃圾使用 `chores.take_out_trash`，而不是宽泛的 `chores.household`。
-- 标签只使用小写英文 taxonomy，不得包含用户、地点、品牌、文件、日期或其他一次性信息。
+- `monster_tag` describes a reusable activity, not one user's task.
+- Explicit sports retain their sport: use `sports.basketball` or `sports.swimming`, never the generic `fitness.workout`.
+- Reserve `fitness.workout` for gym sessions, strength training, or unspecified exercise.
+- Apply the same specificity elsewhere: use `chores.take_out_trash`, not `chores.household`.
+- Tags contain lowercase English taxonomy only. They must not include people, locations, brands, files, dates, or other one-off details.
+- Species IDs use `species-[medaltype]-[description]`. Prefer one simple word for the description; if two are necessary, concatenate them after the final hyphen, as in `species-career-jobsearch`.
 
-## 2. 概念模型先选 1–2 个强关联视觉锚点
+## 2. Choose one or two strong visual anchors
 
-概念响应必须提供 `signature_objects`，数量为 1–2。每一项必须是无需文字说明即可识别的具体物品或物理材料，不能是情绪、抽象概念、勋章图标或“通用工具”。
+Every concept response must include `signature_objects` with one or two entries. Each entry is a concrete object or physical material recognizable without explanatory text. Emotions, abstract concepts, medal icons, and generic "tools" do not qualify.
 
-示例：
-
-| Species ID | Canonical tag | 合格视觉锚点示例 |
+| Species ID | Canonical tag | Suitable anchors |
 | --- | --- | --- |
-| `species-athlete-basketball` | `sports.basketball` | 篮球、篮框 |
-| `species-athlete-swimming` | `sports.swimming` | 水、救生圈 |
-| `species-athlete-baseball` | `sports.baseball` | 棒球、球棒 |
-| `species-athlete-tennis` | `sports.tennis` | 网球、球拍 |
-| `species-life-trash` | `chores.take_out_trash` | 垃圾桶、扎口垃圾袋 |
+| `species-athlete-basketball` | `sports.basketball` | basketball, hoop |
+| `species-athlete-swimming` | `sports.swimming` | water, life ring |
+| `species-athlete-baseball` | `sports.baseball` | baseball, bat |
+| `species-athlete-tennis` | `sports.tennis` | tennis ball, racket |
+| `species-life-trash` | `chores.take_out_trash` | trash can, tied garbage bag |
 
-示例仅说明选择强度，模型必须根据实际 canonical tag 自行推导，不能把示例物件套到无关类别。
+These examples show the required strength of association. The concept model must derive anchors from the actual canonical tag and must not reuse unrelated example objects.
 
-## 3. 每个锚点都必须融入怪物形象
+## 3. Integrate every anchor into the monster
 
-- `task_features` 必须逐一描述 `signature_objects` 如何成为身体结构、主轮廓、衣着或手持/穿戴装备。
-- 所有锚点都必须在单个 48×48 逻辑像素精灵中清晰可辨。
-- 只放在背景、藏在场景装饰中、用动作暗示、换成文字/徽标或抽象符号，均视为未包含。
-- `image_description` 必须再次明确提到每个锚点及其融合方式。
-- 不得为了增加锚点而生成复杂场景；主体仍是一个居中的怪物精灵。
+- `task_features` must explain how each signature object becomes body structure, primary silhouette, clothing, held equipment, or worn equipment.
+- Every anchor must remain legible in one 48-by-48 logical-pixel sprite.
+- Background-only props, scene decoration, implied actions, text, logos, or abstract symbols do not count as integration.
+- `image_description` must explicitly repeat each anchor and how it is integrated.
+- Do not create a complicated scene to fit more anchors. The output remains one centered monster sprite.
 
-## 4. 九级进化保持同一物种 DNA
+## 4. Preserve species DNA through nine levels
 
-- 1 级只保留最强的 1–2 个锚点和最少像素块。
-- 2–9 级必须保留同一张脸、身体结构、配色、像素尺度和全部视觉锚点。
-- 每一级只增加一个可由像素辨认的小变化，不得通过增加无关道具改变物种含义。
+- Level 1 uses the smallest pixel mass and only the strongest one or two anchors.
+- Levels 2 through 9 preserve the same face, body structure, palette, pixel scale, and every signature object.
+- Each level adds one small, pixel-readable evolution. Unrelated props must not change the species meaning.
+- Level N should be produced as an edit of the ready Level N-1 image whenever possible.
 
-## 5. 风格、安全与隐私
+## 5. Style, safety, and privacy
 
-- 低分辨率怪诞像素吉祥物：紧凑、不对称、略笨拙但适合家庭使用。
-- 硬边方形像素、阶梯轮廓、3–4 个脏灰低饱和色；禁止抗锯齿、渐变、模糊、光滑 3D 和复杂高分辨率细节。
-- 禁止文字、数字、Logo、商标、受版权保护角色、血腥、裸露器官或色情内容。
-- 概念与图片服务只接收 canonical tag、勋章家族、等级和稳定视觉 DNA；不得接收用户任务标题或其他私人数据。
+- Use a low-resolution grotesque pixel mascot: compact, asymmetric, awkward, and family-friendly.
+- Use hard square pixels, stepped contours, and three or four muted dirty-gray colors.
+- Do not use antialiasing, gradients, blur, smooth 3D rendering, or dense high-resolution detail.
+- Do not include text, numbers, logos, trademarks, copyrighted characters, gore, exposed organs, nudity, or sexual content.
+- Concept and image services receive only canonical tag, medal family, level, stable visual DNA, and version metadata. They never receive a user's title, description, evidence, or identity.
 
-## 6. 版本与素材不可变性
+## 6. Versions and immutability
 
-- 概念规范由 `MONSTER_CONCEPT_PROMPT_VERSION` 控制。
-- 图片构图规范由 `MONSTER_PROMPT_VERSION` 控制。
-- 需要重生成素材时升级 `MONSTER_STYLE_VERSION`，让新素材使用新的 variant key；旧 R2 图片保持不可变历史，不覆盖原对象。
+- `MONSTER_CONCEPT_PROMPT_VERSION` versions concept rules.
+- `MONSTER_PROMPT_VERSION` versions image composition rules.
+- `MONSTER_STYLE_VERSION` selects the immutable variant family.
+- A regeneration that changes art must increment the style version and write a new R2 object. Existing historical objects must never be overwritten.
 
+The current staging configuration uses `monster-concept-v3`, `monster-image-v4`, and `grotesque-pixel-v2` with `gpt-image-2`.
