@@ -242,6 +242,11 @@ struct ContentView: View {
         }
     }
 
+    private enum EdgeSwipeDirection: Equatable {
+        case towardPrevious
+        case towardNext
+    }
+
     private struct TaskRowAction: Identifiable {
         enum Kind: Hashable {
             case delete
@@ -408,10 +413,12 @@ struct ContentView: View {
     @State private var isReminderStatusDismissed = false
     @GestureState private var reminderBannerTranslation: CGFloat = 0
     @State private var selectedTaskTab = TaskListTab.unfinished
+    @State private var taskTabTransitionDirection = EdgeSwipeDirection.towardNext
     /// Absence means expanded, so newly created and synced groups default open.
     @State private var collapsedTaskGroupIDs: Set<UUID> = []
     @State private var selectedLibraryBadge: String?
     @State private var selectedAchievementTab = AchievementTab.medals
+    @State private var achievementTabTransitionDirection = EdgeSwipeDirection.towardNext
     @State private var medalAnimationPresentation: XPAwardEvent?
     @State private var deferredMedalAnimationPresentation: XPAwardEvent?
     @State private var evidenceVerificationPresentation: EvidenceVerificationPresentation?
@@ -620,7 +627,7 @@ struct ContentView: View {
 
 #if os(iOS)
     private func mobileTab<Content: View>(
-        _: AppPage,
+        _ page: AppPage,
         containerSize: CGSize,
         @ViewBuilder content: @escaping () -> Content
     ) -> some View {
@@ -630,6 +637,49 @@ struct ContentView: View {
                 .frame(width: containerSize.width)
         }
         .frame(width: containerSize.width)
+        .overlay(alignment: .leading) {
+            if page == .tasks || page == .medals {
+                edgeSwipeRegion(direction: .towardPrevious) {
+                    handleEdgeSwipe(on: page, direction: .towardPrevious)
+                }
+            }
+        }
+        .overlay(alignment: .trailing) {
+            if page == .tasks || page == .medals {
+                edgeSwipeRegion(direction: .towardNext) {
+                    handleEdgeSwipe(on: page, direction: .towardNext)
+                }
+            }
+        }
+    }
+
+    private func edgeSwipeRegion(
+        direction: EdgeSwipeDirection,
+        action: @escaping () -> Void
+    ) -> some View {
+        Color.clear
+            .frame(width: 26)
+            .frame(maxHeight: .infinity)
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 18, coordinateSpace: .local)
+                    .onEnded { value in
+                        let horizontalDistance = value.translation.width
+                        let verticalDistance = value.translation.height
+                        guard abs(horizontalDistance) >= 54 else { return }
+                        guard abs(horizontalDistance) > abs(verticalDistance) * 1.25 else { return }
+
+                        switch direction {
+                        case .towardPrevious where horizontalDistance > 0:
+                            action()
+                        case .towardNext where horizontalDistance < 0:
+                            action()
+                        default:
+                            break
+                        }
+                    }
+            )
+            .accessibilityHidden(true)
     }
 #endif
 
@@ -1376,12 +1426,6 @@ struct ContentView: View {
                 )
         } else {
             taskListRoot
-                .transition(
-                    .asymmetric(
-                        insertion: .opacity.combined(with: .move(edge: .leading)),
-                        removal: .opacity.combined(with: .move(edge: .trailing))
-                    )
-                )
         }
     }
 
@@ -1401,16 +1445,28 @@ struct ContentView: View {
         case .overdue: overdueTasks
         }
 
-        return List {
+        return VStack(spacing: 0) {
             taskListHeader(
                 unfinishedCount: unfinishedTasks.count,
                 completedCount: completedTasks.count,
                 overdueCount: overdueTasks.count
             )
-            .listRowBackground(Color.clear)
-            .listRowSeparator(.hidden)
-            .listRowInsets(EdgeInsets(top: 24, leading: pageHorizontalInset, bottom: 12, trailing: pageHorizontalInset))
+            .padding(.top, 24)
+            .padding(.horizontal, pageHorizontalInset)
+            .padding(.bottom, 12)
 
+            ZStack {
+                taskListContent(tasks: selectedTasks, now: now)
+                    .id(selectedTaskTab)
+                    .transition(horizontalTabTransition(direction: taskTabTransitionDirection))
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .clipped()
+        }
+    }
+
+    private func taskListContent(tasks selectedTasks: [TaskContract], now: Date) -> some View {
+        List {
             if selectedTasks.isEmpty {
                 taskListEmptyState(for: selectedTaskTab)
                     .listRowBackground(Color.clear)
@@ -1516,9 +1572,7 @@ struct ContentView: View {
                     }
 
                     Button {
-                        withAnimation(.smooth(duration: 0.3)) {
-                            selectedTaskTab = tab
-                        }
+                        selectTaskTab(tab)
                     } label: {
                         Group {
                             if isCompactLayout {
@@ -1649,38 +1703,54 @@ struct ContentView: View {
         let childTasks = children(of: task)
         let completedCount = childTasks.filter { $0.status == .verified }.count
         let isExpanded = !collapsedTaskGroupIDs.contains(task.id)
+        let middleLayerOffset: CGFloat = isExpanded ? 0 : 5
+        let backLayerOffset: CGFloat = isExpanded ? 0 : 10
 
-        return HStack(spacing: isCompactLayout ? 10 : 14) {
-            MedalArtworkView(
-                categoryName: task.badgeCategory?.name,
-                rank: task.badgeCategory?.userBadge?.rank ?? .bronze
-            )
-            .frame(width: isCompactLayout ? 42 : 50, height: isCompactLayout ? 42 : 50)
+        return ZStack {
+            PixelCornerShape()
+                .fill(PixelTheme.background.opacity(0.92))
+                .offset(x: PixelTheme.shadowOffset, y: PixelTheme.shadowOffset)
+                .opacity(isExpanded ? 1 : 0)
+                .accessibilityHidden(true)
 
-            VStack(alignment: .leading, spacing: 6) {
-                Text(L10n.text(task.title))
-                    .font(PixelTheme.font(.headline))
-                    .foregroundStyle(PixelTheme.ink)
-                    .lineLimit(3)
-                    .layoutPriority(1)
+            taskGroupStackLayer(fill: PixelTheme.paper.opacity(0.72), borderOpacity: 0.45)
+                .offset(x: backLayerOffset, y: backLayerOffset)
+                .opacity(isExpanded ? 0 : 1)
 
-                Label(
-                    deadlineDisplayText(task.deadline, relativeTo: now),
-                    systemImage: task.deadline <= now && task.status != .verified
-                        ? "clock.badge.exclamationmark"
-                        : "clock"
+            taskGroupStackLayer(fill: PixelTheme.paperRaised.opacity(0.88), borderOpacity: 0.68)
+                .offset(x: middleLayerOffset, y: middleLayerOffset)
+                .opacity(isExpanded ? 0 : 1)
+
+            HStack(spacing: isCompactLayout ? 10 : 14) {
+                MedalArtworkView(
+                    categoryName: task.badgeCategory?.name,
+                    rank: task.badgeCategory?.userBadge?.rank ?? .bronze
                 )
-                .font(PixelTheme.font(.caption))
-                .foregroundStyle(
-                    task.deadline <= now && task.status != .verified
-                        ? PixelTheme.danger
-                        : PixelTheme.inkMuted
-                )
-            }
+                .frame(width: isCompactLayout ? 42 : 50, height: isCompactLayout ? 42 : 50)
 
-            Spacer(minLength: 8)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(L10n.text(task.title))
+                        .font(PixelTheme.font(.headline))
+                        .foregroundStyle(PixelTheme.ink)
+                        .lineLimit(3)
+                        .layoutPriority(1)
 
-            HStack(spacing: isCompactLayout ? 8 : 12) {
+                    Label(
+                        deadlineDisplayText(task.deadline, relativeTo: now),
+                        systemImage: task.deadline <= now && task.status != .verified
+                            ? "clock.badge.exclamationmark"
+                            : "clock"
+                    )
+                    .font(PixelTheme.font(.caption))
+                    .foregroundStyle(
+                        task.deadline <= now && task.status != .verified
+                            ? PixelTheme.danger
+                            : PixelTheme.inkMuted
+                    )
+                }
+
+                Spacer(minLength: 8)
+
                 VStack(alignment: .trailing, spacing: 7) {
                     Text("\(completedCount)/\(childTasks.count)")
                         .font(PixelTheme.statFont(size: isCompactLayout ? 14 : 16))
@@ -1692,17 +1762,23 @@ struct ContentView: View {
                             .foregroundStyle(PixelTheme.brown)
                     }
                 }
-
-                Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                    .font(PixelTheme.font(.subheadline, weight: .bold))
-                    .foregroundStyle(PixelTheme.selection)
-                    .frame(width: 18)
+            }
+            .padding(isCompactLayout ? 14 : 18)
+            .foregroundStyle(PixelTheme.ink)
+            .background(PixelTheme.paper, in: PixelCornerShape())
+            .overlay {
+                PixelCornerShape()
+                    .stroke(PixelTheme.gold, lineWidth: PixelTheme.borderWidth)
+            }
+            .overlay {
+                PixelCornerShape(step: 2)
+                    .stroke(PixelTheme.paperRaised.opacity(0.42), lineWidth: 1)
+                    .padding(3)
             }
         }
-        .padding(isCompactLayout ? 14 : 18)
-        .foregroundStyle(PixelTheme.ink)
+        .padding(.trailing, isExpanded ? 0 : 10)
+        .padding(.bottom, isExpanded ? 0 : 10)
         .contentShape(PixelCornerShape())
-        .pixelSurface(fill: PixelTheme.paper, border: PixelTheme.gold, step: 4, hasShadow: true)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(
             L10n.text(
@@ -1715,6 +1791,16 @@ struct ContentView: View {
                 ? L10n.text("收起子任务", english: "Collapse subtasks")
                 : L10n.text("展开子任务", english: "Expand subtasks")
         )
+    }
+
+    private func taskGroupStackLayer(fill: Color, borderOpacity: Double) -> some View {
+        PixelCornerShape()
+            .fill(fill)
+            .overlay {
+                PixelCornerShape()
+                    .stroke(PixelTheme.gold.opacity(borderOpacity), lineWidth: PixelTheme.borderWidth)
+            }
+            .accessibilityHidden(true)
     }
 
     @ViewBuilder
@@ -1854,24 +1940,23 @@ struct ContentView: View {
                     .pixelSurface(fill: PixelTheme.paperRaised, border: PixelTheme.gold, step: 4, hasShadow: true)
                 }
 
-                VStack(alignment: .leading, spacing: 14) {
-                    Label("任务说明", systemImage: "text.alignleft")
-                        .font(PixelTheme.displayFont(size: 17))
-                        .foregroundStyle(PixelTheme.ink)
+                if let taskDescription = task.taskDescription?.trimmingCharacters(in: .whitespacesAndNewlines),
+                   !taskDescription.isEmpty {
+                    VStack(alignment: .leading, spacing: 14) {
+                        Label("任务说明", systemImage: "text.alignleft")
+                            .font(PixelTheme.displayFont(size: 17))
+                            .foregroundStyle(PixelTheme.ink)
 
-                    Text(task.taskDescription?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
-                         ? task.taskDescription!
-                         : L10n.text("未添加任务说明", english: "No task description"))
-                        .font(PixelTheme.font(.body))
-                        .foregroundStyle(task.taskDescription?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
-                                         ? PixelTheme.ink
-                                         : PixelTheme.inkMuted)
-                        .lineSpacing(5)
-                        .textSelection(.enabled)
-                        .fixedSize(horizontal: false, vertical: true)
+                        Text(taskDescription)
+                            .font(PixelTheme.font(.body))
+                            .foregroundStyle(PixelTheme.ink)
+                            .lineSpacing(5)
+                            .textSelection(.enabled)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .padding(22)
+                    .pixelSurface(fill: PixelTheme.paperRaised, border: PixelTheme.gold, step: 4, hasShadow: true)
                 }
-                .padding(22)
-                .pixelSurface(fill: PixelTheme.paperRaised, border: PixelTheme.gold, step: 4, hasShadow: true)
 
                 EvidenceSubmissionView(
                     task: task,
@@ -1936,51 +2021,73 @@ struct ContentView: View {
                     )
                 )
         } else {
-            Group {
-                switch selectedAchievementTab {
-                case .medals:
-                    medalsGridPage
-                case .monsters:
-                    monsterAtlasPage
+            VStack(spacing: 0) {
+                achievementOverviewHeader
+
+                ZStack {
+                    Group {
+                        switch selectedAchievementTab {
+                        case .medals:
+                            medalsGridPage
+                        case .monsters:
+                            monsterAtlasPage
+                        }
+                    }
+                    .id(selectedAchievementTab)
+                    .transition(horizontalTabTransition(direction: achievementTabTransitionDirection))
                 }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .clipped()
             }
-            .transition(.opacity.combined(with: .scale(scale: 0.99)))
         }
+    }
+
+    private var achievementOverviewHeader: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            pageHeader(
+                title: "成就",
+                subtitle: isCompactLayout
+                    ? nil
+                    : selectedAchievementTab == .medals
+                        ? "收集碎片，铸造属于每个领域的勋章。点开后可回顾历史任务和证据。"
+                        : L10n.text(
+                            "只有亲自完成并通过核验的怪物才会进入你的图鉴。",
+                            english: "Only monsters you personally reveal through verified tasks enter your atlas."
+                        )
+            )
+
+            achievementTabPicker
+        }
+        .padding(.top, 38)
+        .padding(.horizontal, pageHorizontalInset)
+        .padding(.bottom, 12)
+        .frame(maxWidth: 790, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var medalsGridPage: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                pageHeader(
-                    title: "成就",
-                    subtitle: isCompactLayout
-                        ? nil
-                        : "收集碎片，铸造属于每个领域的勋章。点开后可回顾历史任务和证据。"
-                )
-
-                achievementTabPicker
-
-                LazyVGrid(
-                    columns: [
-                        GridItem(.flexible(minimum: 0), spacing: 16),
-                        GridItem(.flexible(minimum: 0), spacing: 16)
-                    ],
-                    spacing: 16
-                ) {
-                    ForEach(Self.badgeOptions, id: \.self) { badge in
-                        Button {
-                            withAnimation(.smooth(duration: 0.38)) {
-                                selectedLibraryBadge = badge
-                            }
-                        } label: {
-                            medalCard(for: badge)
+            LazyVGrid(
+                columns: [
+                    GridItem(.flexible(minimum: 0), spacing: 16),
+                    GridItem(.flexible(minimum: 0), spacing: 16)
+                ],
+                spacing: 16
+            ) {
+                ForEach(Self.badgeOptions, id: \.self) { badge in
+                    Button {
+                        withAnimation(.smooth(duration: 0.38)) {
+                            selectedLibraryBadge = badge
                         }
-                        .buttonStyle(.plain)
+                    } label: {
+                        medalCard(for: badge)
                     }
+                    .buttonStyle(.plain)
                 }
             }
             .padding(.horizontal, pageHorizontalInset)
-            .padding(.vertical, 38)
+            .padding(.top, 8)
+            .padding(.bottom, 38)
             .platformScrollableContentWidth(790)
             .frame(maxWidth: .infinity)
         }
@@ -1988,24 +2095,12 @@ struct ContentView: View {
 
     private var monsterAtlasPage: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                pageHeader(
-                    title: "成就",
-                    subtitle: isCompactLayout
-                        ? nil
-                        : L10n.text(
-                            "只有亲自完成并通过核验的怪物才会进入你的图鉴。",
-                            english: "Only monsters you personally reveal through verified tasks enter your atlas."
-                        )
-                )
-
-                achievementTabPicker
-                MonsterAtlasView()
-            }
-            .padding(.horizontal, pageHorizontalInset)
-            .padding(.vertical, 38)
-            .platformScrollableContentWidth(790)
-            .frame(maxWidth: .infinity)
+            MonsterAtlasView()
+                .padding(.horizontal, pageHorizontalInset)
+                .padding(.top, 8)
+                .padding(.bottom, 38)
+                .platformScrollableContentWidth(790)
+                .frame(maxWidth: .infinity)
         }
     }
 
@@ -2017,9 +2112,7 @@ struct ContentView: View {
             selection: selectedAchievementTab.rawValue
         ) { rawValue in
             guard let tab = AchievementTab(rawValue: rawValue) else { return }
-            withAnimation(reduceMotion ? nil : .smooth(duration: 0.28)) {
-                selectedAchievementTab = tab
-            }
+            selectAchievementTab(tab)
         }
         .accessibilityLabel(L10n.text("成就类别", english: "Achievement category"))
     }
@@ -2705,7 +2798,7 @@ struct ContentView: View {
     }
 
     private func closeTaskDetail() {
-        withAnimation(.smooth(duration: 0.4)) {
+        withAnimation(reduceMotion ? nil : .smooth(duration: 0.4)) {
             selectedTask = nil
 
             switch taskDetailOrigin {
@@ -2717,6 +2810,88 @@ struct ContentView: View {
             }
 
             taskDetailOrigin = .taskList
+        }
+    }
+
+    private func horizontalTabTransition(direction: EdgeSwipeDirection) -> AnyTransition {
+        guard !reduceMotion else { return .opacity }
+
+        let insertionEdge: Edge = direction == .towardNext ? .trailing : .leading
+        let removalEdge: Edge = direction == .towardNext ? .leading : .trailing
+        return .asymmetric(
+            insertion: .move(edge: insertionEdge).combined(with: .opacity),
+            removal: .move(edge: removalEdge).combined(with: .opacity)
+        )
+    }
+
+    private func selectTaskTab(_ tab: TaskListTab) {
+        guard tab != selectedTaskTab else { return }
+        let tabs = TaskListTab.allCases
+        guard
+            let currentIndex = tabs.firstIndex(of: selectedTaskTab),
+            let destinationIndex = tabs.firstIndex(of: tab)
+        else { return }
+
+        taskTabTransitionDirection = destinationIndex > currentIndex ? .towardNext : .towardPrevious
+        withAnimation(reduceMotion ? nil : .smooth(duration: 0.32)) {
+            selectedTaskTab = tab
+        }
+    }
+
+    private func selectAchievementTab(_ tab: AchievementTab) {
+        guard tab != selectedAchievementTab else { return }
+        let tabs = AchievementTab.allCases
+        guard
+            let currentIndex = tabs.firstIndex(of: selectedAchievementTab),
+            let destinationIndex = tabs.firstIndex(of: tab)
+        else { return }
+
+        achievementTabTransitionDirection = destinationIndex > currentIndex ? .towardNext : .towardPrevious
+        withAnimation(reduceMotion ? nil : .smooth(duration: 0.32)) {
+            selectedAchievementTab = tab
+        }
+    }
+
+    private func handleEdgeSwipe(on page: AppPage, direction: EdgeSwipeDirection) {
+        switch page {
+        case .create:
+            break
+        case .tasks:
+            if selectedTask != nil {
+                if direction == .towardPrevious {
+                    closeTaskDetail()
+                }
+                return
+            }
+
+            let destination: TaskListTab? = switch (selectedTaskTab, direction) {
+            case (.unfinished, .towardNext): .completed
+            case (.completed, .towardPrevious): .unfinished
+            case (.completed, .towardNext): .overdue
+            case (.overdue, .towardPrevious): .completed
+            default: nil
+            }
+
+            guard let destination else { return }
+            selectTaskTab(destination)
+        case .medals:
+            guard selectedLibraryBadge == nil else {
+                if direction == .towardPrevious {
+                    withAnimation(reduceMotion ? nil : .smooth(duration: 0.38)) {
+                        selectedLibraryBadge = nil
+                    }
+                }
+                return
+            }
+
+            let destination: AchievementTab? = switch (selectedAchievementTab, direction) {
+            case (.medals, .towardNext): .monsters
+            case (.monsters, .towardPrevious): .medals
+            default: nil
+            }
+
+            guard let destination else { return }
+            selectAchievementTab(destination)
         }
     }
 
@@ -3196,14 +3371,7 @@ struct ContentView: View {
                 } else {
                     switch reminderAuthorization {
                     case .authorized:
-                        statusBanner(
-                            icon: "bell.badge.fill",
-                            message: L10n.text(
-                                "截止提醒已开启；未来任务会在截止时间发送系统通知。",
-                                english: "Deadline reminders are on. Future tasks will send a system notification at their deadline."
-                            ),
-                            color: PixelTheme.success
-                        )
+                        EmptyView()
                     case .denied:
                         statusBanner(icon: "bell.slash.fill", message: "系统通知已关闭。任务仍会保存在本机；可在系统设置中为 LifeMedals 开启通知。", color: PixelTheme.gold)
                     case .notDetermined:
@@ -3283,14 +3451,7 @@ struct ContentView: View {
         } else {
             switch reminderAuthorization {
             case .authorized:
-                statusBanner(
-                    icon: "bell.badge.fill",
-                    message: L10n.text(
-                        "将在 \(deadlineDisplayText(task.deadline)) 发送本地通知。",
-                        english: "A local notification will be sent on \(deadlineDisplayText(task.deadline))."
-                    ),
-                    color: PixelTheme.success
-                )
+                EmptyView()
             case .denied:
                 statusBanner(icon: "bell.slash.fill", message: "系统通知权限已关闭；任务本身不受影响。", color: PixelTheme.gold)
             case .notDetermined:

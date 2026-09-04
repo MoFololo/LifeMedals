@@ -211,3 +211,13 @@
 - 2026-07-30 | 再次收紧 v1：登录页仅作可跳过的 UI 占位且没有实际权限作用；Sign in with Apple、会员、StoreKit 订阅、entitlement 和个人 AI 配额全部推迟到 v2；v1 只跑通本地数据、AI 契约与证据核验闭环 | README.md, docs/product-plan.md, docs/progress.md
 
 - 2026-07-31 | 完成 Step 3：任务页按截止时间展示 SwiftData 待办契约，支持逾期状态与 Liquid Glass 契约详情；新增 UserNotifications 本地截止提醒，保存未来任务时请求权限并按稳定任务 UUID 调度，应用启动后恢复/清理提醒，前台也显示系统横幅，权限拒绝或调度失败不影响任务保存；macOS Debug 构建通过 | LifeMedals/LifeMedals/ContentView.swift, LifeMedals/LifeMedals/TaskNotificationService.swift, docs/progress.md
+
+- 2026-09-03 | 优化任务组列表交互：移除主任务展开箭头，用三层错位像素卡片直接表达“内含子任务”；点击时卡片层叠轻微收拢/展开，并保留子任务位移淡入动画、Reduce Motion 与原有滑动操作。干净 iOS Simulator Debug 构建通过 | LifeMedals/LifeMedals/ContentView.swift, docs/progress.md
+
+- 2026-09-03 | 调整任务组卡片方向与展开态：收起时后两层改从右下方露出；展开时层叠卡片收回并淡出，主任务恢复为普通任务一致的单卡片和像素阴影 | LifeMedals/LifeMedals/ContentView.swift, docs/progress.md
+
+- 2026-09-03 | 为 iOS 增加屏幕边缘滑动导航：任务列表可从左右边缘依次切换未完成、已完成和已逾期，任务详情支持左边缘右滑返回，成就页可在勋章与怪物图鉴间切换；手势使用独立窄边缘命中区，避免干扰任务行滑动操作，并遵循 Reduce Motion | LifeMedals/LifeMedals/ContentView.swift, docs/progress.md
+
+- 2026-09-03 | 优化任务与成就页的 Tab 切换动画：向后续 Tab 切换时旧内容向左退出、新内容从右进入，返回前序 Tab 时反向移动；点击 Tab 与边缘滑动统一使用同一方向判定，Reduce Motion 下退化为淡入淡出 | LifeMedals/LifeMedals/ContentView.swift, docs/progress.md
+
+- 2026-09-03 | 收窄任务与成就页的 Tab 过渡范围：页面标题、说明和 Tab 选择器保持固定，仅下方任务列表或勋章/怪物内容区按导航方向横向切换；详情页进入和返回动画不变 | LifeMedals/LifeMedals/ContentView.swift, docs/progress.md

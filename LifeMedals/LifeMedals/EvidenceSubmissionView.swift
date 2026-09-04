@@ -79,8 +79,13 @@ struct EvidenceSubmissionView: View {
 
                 VStack(alignment: .leading, spacing: 10) {
                     evidenceHeaderTitle
-                    if let latestEvidenceBatch {
-                        verdictPill(latestEvidenceBatch.verdict)
+                    HStack {
+                        if task.status != .verified {
+                            draftImageCount
+                        }
+                        if let latestEvidenceBatch {
+                            verdictPill(latestEvidenceBatch.verdict)
+                        }
                     }
                 }
             }
@@ -171,6 +176,10 @@ struct EvidenceSubmissionView: View {
 
             Spacer()
 
+            if task.status != .verified {
+                draftImageCount
+            }
+
             if let latestEvidenceBatch {
                 verdictPill(latestEvidenceBatch.verdict)
             }
@@ -239,15 +248,6 @@ struct EvidenceSubmissionView: View {
 
     private var actionArea: some View {
         VStack(alignment: .leading, spacing: 14) {
-            HStack {
-                Text("待提交照片")
-                    .font(PixelTheme.font(.subheadline, weight: .semibold))
-                Spacer()
-                Text("\(draftImages.count)/5")
-                    .font(PixelTheme.statFont(size: 12))
-                    .foregroundStyle(PixelTheme.inkMuted)
-            }
-
             multiImageLayout
 
             if remainingDraftSlots > 0 {
@@ -317,6 +317,15 @@ struct EvidenceSubmissionView: View {
         }
         .animation(reduceMotion ? nil : .smooth(duration: 0.3), value: isWorking)
         .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: draftImages.count)
+    }
+
+    private var draftImageCount: some View {
+        Text("\(draftImages.count)/5")
+            .font(PixelTheme.statFont(size: 12))
+            .foregroundStyle(PixelTheme.inkMuted)
+            .padding(.horizontal, 9)
+            .padding(.vertical, 6)
+            .background(PixelTheme.paper, in: PixelCornerShape(step: 2))
     }
 
     private var singleImageLayout: some View {
