@@ -19,10 +19,14 @@ enum EvidenceVerdict: String, Codable {
 /// 用户提交的证据：本地保存的图片（外部存储）、提交时间、AI 核验结果和解释。
 @Model
 final class Evidence {
-    @Attribute(.unique) var id: UUID
+    var id: UUID = UUID()
     @Attribute(.externalStorage) var imageData: Data?
-    var submittedAt: Date
-    var verdictRawValue: String
+    var submittedAt: Date = Date.now
+    /// Images created by one tap of “Submit” share this identifier.
+    /// Legacy evidence remains nil and is displayed as a one-image batch.
+    var submissionBatchID: UUID?
+    var submissionIndex: Int?
+    var verdictRawValue: String = EvidenceVerdict.pending.rawValue
     var explanation: String?
 
     var taskContract: TaskContract?
@@ -36,6 +40,8 @@ final class Evidence {
         id: UUID = UUID(),
         imageData: Data? = nil,
         submittedAt: Date = .now,
+        submissionBatchID: UUID? = nil,
+        submissionIndex: Int? = nil,
         verdict: EvidenceVerdict = .pending,
         explanation: String? = nil,
         taskContract: TaskContract? = nil
@@ -43,6 +49,8 @@ final class Evidence {
         self.id = id
         self.imageData = imageData
         self.submittedAt = submittedAt
+        self.submissionBatchID = submissionBatchID
+        self.submissionIndex = submissionIndex
         self.verdictRawValue = verdict.rawValue
         self.explanation = explanation
         self.taskContract = taskContract

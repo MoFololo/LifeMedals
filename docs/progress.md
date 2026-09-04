@@ -6,15 +6,15 @@
 
 ## 当前状态
 
-**阶段**：Step 1 - SwiftData 本地模型与持久化（迁移已完成，待手动验证）
-**已完成**：Xcode macOS 项目、基础 UI；已定义 SwiftData 核心模型并接入 model container；已移除 Supabase 客户端依赖、Secrets、登录门槛和 `supabase/` 目录
-**下一步该做什么**：在 Xcode 中手动验证断网时的本地增删改查与重启后的持久化，然后开始 Step 2（可跳过的登录占位页、最小 AI 代理与任务契约生成）
+**阶段**：iOS v2 - 任务怪物与怪物图鉴闭环及 Worker 全球素材服务代码已完成，等待 staging migration/deploy
+**已完成**：任务/child monster taxonomy、具体运动独立物种、确认/核验/发现闭环、D1/R2/Queue 异步生成链、1–9 级进化、强关联视觉锚点生成规范、磁盘图片缓存与怪物图鉴；Worker 测试、Wrangler dry-run、完整 D1 migration 链和 iOS taxonomy 测试通过
+**下一步该做什么**：将 D1 migration 应用到 staging 后部署 Worker，按预算生成新 v2 素材；随后用 iPhone 真机验证图片缓存、Reduce Motion、VoiceOver 和 CloudKit 发现同步
 
 > 2026-07-30 架构已调整为本地优先。下方 2026-07-29 的 Supabase 条目保留为历史记录，不代表当前技术方向；迁移完成后不再依赖 Supabase Postgres、Auth、Storage 或 Edge Functions。
 >
-> **v1 范围强调：CloudKit 不进入当前开发阶段。v1 不配置 CloudKit、不实现跨设备同步或同步状态 UI，也不做 CloudKit、跨设备、同步冲突、离线恢复等相关测试。v1 只验收单台 Mac 上的 SwiftData 本地持久化。**
+> **2026-08-08 最新范围覆盖**：v1 已扩展为 macOS+iOS 多平台客户端；CloudKit 和 Sign in with Apple 在两个平台共享。此前“不得提前接入”的条目作为历史决策保留，不再约束当前实现。
 >
-> **v1 登录与付费边界：v1 只做一个可跳过、没有实际权限作用的登录页面，不接 Sign in with Apple，不创建真实账户。会员、StoreKit 订阅、entitlement、个人 AI 配额和账户删除全部推迟到 v2。登录或跳过不能影响 v1 的本地与 AI 功能。**
+> **当前登录与付费边界**：v1 接入 Sign in with Apple，但仍允许离线进入；会员、StoreKit 订阅、entitlement、个人 AI 配额、服务端账户和账户删除继续推迟到 v2。
 
 ---
 
@@ -22,7 +22,7 @@
 
 1. 开始写代码前先读 `README.md`（尤其是"关键设计原则"部分），必要时也读 `docs/product-plan.md`。
 2. 每完成一个子任务，把对应的 `[ ]` 改成 `[x]`。
-3. 不要跳着做——先完成 SwiftData 本地迁移，再继续 AI 功能；不要提前接入或测试 CloudKit。
+3. SwiftData/CloudKit schema 变更必须保持向后兼容；Production schema 发布后只能增量演进。
 4. 每次会话结束前，在"更新日志"里追加一条：日期 + 做了什么 + 涉及哪些文件/commit。
 5. 如果发现某个子任务需要拆得更细，可以直接在对应 Step 下面加新的 `[ ]` 行。
 
@@ -34,14 +34,14 @@
 - [x] 创建 GitHub 仓库
 - [x] 编写 README.md
 - [x] 编写 docs/product-plan.md
-- [x] 建 Xcode 项目（macOS App target）
+- [x] 建 Xcode 项目，并升级为 macOS+iOS 多平台 App target
 - [x] 明确采用 SwiftData 本地优先架构，CloudKit 推迟到 v1 之后
 - [x] 明确 v1 后端只做最小 OpenAI Responses API 代理；账户、订阅和按用户用量网关推迟到 v2
 - [x] 申请/确认 OpenAI API Key
-- [ ] 选定代理平台后，将 Key 仅以 `OPENAI_API_KEY` 配置到代理服务端加密环境变量/Secret
+- [x] 选定代理平台后，将 Key 仅以 `OPENAI_API_KEY` 配置到代理服务端加密环境变量/Secret
 - [x] 更新或移除旧 `.env.example` 中的 Supabase 配置
 
-### Step 1：SwiftData 本地模型与持久化 👈 当前阶段
+### Step 1：SwiftData 本地模型与持久化
 - [x] 定义 `BadgeCategory` SwiftData 模型
 - [x] 定义 `UserBadge` SwiftData 模型
 - [x] 定义 `TaskContract` SwiftData 模型
@@ -53,38 +53,39 @@
 - [x] 移除 Supabase 客户端依赖、Secrets 配置与废弃代码
 - [x] 确认迁移完成后再移除 `supabase/` 旧方案目录
 
-### Step 2：登录占位页 + AI 代理 + 任务契约生成
-- [x] 制作登录页面和跳过入口（只做 UI 占位，不接真实认证）
-- [x] 确认登录或跳过后的功能完全相同，登录状态不参与任何权限判断
+### Step 2：Apple 登录 + AI 代理 + 任务契约生成
+- [x] 接入系统 Sign in with Apple 按钮、钥匙串会话和凭证撤销状态检查
+- [x] 保留离线入口，登录状态不阻塞本地或 AI 主链路
 - [x] 选择 Cloudflare Workers，创建不保存业务数据的最小代理工程
 - [x] 实现带输入与请求大小校验的 `generate-task` 端点
-- [x] 设计 prompt 和 JSON Schema，使用 OpenAI Structured Outputs 返回 title / deadline / evidence_requirement / suggested_badge / suggested_xp
-- [ ] 为代理加入全局限流、OpenAI 项目用量/支出告警和代理端硬预算上限
-- [ ] 客户端：输入框 + 调用代理
-- [ ] 客户端：渲染可编辑表单（标题/截止时间/验收标准/所属勋章都可改）
-- [ ] 客户端：确认按钮，确认后写入 SwiftData
-- [ ] 网络失败时保留输入并支持稍后重试
+- [x] 设计 prompt 和 JSON Schema，使用 OpenAI Structured Outputs 返回 title / deadline / evidence_requirement / suggested_badge / estimated_hours；证据提交统一为 1–5 张，不再生成精确照片计划
+- [x] 代理：用 SQLite Durable Object 加入原子全局限流（默认 20 次/分钟）
+- [x] 代理：加入调用 OpenAI 前强制执行的月度硬请求上限（默认 500 次/月）
+- [x] OpenAI 项目控制台：配置用量/支出告警（必须由项目所有者手动完成）
+- [x] 客户端：输入框 + 调用代理
+- [x] 客户端：渲染可编辑表单（标题/截止时间/验收标准/所属勋章都可改）
+- [x] 客户端：确认按钮，确认后写入 SwiftData
+- [x] 网络失败时保留输入并支持稍后重试
 
 ### Step 3：任务列表与本地提醒
-- [ ] SwiftUI 主界面：待办任务列表
-- [ ] 任务详情页（查看契约内容）
-- [ ] 截止时间本地通知（系统 Notification）
+- [x] SwiftUI 主界面：待办任务列表
+- [x] 任务详情页（查看契约内容）
+- [x] 截止时间本地通知（系统 Notification）
 
 ### Step 4：证据提交与 AI 核验
-- [ ] 客户端：PhotosPicker 选图 / 拍照
-- [ ] 压缩并把证据副本保存到本地 SwiftData 外部存储
-- [ ] 写带全局限流和预算保护的 `verify-evidence` 端点
-- [ ] 确认证据图片只在请求期间处理，服务端不持久化
-- [ ] 设计 prompt：传入图片 + 锁定的 `evidence_requirement`，返回三态结果 + 解释
-- [ ] 客户端：展示 Verified / Need More Proof / Not Verified
-- [ ] 客户端：`Need More Proof` 时支持补交证据
-- [ ] 把核验结果写回 SwiftData；失败时保留待核验记录以便重试
+- [x] 客户端：macOS 支持 PhotosPicker、本地文件、拖放和 `⌘V` 粘贴；按 AI 规划的 1–5 张照片切换单槽、双槽和横向草稿栏，填满后再提交
+- [x] 压缩并把证据副本保存到本地 SwiftData 外部存储
+- [x] 写带全局限流和预算保护的 `verify-evidence` 端点
+- [x] 确认证据图片只在请求期间处理，服务端不持久化
+- [x] 设计 prompt：传入同批图片 + 锁定的 `evidence_requirement` + 照片数量与描述，返回三态结果 + 解释
+- [x] 客户端：展示 Verified / Need More Proof / Not Verified
+- [x] 客户端：`Need More Proof` 时支持补交证据
+- [x] 把核验结果写回 SwiftData；失败时保留待核验记录以便重试
 
 ### Step 5：勋章与成就系统
-- [ ] EXP 累加逻辑（写入 `XPLog`，更新 `UserBadge`）
-- [ ] 等级计算逻辑
-- [ ] Library 页面：按勋章分类回顾历史任务和证据截图
-- [ ] 首页周小结（本周完成率、连续天数、勋章进度条）
+- [x] EXP 累加逻辑（写入 `XPLog`，更新 `UserBadge`）
+- [x] 等级计算逻辑
+- [x] Library 页面：按勋章分类回顾历史任务和证据截图
 
 ### Step 6：自用内测（至少 1-2 周）
 - [ ] 自己每天用起来记录任务
@@ -105,23 +106,51 @@
 - [ ] Mac App Store 上架素材（截图、描述等，如决定上架）
 
 ### Step 9：迁移到 iOS
-- [ ] 加 iOS target
-- [ ] 适配触屏交互（拍照直接上传等）
-- [ ] 适配小屏布局
+- [x] 将现有 target 配置为 macOS+iOS 多平台 target
+- [x] 适配 AppKit/UIKit 图片、相机预览、ImageIO 压缩与 WKWebView
+- [x] 增加 iOS 底部导航、紧凑顶部栏和首轮小屏布局
+- [x] iOS 接入拍照、PhotosPicker 和文件证据入口
+- [x] macOS 与 iOS Simulator Debug 编译通过
+- [ ] iPhone 真机逐页验收并修复相机方向、键盘、动态字体和窄屏边界
+- [ ] 制作 iOS App Icon、截图、隐私资料并完成 TestFlight
 
-### v1 之后：CloudKit 同步（不属于当前 roadmap）
+### Step 10：CloudKit 同步
 
-- [ ] 配置 iCloud / CloudKit capability 和 container
-- [ ] 实现并展示同步状态与错误状态
+- [x] 配置 iCloud / CloudKit capability 和 `iCloud.noorg.LifeMedals` container 标识
+- [x] 将 SwiftData 模型调整为 CloudKit 兼容 schema
+- [x] 实现并展示 iCloud 账户、同步进行中、成功与错误状态
+- [x] Debug 增加本地开发模式，移除云端 entitlements 并关闭 Apple 登录/CloudKit UI
+- [ ] 使用付费 Apple Developer Team 创建描述文件并激活容器（当前 Personal Team 不支持）
 - [ ] 验证 CloudKit 恢复联网后的自动同步
 - [ ] 验证 Mac 与 iPhone 之间的跨设备同步
 - [ ] 测试同步冲突、离线恢复和证据图片同步
+- [ ] 在 CloudKit Console 验证开发 schema，并在分发前发布到 Production
 
-> 上述任务在 v1 完成前不得开始，也不计入 v1 的开发进度或验收标准。
+> iOS 基础 target 已完成；下一步必须在付费团队签名的 iPhone 真机上完成专项验收。
+
+### iOS v2：任务怪物与怪物图鉴
+
+- [x] 解码 single task 与 child task 的 monster tag / display name / match kind，并兼容旧 Worker 响应
+- [x] 内置稳定种子分类，旧响应不会为 LeetCode/算法、统计、健身、邮件和倒垃圾生成一次性标签
+- [x] 用户最终确认时按最终勋章锁定 `monsterLevel`；父任务组不分配怪物
+- [x] 为 `TaskContract` 增加可选怪物字段，并新增 CloudKit 兼容的 `MonsterDiscovery`
+- [x] Verified 后幂等创建发现；同任务重复回调不重复计数，不同任务再次遭遇增加击败次数
+- [x] 未发现阶段使用本地像素轮廓并提供 VoiceOver 文案；图片 pending 不阻塞任何本地业务
+- [x] 任务确认页查询并预览 ready 怪物；缺失时显示未知轮廓、后台 ensure 并短时轮询
+- [x] 揭晓先于原有勋章/EXP 动画，Reduce Motion 使用简化转场
+- [x] 成就页面提供“勋章 / 怪物图鉴”双 Tab，图鉴按物种显示 Level 1...9 路线
+- [x] 完成核验前再次刷新素材；若仍 pending 则先记录未知发现，图鉴持续轮询并在 ready 后替换
+- [x] 公开 HTTPS 怪物图片使用磁盘缓存，图鉴会刷新 pending variant
+- [x] iPhone 17 Simulator Debug 构建与 17 项 Swift 测试通过
+- [ ] Worker：实现 D1/R2/Queue、taxonomy/alias、ensure/GET API 与全局幂等生成
+- [ ] Worker：使用服务端固定 Prompt 和 GPT Image 2 生成连续 1→9 级素材，并增加独立预算/限流
+- [ ] 外部权限：创建 Cloudflare 资源、应用 migration、配置/轮换 Secret 并部署
+- [ ] iPhone 真机：验证 VoiceOver、Reduce Motion、离线图片缓存和 CloudKit 发现同步
 
 ### v2：真实账户、会员与订阅（不属于当前 roadmap）
 
-- [ ] 接入 Sign in with Apple capability、真实登录和安全会话
+- [x] 客户端接入 Sign in with Apple capability、真实登录和钥匙串会话
+- [ ] 服务端验证 Sign in with Apple token 并建立 LifeMedals 账户
 - [ ] 建立 `UserAccount` / `SubscriptionEntitlement` / `UsageLedger` 服务端模型
 - [ ] 在 App Store Connect 配置 StoreKit 2 自动续期订阅产品
 - [ ] 实现购买、恢复购买、交易更新监听和服务端 entitlement 验证
@@ -137,7 +166,34 @@
 
 ## 更新日志
 
+- 2026-08-27 | 放宽证据核验并统一照片提交体验：任务标题与验收标准改为两条独立通过路径，任一得到合理图片支持即可 Verified；Worker 明确采用 motivator 而非 TA/审计语义，认可课程相关笔记、邮件对话与简历附件等自然证据，不再要求不存在的正式申请页面、逐条内容对照或固定截图构图。任务生成 schema 移除精确照片数量/逐张描述，新客户端请求只发送标题、验收标准和任意 1–5 张图片；旧照片计划字段仅保留 SwiftData/CloudKit 与已发布客户端兼容。上传 UI 统一为一个 1–5 张图库，一张即可提交。Worker 33 项测试、Wrangler dry-run、iPhone 17 Pro Simulator Debug 构建与 23 项 XCTest 通过；未部署 Worker | EvidenceSubmissionView.swift, EvidenceVerificationService.swift, ContentView.swift, Models/TaskContract.swift, worker/src/index.ts, worker/test/usage-gate.test.mjs, README.md, docs/product-plan.md, docs/progress.md
+
+- 2026-08-26 | 修复具体运动被压成 `fitness.workout` 的怪物分类：篮球、棒球、网球、游泳等 14 个运动项目改为独立 `sports.*` 物种，并在 Worker 正常化与 iOS 旧响应回退两层纠错；建立通用怪物形象规范，概念 schema 必须先返回 1–2 个强关联 `signature_objects`，逐一融入身体/轮廓/装备，图片 prompt 强制渲染全部锚点；新增 15 个 Athlete 种子、v2 不可变素材版本与规范文档。Worker 33 项测试、完整 SQLite migration 链、Wrangler staging dry-run及 iPhone 17 Pro Simulator 12 项 taxonomy/发现测试通过；未部署远程资源 | MonsterServices.swift, MonsterDiscoveryServiceTests.swift, worker/src/index.ts, worker/src/monsters.ts, worker/migrations/0004_add_distinct_sport_species.sql, worker/test/*.mjs, worker/wrangler.jsonc, docs/monster-image-spec.md, docs/monster-service-runbook.md, README.md, docs/progress.md
+
 <!-- 每条记录格式：YYYY-MM-DD | 做了什么 | 涉及文件/commit -->
+
+- 2026-08-25 | 完成 iOS v2“任务怪物与怪物图鉴”客户端闭环：任务生成兼容 monster 字段与旧 Worker 稳定分类回退；确认时按最终勋章锁定等级；新增可选 TaskContract 怪物字段和私有 MonsterDiscovery，使用任务 ID 防止重复回调；任务详情在发现前隐藏图片，Verified 后先持久化发现再播放揭晓与原有 EXP 动画；成就页新增勋章/怪物图鉴双 Tab、物种分组和 1–9 级路线；公开图片使用磁盘缓存且服务失败不阻塞本地流程。未修改/部署 Worker 或创建 Cloudflare 资源。iPhone 17 Simulator Debug 构建通过，16 项测试通过 | TaskGenerationService.swift, ContentView.swift, EvidenceSubmissionView.swift, MonsterServices.swift, MonsterViews.swift, Models/TaskContract.swift, Models/MonsterDiscovery.swift, LifeMedalsApp.swift, LifeMedalsTests/*.swift, README.md, docs/product-plan.md, docs/progress.md
+- 2026-08-25 | 补齐怪物素材异步状态链：任务确认页按 tag + 最终 badge 等级调用 ensure，ready 时显示对应图片，pending/失败时显示未知怪物并短时轮询；保存时带入已取得 variant 元数据；证据核验成功后在创建发现前再次 ensure，未 ready 时先记录未知发现；怪物图鉴对 pending 素材持续轮询，ready 后更新私有发现并自动替换占位。新增 variant 同步测试和完整服务端上线运行手册。未修改/部署 Worker 或创建外部资源。iPhone 17 Simulator Debug 构建与 17 项测试通过，确认页怪物卡完成模拟器视觉检查 | ContentView.swift, EvidenceSubmissionView.swift, MonsterServices.swift, MonsterViews.swift, MonsterDiscoveryServiceTests.swift, README.md, docs/product-plan.md, docs/progress.md, docs/monster-service-runbook.md
+
+- 2026-08-23 | 新增图片生成任务：创建页可从照片图库或文件选择邮件、syllabus、社团海报等图片，并可附加文字说明；客户端压缩为 JPEG 后通过 `generate-task` 发送，Worker 使用无状态 Responses API 视觉输入提取一个明确的下一步并保留既有结构化契约；确认保存时将来源图作为 SwiftData 外部字段随任务保存，任务详情可回看。补充图片输入校验、Prompt 构建与端到端 Worker 转发测试；Worker 11 项测试、Wrangler dry-run、macOS 与 iOS Simulator Debug 构建通过 | ContentView.swift, TaskContract.swift, TaskGenerationService.swift, project.pbxproj, worker/src/index.ts, worker/test/usage-gate.test.mjs, README.md, docs/progress.md
+
+- 2026-08-08 | 完成现有页面的 iPhone UI/动画专项审计：每个底部 Tab 使用独立导航栈并恢复账户入口；取消移动端启动自动聚焦，避免键盘遮挡 Tab Bar；任务行在 iOS 仅保留原生 swipeActions；统一约束竖向 ScrollView 的可视宽度，修复任务、契约、详情与勋章页采用 790pt 桌面理想宽度导致的横向裁切；缩小移动端列表边距与任务行信息密度；双图证据槽、证据历史卡、账户弹窗、相机页改为紧凑响应式布局；奖励动画改为 iOS 全屏模态、深色加载背景并支持 Reduce Motion。新增仅 Debug 的页面截图路由，标准 iPhone 模拟器逐页截图通过；iOS/macOS Debug 构建及 Worker 8 项测试通过 | ContentView.swift, PlatformSupport.swift, EvidenceSubmissionView.swift, EvidenceCameraView.swift, AccountSyncView.swift, MedalVisualSystem.swift, MedalTransmutationView.swift, docs/ios-migration-plan.md, docs/progress.md
+
+- 2026-08-08 | 启动并完成 iOS 迁移第一阶段：现有 SwiftUI target 升级为 macOS+iOS 多平台 target；图片压缩改为跨平台 ImageIO，实现 AppKit/UIKit 图片、相机预览和 WKWebView 适配；iPhone 新增底部导航、紧凑顶部栏、响应式契约/证据布局以及拍照、图库、文件入口；macOS 与 iOS Simulator Debug 无签名构建均通过；补充真机、CloudKit、TestFlight 和上架清单 | project.pbxproj, PlatformSupport.swift, ContentView.swift, LoginView.swift, AccountSyncView.swift, EvidenceCameraView.swift, EvidenceImageProcessor.swift, EvidenceSubmissionView.swift, MedalVisualSystem.swift, MedalTransmutationView.swift, README.md, docs/ios-migration-plan.md, docs/progress.md
+
+- 2026-08-07 | 增加免费 Personal Team 可用的本地开发模式：Debug 定义 `LIFEMEDALS_LOCAL_DEVELOPMENT`、不附加云端 entitlements，SwiftData 显式使用 `.none`；登录页、主界面和账户面板显示“本地开发模式”并关闭 Apple 登录/CloudKit 操作。Release 继续保留完整 Sign in with Apple、CloudKit 和 Push Notifications 配置 | project.pbxproj, LifeMedalsApp.swift, AccountAndSyncServices.swift, LoginView.swift, AccountSyncView.swift, README.md, docs/product-plan.md, docs/progress.md
+
+- 2026-08-07 | 接入 macOS Sign in with Apple 与 SwiftData/CloudKit：官方 Apple 登录按钮、钥匙串用户标识、启动凭证校验和退出应用会话；配置 `iCloud.noorg.LifeMedals` 私有容器，移除 SwiftData 唯一约束并将关系调整为 CloudKit 可选关系；新增 iCloud 账户检查、Core Data CloudKit 同步事件状态与主界面账户面板。无签名 Debug 构建无警告通过，本机运行时成功建立 CloudKit-backed store；真实签名被当前免费 Personal Team 阻塞，需切换到付费 Apple Developer Team 后完成容器激活与跨设备测试 | AccountAndSyncServices.swift, AccountSyncView.swift, LoginView.swift, LifeMedalsApp.swift, ContentView.swift, Models/*.swift, XPService.swift, EvidenceSubmissionView.swift, LifeMedals.entitlements, project.pbxproj, README.md, docs/product-plan.md, docs/progress.md
+
+- 2026-08-04 | 优化嵌入式勋章动画：WKWebView 改为不透明合成，Canvas Retina backing scale 从最高 2x 降至 1.35x，静止甲片不再逐片计算模糊阴影，金属拉丝线数量适度减少；单片最短附着时间调整为 1.1 秒、多片按每片 520ms 展开（最长 8 秒），最终淬炼延长至 6 秒，完整时间线默认 14 秒。EXP 动画浮层删除重复关闭/跳过操作，仅保留一个可见的“跳过动画/关闭”按钮。TypeScript 构建、macOS Debug 构建及真实 WKWebView 运行探针通过 | LifeMedals-Animation/medal-transmutation/src/main.ts, style.css, LifeMedals/LifeMedals/MedalTransmutationView.swift, MedalAnimation.html, docs/progress.md
+
+- 2026-08-04 | 将 Solver 青铜→白银 Canvas/JavaScript 动画打包进 macOS App，并通过 WKWebView 与 SwiftUI 双向通信：网页层删除全部文案、字体、进度条、播放键和点击事件，只保留 Canvas；生产构建把 JS、CSS 和两张 PNG 内联为唯一的 `MedalAnimation.html`，避免 file URL 的模块/CORS 与资源路径问题。Swift 可完整控制 0...1 定位、区间播放、完整播放、暂停、继续、重置、EXP 甲片增量和当前碎片回放；核验成功且 EXP 持久化后自动从旧甲片进度播放到新进度，达到 1000 EXP 时连续播放银光淬炼、甲片四散与白银显露。TypeScript 生产构建、干净 macOS Debug 构建和真实 WKWebView ready/seek/play/finished 运行探针均通过 | ContentView.swift, EvidenceSubmissionView.swift, XPService.swift, MedalTransmutationView.swift, MedalAnimation.html, LifeMedals-Animation/medal-transmutation, docs/progress.md
+
+- 2026-07-31 | 升级多图证据计划：任务生成新增 1–5 张照片数量与描述（1–2 张逐张描述，3–5 张整组描述）；提交页新增单张大方框、双张独立方框和 3–5 张横向布局，每个槽位支持图库/本地文件并保留拖放粘贴；照片填满后按批次落库与核验，历史区将同批照片合并到一行，并兼容识别上一版毫秒级连续提交的多图记录。Worker 核验上限升至 5 张并校验照片计划；Worker 8 项测试、macOS Debug 编译通过 | TaskContract.swift, Evidence.swift, ContentView.swift, TaskGenerationService.swift, EvidenceSubmissionView.swift, EvidenceImageProcessor.swift, EvidenceVerificationService.swift, worker/src/index.ts, worker/test/usage-gate.test.mjs, README.md, docs/product-plan.md, docs/progress.md
+
+- 2026-07-31 | 完成 Step 4 证据闭环：任务详情新增 Liquid Glass 证据区，支持 PhotosPicker 选图和 Mac 相机拍照；图片最长边压缩至 1800 px、单张约 1 MB 后写入 SwiftData `@Attribute(.externalStorage)`，失败时保留 Pending Verification 记录重试；新增 `verify-evidence`，与契约生成共用 Durable Object 全局限流/月度硬预算，在内存中转发最近最多 4 张证据并以 `store: false` 调用 Responses API，按锁定验收标准返回 Verified / Need More Proof / Not Verified 与解释；Need More Proof 支持补交。补充输入边界、Prompt/Schema、限流失败关闭和 no-store 测试；Worker 6 项测试、Wrangler dry-run、macOS Debug 编译通过 | LifeMedals/LifeMedals/ContentView.swift, EvidenceSubmissionView.swift, EvidenceCameraView.swift, EvidenceImageProcessor.swift, EvidenceVerificationService.swift, LifeMedals.xcodeproj/project.pbxproj, worker/src/index.ts, worker/test/usage-gate.test.mjs, README.md, docs/progress.md
+
+- 2026-07-30 | 完成任务契约生成客户端：新增液态玻璃主界面、自然语言输入、代理调用、可编辑契约表单、确认后 SwiftData 写入；输入使用 AppStorage 本机保存，断网/超时后保留并支持重试。Worker 新增 SQLite Durable Object 全局限流与月度硬请求上限，保护异常时失败关闭；补充自动测试、部署配置与使用说明。Xcode Debug 编译、Worker 单元测试和 Wrangler dry-run 均通过；待部署 Worker、配置客户端 URL，并由项目所有者在 OpenAI 控制台设置支出告警 | LifeMedals/LifeMedals/ContentView.swift, TaskGenerationService.swift, LifeMedals.xcodeproj/project.pbxproj, worker/src/index.ts, worker/wrangler.jsonc, worker/test/usage-gate.test.mjs, worker/package.json, README.md, docs/progress.md
 
 - 2026-07-30 | 创建 Cloudflare Worker 最小 OpenAI 代理：新增 Wrangler 工程配置、`GET /health` 与 `POST /generate-task`；服务端读取 `OPENAI_API_KEY`，调用 Responses API `gpt-5.6-terra` 并用 Structured Outputs 返回任务契约；加入请求大小/字段校验、超时与安全错误处理、`store: false`；Wrangler dry-run 与模拟请求测试通过，尚未部署或配置 Secret | worker/package.json, worker/package-lock.json, worker/wrangler.jsonc, worker/src/index.ts, README.md, docs/progress.md
 
@@ -153,3 +209,15 @@
 - 2026-07-30 | 完成 Supabase → SwiftData 迁移：新增 `BadgeCategory`/`UserBadge`/`TaskContract`/`Evidence`/`XPLog` SwiftData 模型并接入 App 的 model container；移除 Supabase Auth 登录门槛、SupabaseManager、Secrets.swift/Secrets.example.txt、SPM 的 supabase-swift 包依赖（project.pbxproj、Package.resolved）以及旧 `supabase/migrations` 目录；`.env.example` 改为仅列出无状态 AI 代理所需的 `ANTHROPIC_API_KEY`；`xcodebuild` 编译通过 | LifeMedals/LifeMedals/LifeMedals/Models/BadgeCategory.swift, UserBadge.swift, TaskContract.swift, Evidence.swift, XPLog.swift, LifeMedalsApp.swift, ContentView.swift, LifeMedals/LifeMedals.xcodeproj/project.pbxproj, .env.example, .gitignore, docs/progress.md
 - 2026-07-30 | 补充账户与商业化架构：本地功能游客可用，AI/会员功能使用 Sign in with Apple；StoreKit 2 管理订阅；后端改为最小化账户、entitlement、AI 用量与限流网关，仍不保存任务和证据；CloudKit 继续推迟到 v1 之后 | README.md, docs/product-plan.md, docs/progress.md
 - 2026-07-30 | 再次收紧 v1：登录页仅作可跳过的 UI 占位且没有实际权限作用；Sign in with Apple、会员、StoreKit 订阅、entitlement 和个人 AI 配额全部推迟到 v2；v1 只跑通本地数据、AI 契约与证据核验闭环 | README.md, docs/product-plan.md, docs/progress.md
+
+- 2026-07-31 | 完成 Step 3：任务页按截止时间展示 SwiftData 待办契约，支持逾期状态与 Liquid Glass 契约详情；新增 UserNotifications 本地截止提醒，保存未来任务时请求权限并按稳定任务 UUID 调度，应用启动后恢复/清理提醒，前台也显示系统横幅，权限拒绝或调度失败不影响任务保存；macOS Debug 构建通过 | LifeMedals/LifeMedals/ContentView.swift, LifeMedals/LifeMedals/TaskNotificationService.swift, docs/progress.md
+
+- 2026-09-03 | 优化任务组列表交互：移除主任务展开箭头，用三层错位像素卡片直接表达“内含子任务”；点击时卡片层叠轻微收拢/展开，并保留子任务位移淡入动画、Reduce Motion 与原有滑动操作。干净 iOS Simulator Debug 构建通过 | LifeMedals/LifeMedals/ContentView.swift, docs/progress.md
+
+- 2026-09-03 | 调整任务组卡片方向与展开态：收起时后两层改从右下方露出；展开时层叠卡片收回并淡出，主任务恢复为普通任务一致的单卡片和像素阴影 | LifeMedals/LifeMedals/ContentView.swift, docs/progress.md
+
+- 2026-09-03 | 为 iOS 增加屏幕边缘滑动导航：任务列表可从左右边缘依次切换未完成、已完成和已逾期，任务详情支持左边缘右滑返回，成就页可在勋章与怪物图鉴间切换；手势使用独立窄边缘命中区，避免干扰任务行滑动操作，并遵循 Reduce Motion | LifeMedals/LifeMedals/ContentView.swift, docs/progress.md
+
+- 2026-09-03 | 优化任务与成就页的 Tab 切换动画：向后续 Tab 切换时旧内容向左退出、新内容从右进入，返回前序 Tab 时反向移动；点击 Tab 与边缘滑动统一使用同一方向判定，Reduce Motion 下退化为淡入淡出 | LifeMedals/LifeMedals/ContentView.swift, docs/progress.md
+
+- 2026-09-03 | 收窄任务与成就页的 Tab 过渡范围：页面标题、说明和 Tab 选择器保持固定，仅下方任务列表或勋章/怪物内容区按导航方向横向切换；详情页进入和返回动画不变 | LifeMedals/LifeMedals/ContentView.swift, docs/progress.md

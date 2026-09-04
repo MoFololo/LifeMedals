@@ -1,10 +1,112 @@
 {
-  "$schema": "node_modules/wrangler/config-schema.json",
-  "name": "lifemedals-api",
-  "main": "src/index.ts",
-  "compatibility_date": "2026-07-30",
-  "workers_dev": true,
-  "vars": {
-    "OPENAI_MODEL": "gpt-5.6-terra"
-  }
+	"$schema": "node_modules/wrangler/config-schema.json",
+	"name": "lifemedals-api",
+	"main": "src/index.ts",
+	"compatibility_date": "2026-07-30",
+	"workers_dev": true,
+
+	// Secret values are configured interactively with `wrangler secret put`.
+	// Never place OPENAI_API_KEY itself in this file.
+	"secrets": {
+		"required": ["OPENAI_API_KEY"]
+	},
+
+	// The top-level environment remains the currently deployed production API.
+	// Monster storage bindings will be added here only after production resources
+	// have been created and staging has passed end-to-end verification.
+	"vars": {
+		"OPENAI_MODEL": "gpt-5.6-terra",
+		"GLOBAL_REQUESTS_PER_MINUTE": "20",
+		"MONTHLY_REQUEST_BUDGET": "500"
+	},
+	"durable_objects": {
+		"bindings": [
+			{
+				"name": "GLOBAL_USAGE_GATE",
+				"class_name": "GlobalUsageGate"
+			}
+		]
+	},
+	"exports": {
+		"GlobalUsageGate": {
+			"type": "durable-object",
+			"storage": "sqlite"
+		}
+	},
+	"observability": {
+		"enabled": true,
+		"head_sampling_rate": 0.1
+	},
+
+	"env": {
+		"staging": {
+			"name": "lifemedals-api-staging",
+			"secrets": {
+				"required": ["OPENAI_API_KEY"]
+			},
+			"vars": {
+				"OPENAI_MODEL": "gpt-5.6-terra",
+				"MONSTER_IMAGE_MODEL": "gpt-image-2",
+				"MONSTER_STYLE_VERSION": "grotesque-pixel-v2",
+				"MONSTER_PROMPT_VERSION": "monster-image-v4",
+				"MONSTER_CONCEPT_PROMPT_VERSION": "monster-concept-v3",
+				"MONSTER_ASSET_BASE_URL": "https://lifemedals-api-staging.david-lian0809.workers.dev/monster-assets",
+				"GLOBAL_REQUESTS_PER_MINUTE": "20",
+				"MONTHLY_REQUEST_BUDGET": "500",
+				"MONSTER_IMAGES_PER_MINUTE": "2",
+				"MONTHLY_MONSTER_IMAGE_BUDGET": "100"
+			},
+			"durable_objects": {
+				"bindings": [
+					{
+						"name": "GLOBAL_USAGE_GATE",
+						"class_name": "GlobalUsageGate"
+					}
+				]
+			},
+			"exports": {
+				"GlobalUsageGate": {
+					"type": "durable-object",
+					"storage": "sqlite"
+				}
+			},
+			"d1_databases": [
+				{
+					"binding": "MONSTER_DB",
+					"database_name": "lifemedals-monsters-staging",
+					"database_id": "6233e317-7521-4b43-8b68-fa24acb3b577",
+					"migrations_dir": "migrations"
+				}
+			],
+			"r2_buckets": [
+				{
+					"binding": "MONSTER_ASSETS",
+					"bucket_name": "lifemedals-monster-assets-staging"
+				}
+			],
+			"queues": {
+				"producers": [
+					{
+						"binding": "MONSTER_GENERATION_QUEUE",
+						"queue": "lifemedals-monster-generation-staging"
+					}
+				],
+				"consumers": [
+					{
+						"queue": "lifemedals-monster-generation-staging",
+						"max_batch_size": 1,
+						"max_batch_timeout": 5,
+						"max_retries": 5,
+						"retry_delay": 60,
+						"max_concurrency": 1,
+						"dead_letter_queue": "lifemedals-monster-generation-dlq-staging"
+					}
+				]
+			},
+			"observability": {
+				"enabled": true,
+				"head_sampling_rate": 1
+			}
+		}
+	}
 }
