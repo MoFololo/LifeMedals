@@ -6,6 +6,16 @@
 	objectVersion = 77;
 	objects = {
 
+/* Begin PBXContainerItemProxy section */
+		DDA200062F00000100000006 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 010B3C27301A052D0006060B /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = 010B3C2E301A052D0006060B;
+			remoteInfo = LifeMedals;
+		};
+/* End PBXContainerItemProxy section */
+
 /* Begin PBXFileReference section */
 		010B3C2F301A052D0006060B /* LifeMedals.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = LifeMedals.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		DDA200012F00000100000001 /* LifeMedalsTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = LifeMedalsTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -53,16 +63,6 @@
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXFrameworksBuildPhase section */
-
-/* Begin PBXContainerItemProxy section */
-		DDA200062F00000100000006 /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = 010B3C27301A052D0006060B /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = 010B3C2E301A052D0006060B;
-			remoteInfo = LifeMedals;
-		};
-/* End PBXContainerItemProxy section */
 
 /* Begin PBXGroup section */
 		010B3C26301A052D0006060B = {
@@ -354,7 +354,7 @@
 				ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME = AccentColor;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = VKZW7QSYT3;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -364,6 +364,8 @@
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = LifeMedals/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = LifeMedals;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				INFOPLIST_KEY_NSCameraUsageDescription = "用于拍摄任务来源或完成证据；照片会先压缩，并在生成或核验请求期间临时处理。";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "用于选择任务来源或完成证据；所选照片会压缩后保存到你的私有数据库。";
@@ -383,7 +385,7 @@
 				REGISTER_APP_GROUPS = YES;
 				SDKROOT = auto;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
-				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
+				SUPPORTED_PLATFORMS = "iphonesimulator iphoneos";
 				SUPPORTS_MACCATALYST = NO;
 				SWIFT_ACTIVE_COMPILATION_CONDITIONS = "LIFEMEDALS_LOCAL_DEVELOPMENT $(inherited)";
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
@@ -391,7 +393,7 @@
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Debug;
 		};
@@ -403,7 +405,7 @@
 				CODE_SIGN_ENTITLEMENTS = LifeMedals/LifeMedals.entitlements;
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 1;
+				CURRENT_PROJECT_VERSION = 2;
 				DEVELOPMENT_TEAM = VKZW7QSYT3;
 				ENABLE_APP_SANDBOX = YES;
 				ENABLE_HARDENED_RUNTIME = YES;
@@ -413,6 +415,8 @@
 				ENABLE_USER_SELECTED_FILES = readonly;
 				GENERATE_INFOPLIST_FILE = NO;
 				INFOPLIST_FILE = LifeMedals/Info.plist;
+				INFOPLIST_KEY_CFBundleDisplayName = LifeMedals;
+				INFOPLIST_KEY_LSApplicationCategoryType = "public.app-category.productivity";
 				INFOPLIST_KEY_NSCameraUsageDescription = "用于拍摄任务来源或完成证据；照片会先压缩，并在生成或核验请求期间临时处理。";
 				INFOPLIST_KEY_NSHumanReadableCopyright = "";
 				INFOPLIST_KEY_NSPhotoLibraryUsageDescription = "用于选择任务来源或完成证据；所选照片会压缩后保存到你的私有数据库。";
@@ -427,19 +431,19 @@
 					"@executable_path/../Frameworks",
 				);
 				MARKETING_VERSION = 1.0;
-				PRODUCT_BUNDLE_IDENTIFIER = noorg.LifeMedals;
+				PRODUCT_BUNDLE_IDENTIFIER = mofololo.LifeMedals;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				REGISTER_APP_GROUPS = YES;
 				SDKROOT = auto;
 				STRING_CATALOG_GENERATE_SYMBOLS = YES;
-				SUPPORTED_PLATFORMS = "iphoneos iphonesimulator macosx";
+				SUPPORTED_PLATFORMS = "iphonesimulator iphoneos";
 				SUPPORTS_MACCATALYST = NO;
 				SWIFT_APPROACHABLE_CONCURRENCY = YES;
 				SWIFT_DEFAULT_ACTOR_ISOLATION = MainActor;
 				SWIFT_EMIT_LOC_STRINGS = YES;
 				SWIFT_UPCOMING_FEATURE_MEMBER_IMPORT_VISIBILITY = YES;
 				SWIFT_VERSION = 5.0;
-				TARGETED_DEVICE_FAMILY = "1,2";
+				TARGETED_DEVICE_FAMILY = 1;
 			};
 			name = Release;
 		};
