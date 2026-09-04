@@ -1,199 +1,146 @@
-# 人生勋章（LifeMedals）
+# LifeMedals
 
-**项目状态**：🚧 macOS + iOS 多平台 v1 开发中（SwiftData 本地优先 + CloudKit 私有数据库同步；已接入 Sign in with Apple 会话）
+**Current status:** The macOS/iOS MVP loop is implemented, including task groups, flexible evidence verification, medals and EXP, task monsters, and a personal Monster Atlas. The staging Cloudflare Worker is deployed with OpenAI, usage protection, D1, R2, and Queue bindings. Production monster infrastructure, signed-device CloudKit validation, and TestFlight/App Store work remain open.
 
----
+## Product
 
-## 产品简介
-
-用户说一句话（比如"明天晚上10点前做两道LeetCode Medium"），或上传邮件、syllabus、活动海报等图片，AI 从中生成一份可编辑的"任务契约"（标题、截止时间、验收标准、所属勋章）；用户确认后去执行，完成后提交证据（截图/照片），AI 核验通过后获得对应勋章的经验值，并存入可回顾的成就 Library。图片生成的任务会保留压缩后的来源图，方便之后在任务详情中回看上下文。
-
-## 核心产品闭环
-
-```
-说一句话
-   → AI生成任务契约（标题/截止时间/验收标准/所属勋章，可编辑）
-   → 用户确认
-   → 执行任务
-   → 提交证据
-   → AI核验
-   → 勋章 + EXP 到账
-   → 存入 Library
-```
-
----
-
-## 技术栈
-
-| 层 | 选型 | 说明 |
-|---|---|---|
-| 客户端 | SwiftUI 多平台 App（macOS + iOS/iPadOS） | 单一 target 与 Swift 代码库，平台 API 由小型适配层隔离 |
-| 本地数据 | SwiftData | 任务、证据、勋章、EXP 全部本地优先，核心功能离线可用 |
-| 跨设备同步 | SwiftData + CloudKit | Mac 与 iPhone 使用同一 iCloud 私有容器；待付费团队完成真机跨设备验收 |
-| 应用登录 | Sign in with Apple | 使用系统登录 UI，稳定标识保存在钥匙串；与 iCloud 同步身份分工明确 |
-| v1 AI 代理 | Cloudflare Workers / Vercel Functions | 只跑通 OpenAI Responses API 请求转发，以全局限流和预算上限保护内测成本 |
-| v2 订阅 | StoreKit 2 | v2 再实现购买、续费、恢复购买和 entitlement 校验 |
-| v2 轻量后端 | AI 网关 + 小型持久化存储 | v2 再保存账户、订阅和 AI 用量；始终不存本地业务数据 |
-| AI | OpenAI Responses API（`gpt-5.6-terra`，文本 + 图像输入） | 任务契约生成 + 证据核验，两个独立调用场景；使用 Structured Outputs 约束返回结构 |
-
-> 不使用 Supabase Postgres、Auth 或 Storage。Apple 登录只建立应用会话，CloudKit 使用设备上的 iCloud 账户同步私有业务数据；两者技术上彼此独立。会员和订阅仍不属于当前范围。
-
----
-
-## 项目结构
-
-```
-LifeMedals/
-├── README.md                        # 本文件
-├── docs/
-│   ├── product-plan.md              # 完整产品与技术计划书
-│   └── progress.md                  # 开发进度与任务清单
-└── LifeMedals/                      # Xcode 项目（SwiftUI macOS+iOS 多平台 target）
-    ├── LifeMedals.xcodeproj/
-    └── LifeMedals/
-        ├── LifeMedalsApp.swift
-        ├── ContentView.swift
-        ├── Models/                  # SwiftData 模型（BadgeCategory / UserBadge / TaskContract / Evidence / XPLog）
-        └── Assets.xcassets/
-```
-
-> Supabase 客户端代码、Secrets 配置和旧方案目录已删除。当前 macOS target 已配置 Sign in with Apple 与 `iCloud.noorg.LifeMedals` CloudKit 容器。
-
----
-
-## 数据模型（v1）
-
-业务数据先写入当前设备的 SwiftData 数据库，并由 CloudKit 自动镜像到用户的 iCloud 私有数据库：
-
-- `BadgeCategory`：默认或自定义勋章类别。
-- `UserBadge`：每个类别独立累计的 EXP 和等级。
-- `TaskContract`：标题、截止时间、锁定的验收标准、1–5 张证据照片计划、可选的任务来源图片、所属勋章、XP 奖励和状态。
-- `Evidence`：本地证据图片、提交批次与顺序、提交时间、AI 三态核验结果和解释。
-- `XPLog`：关联任务与勋章的 EXP 变动记录。
-
-所有模型使用稳定 UUID。证据图片先保存到本地，并使用适合大字段的外部存储方式；SwiftData/CloudKit 负责同步，AI 代理不会持久化图片或上述模型数据。模型已移除 CloudKit 不支持的唯一约束，并将关系调整为可选。
-
-以下服务端控制数据是 **v2 规划**，不在 v1 创建：
-
-- `UserAccount`：Sign in with Apple 对应的 LifeMedals 用户标识。
-- `SubscriptionEntitlement`：StoreKit 原始交易 ID、产品、状态和有效期。
-- `UsageLedger`：当前计费周期内的 AI 生成/核验用量。
-
-即使进入 v2，服务端账户也不能读取用户的任务、勋章、XP 或 Library；证据图片仅在核验请求期间短暂转发给 OpenAI Responses API，不做持久化。
-
----
-
-## v1 功能范围
-
-### ✅ 包含
-- SwiftData 本地持久化，离线创建、编辑和浏览任务
-- 系统 Sign in with Apple 登录、钥匙串会话保存与撤销状态检查；允许离线进入
-- iCloud 私有数据库自动同步、账户状态和同步事件状态 UI
-- 自然语言输入 → AI 生成任务契约 → 用户可编辑（标题/截止时间/验收标准/所属勋章）→ 确认
-- 邮件、课程资料或活动海报图片 → AI 提取明确下一步 → 保留来源图供任务详情回看
-- 支持四类任务：LeetCode/课程学习、项目开发、投递求职申请、健身/运动
-- 提交截图证据 → AI 核验 → 返回 Verified / Need More Proof / Not Verified
-- 勋章体系：默认几个类别，EXP 累加，等级显示
-- Library：按勋章分类回顾历史任务和证据
-- 截止前本地通知提醒
-
-### ❌ v1 明确不做（留到 v2+）
-- 订机票等涉及个人隐私信息的任务类型
-- 任何形式的防作弊机制（GPS、实时拍摄水印等）
-- 社交功能：好友、排行榜、监督
-- 金钱惩罚机制
-- 通用 AI 聊天助手
-- iOS 上架素材与 TestFlight/App Review（基础客户端已开始迁移）
-- 服务端账户删除与 Sign in with Apple token 撤销（当前没有 LifeMedals 账户后端）
-- StoreKit 2 会员订阅、购买、续费、退款和恢复购买
-- entitlement 校验、免费/会员 AI 配额、用量计费和会员权限控制
-
----
-
-## 关键设计原则（写代码时必须遵守）
-
-1. **验收标准锁定**：任务一旦被用户确认，`evidence_requirement` 不可再被 AI 在核验阶段修改或重新解释。核验只能基于确认时锁定的标准。
-2. **三态核验结果**：AI 核验结果永远是 `Verified / Need More Proof / Not Verified` 三选一，不做强制二选一，`Need More Proof` 时允许用户补交证据。
-3. **证据要轻量**：设计每类任务默认的证据要求时，优先选用户本来就会产生的东西（如 LeetCode 的 Accepted 截图），不要为了"证明"而制造额外负担。
-4. **每个勋章类别独立计算 EXP/等级**，不要把所有类别合并成一个总等级。
-5. **本地优先同步**：本地增删改查、Library、EXP 和通知不依赖网络；CloudKit 与 AI 请求失败都不能导致本地数据丢失。
-6. **身份职责分离**：Sign in with Apple 负责应用会话，设备 iCloud 账户负责 CloudKit，同步不可用时允许离线使用；登录不代表会员权益。
-7. **v1 只验证闭环**：AI 代理不做账户、订阅或个人额度系统，仅用全局限流、内测范围、OpenAI 项目用量/支出告警和代理端硬预算上限控制成本，不作为可公开扩张的商业架构。
-8. **v2 再做商业化**：服务端账户体系、StoreKit、entitlement、周期 AI 配额和账户删除全部在 v2 实现；届时后端仍只保存账户/计费控制数据，不保存任务或证据。
-
----
-
-## 当前开发阶段（Roadmap）
-
-> 详细进度见 [`docs/progress.md`](./docs/progress.md)，这里只列各阶段概览。
-
-- [x] **Step 0：Xcode 项目与基础环境**
-- [ ] **Step 1：SwiftData 本地模型与持久化**
-  - ✅ 移除 Supabase Auth 登录门槛和客户端依赖
-  - ✅ 建立 SwiftData 核心模型与本地持久化（model container 已接入）
-  - 待办：在 Xcode/模拟器中手动验证单设备离线读写与重启后的持久化
-- [ ] **Step 2：Apple 登录 + AI 代理 + 任务契约生成**
-  - ✅ 接入 Sign in with Apple、钥匙串会话与可跳过的离线入口
-  - ✅ `generate-task` 代理已加入全局限流和每月硬调用上限，待部署并在 OpenAI 控制台设置支出告警
-  - ✅ 客户端已支持自然语言输入、失败重试、可编辑契约和确认后写入 SwiftData
-- [x] **Step 3：任务列表与本地提醒**
-- [x] **Step 4：证据提交与 AI 核验** 👈 **当前已完成**
-- [x] Step 5：勋章与成就系统
-- [ ] Step 6：自用内测（至少 1-2 周）
-- [ ] Step 7：小范围内测（5-10 人）
-- [ ] Step 8：打磨与上架准备
-- [ ] Step 9：迁移到 iOS（多平台 target、首轮 API/布局适配和双平台编译已完成；待真机与跨设备验收）
-- [ ] **Step 10：macOS CloudKit 基础接入**（兼容 schema、登录和状态 UI 已完成；开发者后台激活受付费团队资格阻塞）
-
----
-
-## 本地运行
-
-```bash
-# 1. 克隆仓库
-git clone https://github.com/yourusername/LifeMedals.git
-
-# 2. 在 Xcode 打开项目
-open LifeMedals/LifeMedals.xcodeproj
-
-# 3. Scheme 选择 LifeMedals，再选择 My Mac 或任一 iPhone Simulator 运行
-#    Debug 默认进入本地开发模式，不需要付费开发者团队
-```
-
-Debug 默认定义 `LIFEMEDALS_LOCAL_DEVELOPMENT`：使用本机 SwiftData、不给构建附加云端 entitlements，并在界面中关闭 Apple 登录与 CloudKit，因此免费 Personal Team 可以直接编译运行。Release 保留完整云端配置，容器标识固定为 `iCloud.noorg.LifeMedals`；要运行或分发云端版本，仍需加入 Apple Developer Program，在 Xcode 中选择付费团队并创建描述文件。云端开发环境验证后，还需在 CloudKit Console 将 schema 发布到 Production。
-
-### OpenAI API Key：只配置到代理服务端
-
-使用专门供 LifeMedals 使用的 OpenAI Project Key，环境变量名固定为 `OPENAI_API_KEY`。Key 不能写入 Swift、`Info.plist`、Xcode Scheme、客户端请求、Markdown、日志或任何会提交到 Git 的文件；LifeMedals 客户端只能调用自己的代理端点。
-
-在确定代理平台后，任选其一完成配置：
-
-- **Cloudflare Workers**：本仓库的 Worker 位于 `worker/`。从 GitHub 导入时将 Project name 设为 `lifemedals-api`、Build command 留空、Deploy command 保持 `npx wrangler deploy`，并在 Advanced settings 中将 Root directory 设为 `worker`。首次部署后进入目标 Worker → **Settings → Variables and Secrets**，新增加密 Secret `OPENAI_API_KEY`，值填已申请的 Key，然后重新部署。也可在 `worker/` 目录运行 `npx wrangler secret put OPENAI_API_KEY`，按交互提示粘贴 Key；不要把 Key 直接写在命令参数中。
-- **Vercel Functions**：进入目标 Project → **Settings → Environment Variables**，新增敏感变量 `OPENAI_API_KEY`，按需勾选 Production / Preview / Development，然后重新部署。
-
-代理代码只从运行环境读取 Key：Cloudflare Workers 使用 `env.OPENAI_API_KEY`，Vercel Functions 使用 `process.env.OPENAI_API_KEY`。不要返回或打印变量值。
-
-当前 Worker 使用 SQLite Durable Object，在调用 OpenAI **之前**原子预留一次额度；`POST /generate-task` 和 `POST /verify-evidence` 共用同一个全局计数器。默认全局每分钟最多 20 次、每个 UTC 自然月最多 500 次。达到频率限制返回 429，达到月度硬上限返回 402，保护组件异常时返回 503 且不会继续调用 OpenAI。可在 `worker/wrangler.jsonc` 中调整 `GLOBAL_REQUESTS_PER_MINUTE` 和 `MONTHLY_REQUEST_BUDGET`，再运行 `npm test` 与 `npm run check` 验证。这个月度上限按请求次数计算，不是对 OpenAI 账单金额的实时估算，因此仍需在 OpenAI 项目控制台单独设置用量/支出告警。
-
-Cloudflare 部署完成后访问 `GET /health`；只有 API Key 和全局保护都配置成功时才返回 200。客户端的长期默认地址由 `LifeMedalsAPIConfiguration.defaultBaseURL` 保存，因此从 iPhone 主屏幕重新启动 App 时仍然有效。更换 Worker 时修改该值：
+LifeMedals turns an intention into a verifiable achievement:
 
 ```text
-static let defaultBaseURL = "https://你的-worker.workers.dev/"
+Describe or photograph an obligation
+  -> AI creates an editable task contract
+  -> confirm and complete the task
+  -> submit 1-5 evidence images
+  -> AI returns Verified / Need More Proof / Not Verified
+  -> reveal or defeat a task monster
+  -> earn medal EXP
+  -> keep the result in the achievement library and Monster Atlas
 ```
 
-若只想在一次 Xcode 调试会话中临时覆盖地址，可以在 **Product → Scheme → Edit Scheme → Run → Arguments → Environment Variables** 中设置 `LIFEMEDALS_API_BASE_URL`。
+A task contract contains a short title, description, deadline, locked evidence requirement, suggested medal, and estimated effort. Image-based creation accepts material such as an email, syllabus, or event poster and retains a compressed source image with the saved task. Inputs with multiple independent actions become a task group whose children can be completed and verified separately.
 
-Mac/iOS 客户端会自动调用该地址下的 `POST /generate-task` 与 `POST /verify-evidence`。`generate-task` 接受文字，也接受一张压缩 JPEG 与可选补充说明；图片只在当前请求中转发给 OpenAI，并固定使用 `store: false`。输入草稿使用本机 `AppStorage` 保存；断网或请求失败不会清空，恢复联网后可直接重试。生成结果可以编辑标题、截止时间、验收标准和所属勋章，确认后连同可选来源图片写入 SwiftData。
+## Architecture
 
-生成任务契约时，AI 会同时给出 1–5 张证据照片数量及内容描述：1–2 张分别描述每个槽位，3–5 张使用一条整组描述。提交页据此显示单张大正方形、双张独立方框或 3–5 张横向草稿栏。iOS 支持相机、PhotosPicker 与文件选择；macOS 额外支持拖放和 `⌘V`。照片可在提交前预览删除；必须填满任务要求的照片数并明确点击提交，才会保存并调用 AI 核验。同一次提交的照片共享批次 ID，在历史区合并为一行。客户端先把原图转换为最长边不超过 1800 px、单张不超过约 1 MB 的 JPEG 副本，再写入 `Evidence.imageData` 的 SwiftData 外部存储；原始照片不复制进应用。核验失败时，整批本地记录保持 `Pending Verification`，可从任务详情重试。
+| Layer | Implementation | Status |
+| --- | --- | --- |
+| Client | One SwiftUI target for macOS, iOS, and iPadOS | Implemented |
+| Local data | SwiftData for tasks, evidence, medals, EXP, and discoveries | Implemented |
+| Device sync | SwiftData with a private CloudKit container | Implemented; signed-device validation pending |
+| App session | Sign in with Apple plus Keychain persistence; offline entry remains available | Implemented |
+| AI gateway | Cloudflare Worker using OpenAI Responses API and Structured Outputs | Deployed to staging |
+| Monster assets | D1 metadata, R2 WebP assets, and Queue-based GPT Image generation | Deployed to staging; production pending |
+| Subscriptions | StoreKit 2 plus server-side entitlement and usage records | Planned, not part of the MVP |
 
-`verify-evidence` 只在当前请求的内存中读取 Base64 图片，图片不会写入 Durable Object、KV、R2、日志或其他 Worker 持久化服务；响应也带 `Cache-Control: no-store`。转发给 OpenAI Responses API 时固定使用 `store: false`，不创建 Responses 应用状态。需要注意：OpenAI 默认的滥用监控日志属于平台数据政策范围，除非项目获批并启用 Zero Data Retention，不能把 `store: false` 表述为整个上游链路的零保留。
+Supabase is not used. Sign in with Apple identifies an app session, while the device's iCloud account owns private CloudKit synchronization; neither implies a paid entitlement.
 
----
+## Repository layout
 
-## 参考文档
+```text
+LifeMedals/
+├── README.md
+├── docs/
+│   ├── ios-migration-plan.md
+│   ├── monster-image-spec.md
+│   ├── monster-service-runbook.md
+│   ├── product-plan.md
+│   └── progress.md
+├── LifeMedals/
+│   ├── LifeMedals.xcodeproj/
+│   ├── LifeMedals/                 # App source and SwiftData models
+│   └── LifeMedalsTests/            # XCTest coverage
+└── worker/
+    ├── migrations/                 # D1 schema and taxonomy migrations
+    ├── src/                        # Worker and monster generation services
+    └── test/                       # Node test suite
+```
 
-- 完整产品与技术计划书：[`docs/product-plan.md`](./docs/product-plan.md)
-- iOS 迁移与真机验收计划：[`docs/ios-migration-plan.md`](./docs/ios-migration-plan.md)
-- Apple：[App Review Guidelines](https://developer.apple.com/app-store/review/guidelines/)
-- Apple：[在 App 内提供账户删除](https://developer.apple.com/support/offering-account-deletion-in-your-app/)
+## Implemented product behavior
+
+- Create a task from natural language or one compressed JPEG plus optional context.
+- Generate either one task or a task group with independently verifiable children.
+- Edit title, description, deadline, evidence requirement, medal, and effort before saving.
+- Keep unfinished, completed, and overdue task views with directional tab transitions and iOS edge-swipe navigation.
+- Schedule local deadline notifications without making task saves depend on notification permission.
+- Submit any 1-5 images from the camera, photo library, or files; macOS also supports drag-and-drop and paste.
+- Compress evidence to a maximum 1,800-pixel edge and approximately 1 MB before SwiftData storage.
+- Treat the task title and locked evidence requirement as independent verification paths. Reasonable proof for either may pass.
+- Persist Verified, Need More Proof, or Not Verified results; failed network requests remain retryable.
+- Award EXP at a fixed rate of 100 XP per estimated hour, independently for each medal family.
+- Show medal progress, verified history, source images, and evidence in Achievements.
+- Assign a reusable English monster taxonomy tag and lock the encounter level when the task is confirmed.
+- Preview ready artwork during confirmation, keep encounters hidden until verification, then reveal the monster before the medal/EXP animation.
+- Store personal `MonsterDiscovery` records only in SwiftData/CloudKit and cache public artwork on disk.
+- Represent collapsed task groups as stacked pixel cards and expand their child tasks in place.
+- Provide English and Chinese app UI through the shared `L10n` helper. Repository documentation is maintained in English.
+
+## Data boundaries
+
+Private business data is local-first and belongs in SwiftData/CloudKit:
+
+- `BadgeCategory`: built-in or custom medal category.
+- `UserBadge`: EXP and rank for one category.
+- `TaskContract`: task or group data, source image, optional compatibility fields, monster assignment, and status.
+- `Evidence`: compressed image, batch/order metadata, timestamp, verdict, and explanation.
+- `XPLog`: auditable EXP change linked to a task and medal.
+- `MonsterDiscovery`: a user's discovered tag/level/style, first source task, artwork URL, and defeat count.
+
+Global monster resources contain only reusable catalog data. D1 stores species, aliases, concepts, and variant state; R2 stores immutable generated WebP files; Queue messages coordinate generation. They must never contain user identity, task text, evidence, EXP, or personal discoveries.
+
+Evidence images are held only for the active verification request by the Worker and are forwarded with `store: false`. They are not written to Durable Objects, D1, KV, R2, or Worker logs. `store: false` does not by itself mean that upstream abuse-monitoring retention is disabled; Zero Data Retention requires separate OpenAI approval and configuration.
+
+## Monster rules
+
+- Taxonomy tags are reusable lowercase English identifiers, even when the source task is written in another language.
+- Named sports remain distinct species, such as `sports.basketball`, `sports.baseball`, `sports.tennis`, and `sports.swimming`. `fitness.workout` is reserved for gym, strength, or unspecified general exercise.
+- A task group's parent has no monster; each independently verified child has its own encounter.
+- The selected medal's current `BadgeRank.rawValue` locks the monster level from 1 through 9. Later EXP changes do not rewrite the encounter.
+- Each species concept selects one or two recognizable physical anchors and integrates every anchor into the body, silhouette, clothing, or equipment.
+- Artwork failures never block local saves, evidence verification, EXP, notifications, or discovery persistence.
+
+See [Monster image specification](docs/monster-image-spec.md) and [Monster service runbook](docs/monster-service-runbook.md).
+
+## Local development
+
+Requirements: current Xcode, Node.js 20 or later, and a Cloudflare account only when working on the Worker.
+
+```bash
+# Open the shared Apple-platform project.
+open LifeMedals/LifeMedals.xcodeproj
+
+# Run Worker tests and a deployment dry run.
+cd worker
+npm test
+npm run check
+```
+
+Select the `LifeMedals` scheme and run on My Mac or an iPhone Simulator. Debug builds define `LIFEMEDALS_LOCAL_DEVELOPMENT`, use local SwiftData, omit cloud entitlements, and disable Apple sign-in and CloudKit UI so a free Personal Team can build. Release retains Sign in with Apple, push notifications, and the `iCloud.noorg.LifeMedals` container.
+
+The client uses build-specific defaults in `LifeMedalsAPIConfiguration`: Debug targets the staging Worker and Release targets production. Override a single Xcode run with `LIFEMEDALS_API_BASE_URL` in the scheme environment.
+
+## Worker configuration
+
+The API key must exist only as the encrypted Worker secret `OPENAI_API_KEY`. Never place it in Swift, `Info.plist`, an Xcode scheme, Markdown, logs, or committed configuration.
+
+The Worker exposes:
+
+- `GET /health`
+- `POST /generate-task`
+- `POST /verify-evidence`
+- `POST /monster-variants/ensure`
+- `GET /monster-variants/{canonicalTag}/{level}`
+- `GET /monster-assets/{objectKey}`
+
+Task generation and evidence verification share an atomic SQLite Durable Object gate. Current defaults are 20 requests per minute and 500 requests per UTC month. Monster image generation has a separate rate and monthly budget. OpenAI project spending alerts remain necessary because request counts are not real-time billing estimates.
+
+The configured staging health endpoint returned HTTP 200 on 2026-09-03 and reported OpenAI, usage protection, and monster services as configured. Do not infer production readiness from staging health alone.
+
+## Remaining work
+
+- Complete daily self-testing and a small external beta.
+- Validate camera orientation, permissions, notifications, Dynamic Type, VoiceOver, Reduce Motion, and offline artwork caching on physical iPhones.
+- Activate and validate the CloudKit container with a paid Apple Developer Team, including conflict and evidence-image sync tests between Mac and iPhone.
+- Promote monster D1/R2/Queue bindings and migrations to production, then verify production generation and caching.
+- Prepare icons, screenshots, privacy disclosures, TestFlight, and App Review materials.
+- Build StoreKit subscriptions, server accounts, entitlements, per-user quotas, and account deletion only in the later commercial phase.
+
+For the detailed current checklist, see [Development progress](docs/progress.md). For product and architectural decisions, see [Product and technical plan](docs/product-plan.md).

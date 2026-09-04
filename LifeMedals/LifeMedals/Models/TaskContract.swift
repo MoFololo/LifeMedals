@@ -24,18 +24,21 @@ enum TaskHierarchyRole: String, Codable {
     case child
 }
 
-/// 任务契约：标题、截止时间、锁定的验收标准、所属勋章、XP 奖励和状态。
+/// 任务契约：标题、任务说明、截止时间、内部核验依据、所属勋章、XP 奖励和状态。
 ///
-/// - Important: `evidenceRequirement` 一旦用户确认任务，即为锁定值，
-///   AI 核验阶段不能再修改或重新解释它。
+/// - Important: `evidenceRequirement` 一旦用户确认任务，即为锁定值；
+///   核验时它与任务标题分别构成可独立通过的判断依据。
 @Model
 final class TaskContract {
     var id: UUID = UUID()
     var title: String = ""
+    /// User-facing context. Optional storage keeps existing local stores migration-compatible.
+    var taskDescription: String?
     var deadline: Date = Date.now
     var evidenceRequirement: String = ""
     /// Optional backing values keep existing local stores lightweight-migration compatible.
-    /// Tasks created before evidence planning default to one photo.
+    /// Legacy evidence-plan metadata. The current submission flow accepts any
+    /// 1–5 photos and keeps this only for store/CloudKit compatibility.
     var evidenceImageCount: Int?
     var evidenceImageDescriptionsJSON: String?
     var xpReward: Int = 0
@@ -54,6 +57,16 @@ final class TaskContract {
     /// App-owned compressed copy of the image that was used to generate this task.
     /// Optional external storage keeps text-created tasks and existing stores migration-compatible.
     @Attribute(.externalStorage) var sourceImageData: Data?
+
+    // Optional monster encounter fields keep legacy stores and CloudKit
+    // lightweight migration compatible. A task group parent intentionally
+    // leaves every field nil; only independently verifiable tasks encounter a
+    // monster.
+    var monsterTag: String?
+    var monsterLevel: Int?
+    var monsterVariantID: String?
+    var monsterImageURL: String?
+    var monsterStyleVersion: String?
 
     var badgeCategory: BadgeCategory?
 
@@ -110,6 +123,7 @@ final class TaskContract {
     init(
         id: UUID = UUID(),
         title: String,
+        taskDescription: String? = nil,
         deadline: Date,
         evidenceRequirement: String,
         evidenceImageCount: Int = 1,
@@ -123,10 +137,16 @@ final class TaskContract {
         childOrder: Int? = nil,
         groupCompletedAt: Date? = nil,
         sourceImageData: Data? = nil,
+        monsterTag: String? = nil,
+        monsterLevel: Int? = nil,
+        monsterVariantID: String? = nil,
+        monsterImageURL: String? = nil,
+        monsterStyleVersion: String? = nil,
         badgeCategory: BadgeCategory? = nil
     ) {
         self.id = id
         self.title = title
+        self.taskDescription = taskDescription
         self.deadline = deadline
         self.evidenceRequirement = evidenceRequirement
         self.evidenceImageCount = min(max(evidenceImageCount, 1), 5)
@@ -146,6 +166,11 @@ final class TaskContract {
         self.childOrder = hierarchyRole == .child ? childOrder : nil
         self.groupCompletedAt = hierarchyRole == .group ? groupCompletedAt : nil
         self.sourceImageData = sourceImageData
+        self.monsterTag = monsterTag
+        self.monsterLevel = monsterLevel.map { min(max($0, 1), 9) }
+        self.monsterVariantID = monsterVariantID
+        self.monsterImageURL = monsterImageURL
+        self.monsterStyleVersion = monsterStyleVersion
         self.badgeCategory = badgeCategory
     }
 }

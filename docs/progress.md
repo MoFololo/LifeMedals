@@ -1,187 +1,157 @@
-# 开发进度记录（PROGRESS.md）
+# Development Progress
 
-> 本文件是"进度日志"。每次完成任务后，请在下方对应 checklist 打勾，并在文末"更新日志"追加一条记录。**不要删除或改写历史记录，只追加。**
+> This is the current project checklist and an append-only summary of important milestones. Historical architecture choices are retained only in the timeline and do not override the current status.
 
----
+## Current status
 
-## 当前状态
+**Phase:** iOS v2 task-monster and Monster Atlas loop is implemented in the client and staging Worker.
 
-**阶段**：Step 9/10 - iOS 迁移与 Mac/iPhone CloudKit 验收
-**已完成**：现有 target 已升级为 macOS+iOS 多平台应用；完成图片、相机、WebKit 与首轮小屏/触控适配，macOS 和 iOS Simulator Debug 均编译通过；SwiftData schema、Apple 登录、同步状态 UI 与 CloudKit 私有容器保持共享
-**下一步该做什么**：使用付费 Apple Developer Team 激活 `iCloud.noorg.LifeMedals`，在 iPhone 真机验证相机/通知/登录并完成 Mac↔iPhone 同步、断网恢复和冲突验收；详细清单见 `docs/ios-migration-plan.md`
+**Implemented:** local-first task flow, task groups, image-based generation, flexible evidence verification, medals/EXP, multi-platform UI, Sign in with Apple integration, CloudKit-compatible persistence, monster taxonomy and discovery, D1/R2/Queue generation, sequential Level 1-9 artwork, budget recovery, disk caching, and iOS edge navigation.
 
-> 2026-07-30 架构已调整为本地优先。下方 2026-07-29 的 Supabase 条目保留为历史记录，不代表当前技术方向；迁移完成后不再依赖 Supabase Postgres、Auth、Storage 或 Edge Functions。
->
-> **2026-08-08 最新范围覆盖**：v1 已扩展为 macOS+iOS 多平台客户端；CloudKit 和 Sign in with Apple 在两个平台共享。此前“不得提前接入”的条目作为历史决策保留，不再约束当前实现。
->
-> **当前登录与付费边界**：v1 接入 Sign in with Apple，但仍允许离线进入；会员、StoreKit 订阅、entitlement、个人 AI 配额、服务端账户和账户删除继续推迟到 v2。
+**Deployed:** the configured staging Worker is live. On 2026-09-03, `GET /health` returned HTTP 200 with OpenAI, usage protection, and monster services configured. Production still has only the base API configuration and does not yet include the staging monster bindings.
 
----
+**Next:** run physical-iPhone and paid-team CloudKit acceptance; exercise staging image generation and budget/dead-letter behavior; then promote monster resources to production and prepare TestFlight.
 
-## 给接手的人 / AI 的说明
+## Rules for contributors
 
-1. 开始写代码前先读 `README.md`（尤其是"关键设计原则"部分），必要时也读 `docs/product-plan.md`。
-2. 每完成一个子任务，把对应的 `[ ]` 改成 `[x]`。
-3. SwiftData/CloudKit schema 变更必须保持向后兼容；Production schema 发布后只能增量演进。
-4. 每次会话结束前，在"更新日志"里追加一条：日期 + 做了什么 + 涉及哪些文件/commit。
-5. 如果发现某个子任务需要拆得更细，可以直接在对应 Step 下面加新的 `[ ]` 行。
+1. Read [README](../README.md) and [Product and technical plan](product-plan.md) before changing product behavior.
+2. Update the relevant checkbox when a subtask is completed.
+3. Keep SwiftData/CloudKit schema changes backward compatible. A published production schema must evolve additively.
+4. Append a dated milestone to this file when completing a meaningful unit of work.
+5. Never move private tasks, evidence, EXP, or discoveries into the global monster service.
 
----
+## Roadmap
 
-## Roadmap 详细进度
+### 0. Foundation and architecture
 
-### Step 0：基础环境与架构调整
-- [x] 创建 GitHub 仓库
-- [x] 编写 README.md
-- [x] 编写 docs/product-plan.md
-- [x] 建 Xcode 项目，并升级为 macOS+iOS 多平台 App target
-- [x] 明确采用 SwiftData 本地优先架构，CloudKit 推迟到 v1 之后
-- [x] 明确 v1 后端只做最小 OpenAI Responses API 代理；账户、订阅和按用户用量网关推迟到 v2
-- [x] 申请/确认 OpenAI API Key
-- [x] 选定代理平台后，将 Key 仅以 `OPENAI_API_KEY` 配置到代理服务端加密环境变量/Secret
-- [x] 更新或移除旧 `.env.example` 中的 Supabase 配置
+- [x] Create the GitHub repository and Xcode project.
+- [x] Use one SwiftUI target for macOS, iOS, and iPadOS.
+- [x] Adopt SwiftData local-first storage and remove Supabase.
+- [x] Choose Cloudflare Workers as the minimal AI gateway.
+- [x] Keep `OPENAI_API_KEY` exclusively in Worker secrets.
+- [x] Separate the MVP from StoreKit, server accounts, and per-user billing.
 
-### Step 1：SwiftData 本地模型与持久化
-- [x] 定义 `BadgeCategory` SwiftData 模型
-- [x] 定义 `UserBadge` SwiftData 模型
-- [x] 定义 `TaskContract` SwiftData 模型
-- [x] 定义 `Evidence` SwiftData 模型（图片使用外部存储）
-- [x] 定义 `XPLog` SwiftData 模型
-- [x] 在 App 中配置 SwiftData model container
-- [ ] 验证断网时的本地增删改查与重启持久化（需在 Xcode/模拟器中手动验证）
-- [x] 移除 Supabase Auth 登录门槛，让应用直接进入本地主界面
-- [x] 移除 Supabase 客户端依赖、Secrets 配置与废弃代码
-- [x] 确认迁移完成后再移除 `supabase/` 旧方案目录
+### 1. Local models and persistence
 
-### Step 2：Apple 登录 + AI 代理 + 任务契约生成
-- [x] 接入系统 Sign in with Apple 按钮、钥匙串会话和凭证撤销状态检查
-- [x] 保留离线入口，登录状态不阻塞本地或 AI 主链路
-- [x] 选择 Cloudflare Workers，创建不保存业务数据的最小代理工程
-- [x] 实现带输入与请求大小校验的 `generate-task` 端点
-- [x] 设计 prompt 和 JSON Schema，使用 OpenAI Structured Outputs 返回 title / deadline / evidence_requirement / evidence_image_count / evidence_image_descriptions / suggested_badge / suggested_xp
-- [x] 代理：用 SQLite Durable Object 加入原子全局限流（默认 20 次/分钟）
-- [x] 代理：加入调用 OpenAI 前强制执行的月度硬请求上限（默认 500 次/月）
-- [x] OpenAI 项目控制台：配置用量/支出告警（必须由项目所有者手动完成）
-- [x] 客户端：输入框 + 调用代理
-- [x] 客户端：渲染可编辑表单（标题/截止时间/验收标准/所属勋章都可改）
-- [x] 客户端：确认按钮，确认后写入 SwiftData
-- [x] 网络失败时保留输入并支持稍后重试
+- [x] Implement `BadgeCategory`, `UserBadge`, `TaskContract`, `Evidence`, `XPLog`, and `MonsterDiscovery`.
+- [x] Configure the SwiftData model container.
+- [x] Use external storage for evidence and source-image data.
+- [x] Remove old Supabase authentication, dependencies, secrets, and migration files.
+- [ ] Complete a documented offline CRUD and relaunch-persistence acceptance pass.
 
-### Step 3：任务列表与本地提醒
-- [x] SwiftUI 主界面：待办任务列表
-- [x] 任务详情页（查看契约内容）
-- [x] 截止时间本地通知（系统 Notification）
+### 2. Session, task generation, and groups
 
-### Step 4：证据提交与 AI 核验
-- [x] 客户端：macOS 支持 PhotosPicker、本地文件、拖放和 `⌘V` 粘贴；按 AI 规划的 1–5 张照片切换单槽、双槽和横向草稿栏，填满后再提交
-- [x] 压缩并把证据副本保存到本地 SwiftData 外部存储
-- [x] 写带全局限流和预算保护的 `verify-evidence` 端点
-- [x] 确认证据图片只在请求期间处理，服务端不持久化
-- [x] 设计 prompt：传入同批图片 + 锁定的 `evidence_requirement` + 照片数量与描述，返回三态结果 + 解释
-- [x] 客户端：展示 Verified / Need More Proof / Not Verified
-- [x] 客户端：`Need More Proof` 时支持补交证据
-- [x] 把核验结果写回 SwiftData；失败时保留待核验记录以便重试
+- [x] Add Sign in with Apple, Keychain session persistence, revocation checks, and offline entry.
+- [x] Implement `POST /generate-task` with size validation and Structured Outputs.
+- [x] Apply an atomic global rate limit and monthly request budget before OpenAI calls.
+- [x] Support text or one compressed source image plus optional context.
+- [x] Generate a single task or a multi-child task group.
+- [x] Keep task titles short and valid; preserve details in a separate description.
+- [x] Let users edit the contract before saving.
+- [x] Keep drafts after network failure and allow retry.
 
-### Step 5：勋章与成就系统
-- [x] EXP 累加逻辑（写入 `XPLog`，更新 `UserBadge`）
-- [x] 等级计算逻辑
-- [x] Library 页面：按勋章分类回顾历史任务和证据截图
+### 3. Tasks, interaction, and reminders
 
-### Step 6：自用内测（至少 1-2 周）
-- [ ] 自己每天用起来记录任务
-- [ ] 记录："契约生成准不准" 的问题案例
-- [ ] 记录："证据要求是否太麻烦" 的问题案例
-- [ ] 记录："完成后反馈是否有动力感" 的主观感受
+- [x] Show Unfinished, Completed, and Overdue task tabs.
+- [x] Show task details, source images, evidence, and status.
+- [x] Schedule and restore local deadline notifications.
+- [x] Reconcile task-group parents idempotently after child completion.
+- [x] Show collapsed groups as stacked pixel cards and expand children in place.
+- [x] Add directional task/achievement transitions and iOS edge-swipe navigation.
+- [x] Keep page headings and selectors fixed while only content regions transition.
 
-### Step 7：小范围内测（5-10 人）
-- [ ] 找到 5-10 名测试用户
-- [ ] 收集"AI生成验收标准是否合理"的反馈
-- [ ] 收集"AI误判率"的反馈
-- [ ] 汇总问题清单，决定哪些进 v1.1
+### 4. Evidence and verification
 
-### Step 8：打磨与上架准备
-- [ ] UI 细节打磨
-- [ ] 补充空状态 / 错误态页面
-- [ ] 验证登录页可跳过，且不会阻塞任何 v1 功能
-- [ ] Mac App Store 上架素材（截图、描述等，如决定上架）
+- [x] Accept any one-to-five-image batch.
+- [x] Support camera, PhotosPicker, and files on iOS; drag-and-drop and paste on macOS.
+- [x] Compress copies before storing them in SwiftData.
+- [x] Implement `POST /verify-evidence` with the shared usage gate.
+- [x] Keep evidence in request memory only and forward with `store: false`.
+- [x] Treat title and evidence requirement as independent, forgiving verification paths.
+- [x] Return and persist Verified, Need More Proof, or Not Verified.
+- [x] Preserve pending batches and retry after service failures.
 
-### Step 9：迁移到 iOS
-- [x] 将现有 target 配置为 macOS+iOS 多平台 target
-- [x] 适配 AppKit/UIKit 图片、相机预览、ImageIO 压缩与 WKWebView
-- [x] 增加 iOS 底部导航、紧凑顶部栏和首轮小屏布局
-- [x] iOS 接入拍照、PhotosPicker 和文件证据入口
-- [x] macOS 与 iOS Simulator Debug 编译通过
-- [ ] iPhone 真机逐页验收并修复相机方向、键盘、动态字体和窄屏边界
-- [ ] 制作 iOS App Icon、截图、隐私资料并完成 TestFlight
+### 5. Medals and achievements
 
-### Step 10：CloudKit 同步
+- [x] Award EXP through `XPLog` and update one medal independently.
+- [x] Implement nine-rank progression.
+- [x] Render medal fragments and rank/EXP state.
+- [x] Play reward animation only after persistence succeeds.
+- [x] Show verified task/evidence history in Achievements.
 
-- [x] 配置 iCloud / CloudKit capability 和 `iCloud.noorg.LifeMedals` container 标识
-- [x] 将 SwiftData 模型调整为 CloudKit 兼容 schema
-- [x] 实现并展示 iCloud 账户、同步进行中、成功与错误状态
-- [x] Debug 增加本地开发模式，移除云端 entitlements 并关闭 Apple 登录/CloudKit UI
-- [ ] 使用付费 Apple Developer Team 创建描述文件并激活容器（当前 Personal Team 不支持）
-- [ ] 验证 CloudKit 恢复联网后的自动同步
-- [ ] 验证 Mac 与 iPhone 之间的跨设备同步
-- [ ] 测试同步冲突、离线恢复和证据图片同步
-- [ ] 在 CloudKit Console 验证开发 schema，并在分发前发布到 Production
+### 6. Monster client
 
-> iOS 基础 target 已完成；下一步必须在付费团队签名的 iPhone 真机上完成专项验收。
+- [x] Decode monster fields for single tasks and child tasks with stable fallback taxonomy.
+- [x] Preserve explicitly named sports as independent species.
+- [x] Lock encounter level from the final selected medal rank.
+- [x] Give child tasks encounters and keep group parents monster-free.
+- [x] Preview a ready variant during confirmation or show an unknown silhouette.
+- [x] Refresh before verification reveal and save discoveries idempotently.
+- [x] Prevent duplicate defeat counts for repeated callbacks from one task.
+- [x] Reveal monsters before medal/EXP animation and honor Reduce Motion.
+- [x] Show personal species with locked Level 1-9 routes in the Monster Atlas.
+- [x] Cache public artwork and refresh pending discoveries.
+- [ ] Validate VoiceOver, Reduce Motion, and offline caches on physical iPhone hardware.
 
-### v2：真实账户、会员与订阅（不属于当前 roadmap）
+### 7. Monster Worker
 
-- [x] 客户端接入 Sign in with Apple capability、真实登录和钥匙串会话
-- [ ] 服务端验证 Sign in with Apple token 并建立 LifeMedals 账户
-- [ ] 建立 `UserAccount` / `SubscriptionEntitlement` / `UsageLedger` 服务端模型
-- [ ] 在 App Store Connect 配置 StoreKit 2 自动续期订阅产品
-- [ ] 实现购买、恢复购买、交易更新监听和服务端 entitlement 验证
-- [ ] 使用 `appAccountToken` 关联 LifeMedals 账户与 StoreKit 交易
-- [ ] 定义免费版/会员版周期 AI 配额并实现按用户计量与限流
-- [ ] 实现 App 内账户删除、服务端数据清理和 Sign in with Apple token 撤销
-- [ ] 测试购买、续费、过期、退款、恢复购买、额度重置和超额拒绝
-- [ ] 完成会员权益说明、订阅管理入口、隐私政策及数据删除说明
+- [x] Add D1 migrations for species, aliases, concepts, variants, normalized taxonomy, and distinct sports.
+- [x] Implement idempotent `POST /monster-variants/ensure` and variant GET.
+- [x] Implement immutable monster-asset delivery from R2.
+- [x] Implement Queue consumption, generation leases, retries, and safe failure summaries.
+- [x] Generate Level 1 from visual DNA and higher levels sequentially from the prior image.
+- [x] Enforce signature-object visual anchors.
+- [x] Add a separate per-minute and monthly monster-image budget.
+- [x] Recover variants automatically from temporary budget exhaustion.
+- [x] Configure and deploy staging D1, R2, Queue, dead-letter queue, secrets, and migrations.
+- [x] Verify the staging health configuration.
+- [ ] Complete staging generation/caching/dead-letter acceptance across several species and levels.
+- [ ] Create and deploy equivalent production bindings and migrations.
 
-> v2 商业化任务不得提前进入 v1；v1 只需要把产品最基本闭环跑通。
+### 8. CloudKit and physical-device acceptance
 
----
+- [x] Configure the `iCloud.noorg.LifeMedals` private container and cloud entitlements for Release.
+- [x] Make the SwiftData schema CloudKit compatible.
+- [x] Display account and synchronization states.
+- [x] Keep Debug in explicit local-development mode without cloud entitlements.
+- [ ] Activate paid-team signing and container access.
+- [ ] Validate offline recovery, conflicts, evidence images, EXP, task groups, and discoveries between Mac and iPhone.
+- [ ] Publish the verified CloudKit development schema to Production.
 
-## 更新日志
+### 9. Product validation and distribution
 
-<!-- 每条记录格式：YYYY-MM-DD | 做了什么 | 涉及文件/commit -->
+- [ ] Use LifeMedals daily for at least one to two weeks.
+- [ ] Record task-generation quality, evidence friction, and motivational impact.
+- [ ] Run a small beta with five to ten users.
+- [ ] Finish small/standard/large iPhone and iPad visual QA.
+- [ ] Add critical UI smoke tests.
+- [ ] Prepare icons, screenshots, privacy materials, and App Store metadata.
+- [ ] Complete TestFlight and App Review.
 
-- 2026-08-23 | 新增图片生成任务：创建页可从照片图库或文件选择邮件、syllabus、社团海报等图片，并可附加文字说明；客户端压缩为 JPEG 后通过 `generate-task` 发送，Worker 使用无状态 Responses API 视觉输入提取一个明确的下一步并保留既有结构化契约；确认保存时将来源图作为 SwiftData 外部字段随任务保存，任务详情可回看。补充图片输入校验、Prompt 构建与端到端 Worker 转发测试；Worker 11 项测试、Wrangler dry-run、macOS 与 iOS Simulator Debug 构建通过 | ContentView.swift, TaskContract.swift, TaskGenerationService.swift, project.pbxproj, worker/src/index.ts, worker/test/usage-gate.test.mjs, README.md, docs/progress.md
+### 10. Later commercial phase
 
-- 2026-08-08 | 完成现有页面的 iPhone UI/动画专项审计：每个底部 Tab 使用独立导航栈并恢复账户入口；取消移动端启动自动聚焦，避免键盘遮挡 Tab Bar；任务行在 iOS 仅保留原生 swipeActions；统一约束竖向 ScrollView 的可视宽度，修复任务、契约、详情与勋章页采用 790pt 桌面理想宽度导致的横向裁切；缩小移动端列表边距与任务行信息密度；双图证据槽、证据历史卡、账户弹窗、相机页改为紧凑响应式布局；奖励动画改为 iOS 全屏模态、深色加载背景并支持 Reduce Motion。新增仅 Debug 的页面截图路由，标准 iPhone 模拟器逐页截图通过；iOS/macOS Debug 构建及 Worker 8 项测试通过 | ContentView.swift, PlatformSupport.swift, EvidenceSubmissionView.swift, EvidenceCameraView.swift, AccountSyncView.swift, MedalVisualSystem.swift, MedalTransmutationView.swift, docs/ios-migration-plan.md, docs/progress.md
+- [ ] Validate Sign in with Apple tokens on a LifeMedals account server.
+- [ ] Add StoreKit 2 subscriptions, transaction listening, and purchase restoration.
+- [ ] Add minimal account, entitlement, and usage-ledger records.
+- [ ] Link purchases with `appAccountToken` and validate signed transactions.
+- [ ] Add free/paid per-user quotas and rate limits.
+- [ ] Implement account deletion, server cleanup, and Apple token revocation.
 
-- 2026-08-08 | 启动并完成 iOS 迁移第一阶段：现有 SwiftUI target 升级为 macOS+iOS 多平台 target；图片压缩改为跨平台 ImageIO，实现 AppKit/UIKit 图片、相机预览和 WKWebView 适配；iPhone 新增底部导航、紧凑顶部栏、响应式契约/证据布局以及拍照、图库、文件入口；macOS 与 iOS Simulator Debug 无签名构建均通过；补充真机、CloudKit、TestFlight 和上架清单 | project.pbxproj, PlatformSupport.swift, ContentView.swift, LoginView.swift, AccountSyncView.swift, EvidenceCameraView.swift, EvidenceImageProcessor.swift, EvidenceSubmissionView.swift, MedalVisualSystem.swift, MedalTransmutationView.swift, README.md, docs/ios-migration-plan.md, docs/progress.md
+This phase must not move private task or evidence data to the server.
 
-- 2026-08-07 | 增加免费 Personal Team 可用的本地开发模式：Debug 定义 `LIFEMEDALS_LOCAL_DEVELOPMENT`、不附加云端 entitlements，SwiftData 显式使用 `.none`；登录页、主界面和账户面板显示“本地开发模式”并关闭 Apple 登录/CloudKit 操作。Release 继续保留完整 Sign in with Apple、CloudKit 和 Push Notifications 配置 | project.pbxproj, LifeMedalsApp.swift, AccountAndSyncServices.swift, LoginView.swift, AccountSyncView.swift, README.md, docs/product-plan.md, docs/progress.md
+## Milestone log
 
-- 2026-08-07 | 接入 macOS Sign in with Apple 与 SwiftData/CloudKit：官方 Apple 登录按钮、钥匙串用户标识、启动凭证校验和退出应用会话；配置 `iCloud.noorg.LifeMedals` 私有容器，移除 SwiftData 唯一约束并将关系调整为 CloudKit 可选关系；新增 iCloud 账户检查、Core Data CloudKit 同步事件状态与主界面账户面板。无签名 Debug 构建无警告通过，本机运行时成功建立 CloudKit-backed store；真实签名被当前免费 Personal Team 阻塞，需切换到付费 Apple Developer Team 后完成容器激活与跨设备测试 | AccountAndSyncServices.swift, AccountSyncView.swift, LoginView.swift, LifeMedalsApp.swift, ContentView.swift, Models/*.swift, XPService.swift, EvidenceSubmissionView.swift, LifeMedals.entitlements, project.pbxproj, README.md, docs/product-plan.md, docs/progress.md
-
-- 2026-08-04 | 优化嵌入式勋章动画：WKWebView 改为不透明合成，Canvas Retina backing scale 从最高 2x 降至 1.35x，静止甲片不再逐片计算模糊阴影，金属拉丝线数量适度减少；单片最短附着时间调整为 1.1 秒、多片按每片 520ms 展开（最长 8 秒），最终淬炼延长至 6 秒，完整时间线默认 14 秒。EXP 动画浮层删除重复关闭/跳过操作，仅保留一个可见的“跳过动画/关闭”按钮。TypeScript 构建、macOS Debug 构建及真实 WKWebView 运行探针通过 | LifeMedals-Animation/medal-transmutation/src/main.ts, style.css, LifeMedals/LifeMedals/MedalTransmutationView.swift, MedalAnimation.html, docs/progress.md
-
-- 2026-08-04 | 将 Solver 青铜→白银 Canvas/JavaScript 动画打包进 macOS App，并通过 WKWebView 与 SwiftUI 双向通信：网页层删除全部文案、字体、进度条、播放键和点击事件，只保留 Canvas；生产构建把 JS、CSS 和两张 PNG 内联为唯一的 `MedalAnimation.html`，避免 file URL 的模块/CORS 与资源路径问题。Swift 可完整控制 0...1 定位、区间播放、完整播放、暂停、继续、重置、EXP 甲片增量和当前碎片回放；核验成功且 EXP 持久化后自动从旧甲片进度播放到新进度，达到 1000 EXP 时连续播放银光淬炼、甲片四散与白银显露。TypeScript 生产构建、干净 macOS Debug 构建和真实 WKWebView ready/seek/play/finished 运行探针均通过 | ContentView.swift, EvidenceSubmissionView.swift, XPService.swift, MedalTransmutationView.swift, MedalAnimation.html, LifeMedals-Animation/medal-transmutation, docs/progress.md
-
-- 2026-07-31 | 升级多图证据计划：任务生成新增 1–5 张照片数量与描述（1–2 张逐张描述，3–5 张整组描述）；提交页新增单张大方框、双张独立方框和 3–5 张横向布局，每个槽位支持图库/本地文件并保留拖放粘贴；照片填满后按批次落库与核验，历史区将同批照片合并到一行，并兼容识别上一版毫秒级连续提交的多图记录。Worker 核验上限升至 5 张并校验照片计划；Worker 8 项测试、macOS Debug 编译通过 | TaskContract.swift, Evidence.swift, ContentView.swift, TaskGenerationService.swift, EvidenceSubmissionView.swift, EvidenceImageProcessor.swift, EvidenceVerificationService.swift, worker/src/index.ts, worker/test/usage-gate.test.mjs, README.md, docs/product-plan.md, docs/progress.md
-
-- 2026-07-31 | 完成 Step 4 证据闭环：任务详情新增 Liquid Glass 证据区，支持 PhotosPicker 选图和 Mac 相机拍照；图片最长边压缩至 1800 px、单张约 1 MB 后写入 SwiftData `@Attribute(.externalStorage)`，失败时保留 Pending Verification 记录重试；新增 `verify-evidence`，与契约生成共用 Durable Object 全局限流/月度硬预算，在内存中转发最近最多 4 张证据并以 `store: false` 调用 Responses API，按锁定验收标准返回 Verified / Need More Proof / Not Verified 与解释；Need More Proof 支持补交。补充输入边界、Prompt/Schema、限流失败关闭和 no-store 测试；Worker 6 项测试、Wrangler dry-run、macOS Debug 编译通过 | LifeMedals/LifeMedals/ContentView.swift, EvidenceSubmissionView.swift, EvidenceCameraView.swift, EvidenceImageProcessor.swift, EvidenceVerificationService.swift, LifeMedals.xcodeproj/project.pbxproj, worker/src/index.ts, worker/test/usage-gate.test.mjs, README.md, docs/progress.md
-
-- 2026-07-30 | 完成任务契约生成客户端：新增液态玻璃主界面、自然语言输入、代理调用、可编辑契约表单、确认后 SwiftData 写入；输入使用 AppStorage 本机保存，断网/超时后保留并支持重试。Worker 新增 SQLite Durable Object 全局限流与月度硬请求上限，保护异常时失败关闭；补充自动测试、部署配置与使用说明。Xcode Debug 编译、Worker 单元测试和 Wrangler dry-run 均通过；待部署 Worker、配置客户端 URL，并由项目所有者在 OpenAI 控制台设置支出告警 | LifeMedals/LifeMedals/ContentView.swift, TaskGenerationService.swift, LifeMedals.xcodeproj/project.pbxproj, worker/src/index.ts, worker/wrangler.jsonc, worker/test/usage-gate.test.mjs, worker/package.json, README.md, docs/progress.md
-
-- 2026-07-30 | 创建 Cloudflare Worker 最小 OpenAI 代理：新增 Wrangler 工程配置、`GET /health` 与 `POST /generate-task`；服务端读取 `OPENAI_API_KEY`，调用 Responses API `gpt-5.6-terra` 并用 Structured Outputs 返回任务契约；加入请求大小/字段校验、超时与安全错误处理、`store: false`；Wrangler dry-run 与模拟请求测试通过，尚未部署或配置 Secret | worker/package.json, worker/package-lock.json, worker/wrangler.jsonc, worker/src/index.ts, README.md, docs/progress.md
-
-- 2026-07-30 | 将当前 AI 方案从 Anthropic/Claude 迁移为 OpenAI Responses API：默认模型设为 `gpt-5.6-terra`，结构化结果改用 Structured Outputs，服务端密钥统一为 `OPENAI_API_KEY`；已确认 OpenAI API Key 申请完成，待选定代理平台后配置加密环境变量 | README.md, docs/product-plan.md, docs/progress.md, .env.example
-
-- 2026-07-30 | 恢复登录页（重新实现为 v1 可跳过占位 UI，不接真实认证/账户，登录与跳过效果完全相同）；`LifeMedalsApp` 用本地 `@State` 控制展示 LoginView 或 ContentView，不做持久化、不影响 SwiftData/AI 功能；`xcodebuild` 编译通过 | LifeMedals/LifeMedals/LifeMedals/LoginView.swift, LifeMedalsApp.swift, docs/progress.md
-
-- 2026-07-29 | 创建 GitHub 仓库，编写 README.md 和 docs/product-plan.md，创建本 PROGRESS.md | README.md, docs/product-plan.md, PROGRESS.md
-- 2026-07-29 | 配置 .env.example，列出 SUPABASE_URL / SUPABASE_ANON_KEY / SUPABASE_SERVICE_ROLE_KEY / OPENAI_API_KEY 等环境变量（含本地开发注释） | .env.example, docs/progress.md
-- 2026-07-29 | 做登录 / 注册页面（SwiftUI，Liquid Glass 风格），接入 Supabase Auth（signIn/signUp/signOut/authStateChanges），新增 Secrets.swift（gitignored）管理本地密钥，App 根据登录状态在 LoginView / ContentView 间切换，本地 xcodebuild 编译通过 | LifeMedals/LifeMedals/LifeMedals/LoginView.swift, AuthViewModel.swift, SupabaseManager.swift, Secrets.swift, Secrets.example.txt, LifeMedalsApp.swift, ContentView.swift, .gitignore, docs/progress.md
-- 2026-07-30 | 调整技术架构为 SwiftData 本地优先 + CloudKit 自动同步；取消应用登录和 Supabase 数据层；后端缩减为无状态 Claude API 代理，并重排开发路线 | README.md, docs/product-plan.md, docs/progress.md
-- 2026-07-30 | 收紧 v1 范围：v1 只做 SwiftData 单设备本地持久化；CloudKit 接入、跨设备同步及全部相关测试推迟到 v1 之后 | README.md, docs/product-plan.md, docs/progress.md
-- 2026-07-30 | 完成 Supabase → SwiftData 迁移：新增 `BadgeCategory`/`UserBadge`/`TaskContract`/`Evidence`/`XPLog` SwiftData 模型并接入 App 的 model container；移除 Supabase Auth 登录门槛、SupabaseManager、Secrets.swift/Secrets.example.txt、SPM 的 supabase-swift 包依赖（project.pbxproj、Package.resolved）以及旧 `supabase/migrations` 目录；`.env.example` 改为仅列出无状态 AI 代理所需的 `ANTHROPIC_API_KEY`；`xcodebuild` 编译通过 | LifeMedals/LifeMedals/LifeMedals/Models/BadgeCategory.swift, UserBadge.swift, TaskContract.swift, Evidence.swift, XPLog.swift, LifeMedalsApp.swift, ContentView.swift, LifeMedals/LifeMedals.xcodeproj/project.pbxproj, .env.example, .gitignore, docs/progress.md
-- 2026-07-30 | 补充账户与商业化架构：本地功能游客可用，AI/会员功能使用 Sign in with Apple；StoreKit 2 管理订阅；后端改为最小化账户、entitlement、AI 用量与限流网关，仍不保存任务和证据；CloudKit 继续推迟到 v1 之后 | README.md, docs/product-plan.md, docs/progress.md
-- 2026-07-30 | 再次收紧 v1：登录页仅作可跳过的 UI 占位且没有实际权限作用；Sign in with Apple、会员、StoreKit 订阅、entitlement 和个人 AI 配额全部推迟到 v2；v1 只跑通本地数据、AI 契约与证据核验闭环 | README.md, docs/product-plan.md, docs/progress.md
-
-- 2026-07-31 | 完成 Step 3：任务页按截止时间展示 SwiftData 待办契约，支持逾期状态与 Liquid Glass 契约详情；新增 UserNotifications 本地截止提醒，保存未来任务时请求权限并按稳定任务 UUID 调度，应用启动后恢复/清理提醒，前台也显示系统横幅，权限拒绝或调度失败不影响任务保存；macOS Debug 构建通过 | LifeMedals/LifeMedals/ContentView.swift, LifeMedals/LifeMedals/TaskNotificationService.swift, docs/progress.md
+- 2026-09-03 — Added iOS edge-swipe navigation for task tabs, task-detail return, and achievement tabs; unified directional transitions and limited them to the changing content region. Refined task-group cards so collapsed groups stack toward the lower right and expanded groups return to a normal single-card parent. Current iOS Simulator Debug build passed.
+- 2026-09-02 — Added validated short task titles and a separate task description throughout generation, persistence, notifications, verification, and task-group editing. Compressed a large medal asset.
+- 2026-08-30 — Made monster variants recover from temporary monthly image-budget exhaustion instead of remaining permanently failed; updated staging release metadata and tests.
+- 2026-08-29 — Replaced deadline presets with platform wheel-date selection and expanded deadline tests.
+- 2026-08-27 — Simplified evidence submission to any one-to-five-image batch. Made verification motivational and forgiving: credible support for the title or locked requirement can pass. Removed exact photo-plan requirements from new generation while retaining compatibility fields for existing data.
+- 2026-08-26 — Preserved fourteen named sports as distinct species, added Worker and iOS fallback normalization, required one or two strongly associated visual anchors, added Athlete seeds and D1 migration `0004`, and versioned the v2 art prompts.
+- 2026-08-25 — Completed the task-monster client loop, encounter level locking, idempotent discoveries, reveal ordering, Monster Atlas, disk cache, pending-art refresh, confirmation preview, and background ensure/poll behavior.
+- 2026-08-23 — Added image-based task creation from mail, syllabi, posters, and similar sources; retained the compressed source image in SwiftData and added Worker validation/tests.
+- 2026-08-08 — Converted the project into a macOS/iOS multi-platform target, added UIKit/AppKit adapters and compact iPhone UI, completed a simulator page audit, fixed overflow and keyboard/navigation issues, and added Reduce Motion behavior.
+- 2026-08-07 — Added local-development Debug configuration, Sign in with Apple, Keychain sessions, CloudKit-compatible models, synchronization monitoring, and the private CloudKit container configuration.
+- 2026-08-04 — Embedded and optimized the WebKit medal-transmutation animation, connected it to persisted EXP progress, and made the reward overlay controllable from Swift.
+- 2026-07-31 — Completed task lists and notifications, one-to-five-image evidence persistence, three-state verification, retry behavior, EXP awards, and achievement history.
+- 2026-07-30 — Built the Cloudflare Worker task-generation proxy, atomic global usage gate, monthly budget, editable contract flow, and SwiftData migration. Removed Supabase and standardized on OpenAI Responses API with `gpt-5.6-terra`.
+- 2026-07-29 — Created the repository, initial Xcode app, README, and product plan. An early Supabase experiment was removed the following day and is not part of the current architecture.

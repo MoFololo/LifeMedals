@@ -34,6 +34,17 @@ async function reserve(gate, requestsPerMinute, monthlyRequestBudget) {
   return response.json();
 }
 
+async function reserveMonsterImage(gate, monthlyMonsterImageBudget, monsterImagesPerMinute = 10) {
+  const response = await gate.fetch(
+    new Request("https://usage-gate.internal/reserve-monster-image", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ monthlyMonsterImageBudget, monsterImagesPerMinute }),
+    }),
+  );
+  return response.json();
+}
+
 test("enforces the global fixed-window rate limit", async () => {
   const gate = new GlobalUsageGate({ storage: new MemoryStorage() });
 
@@ -58,10 +69,32 @@ test("enforces the monthly hard request budget", async () => {
   assert.match(rejected.resetAt, /^\d{4}-\d{2}-01T00:00:00\.000Z$/);
 });
 
+test("enforces an independent monthly monster image budget", async () => {
+  const gate = new GlobalUsageGate({ storage: new MemoryStorage() });
+
+  assert.equal((await reserveMonsterImage(gate, 2)).allowed, true);
+  assert.equal((await reserveMonsterImage(gate, 2)).allowed, true);
+
+  const rejected = await reserveMonsterImage(gate, 2);
+  assert.equal(rejected.allowed, false);
+  assert.equal(rejected.reason, "budget_exhausted");
+  assert.match(rejected.resetAt, /^\d{4}-\d{2}-01T00:00:00\.000Z$/);
+});
+
+test("enforces an independent monster image rate limit", async () => {
+  const gate = new GlobalUsageGate({ storage: new MemoryStorage() });
+
+  assert.equal((await reserveMonsterImage(gate, 20, 2)).allowed, true);
+  assert.equal((await reserveMonsterImage(gate, 20, 2)).allowed, true);
+  const rejected = await reserveMonsterImage(gate, 20, 2);
+  assert.equal(rejected.allowed, false);
+  assert.equal(rejected.reason, "rate_limited");
+  assert.ok(rejected.retryAfterSeconds >= 1);
+});
+
 const validEvidenceBody = {
+  task_title: "完成两道 LeetCode",
   evidence_requirement: "提交显示两道题均为 Accepted 的截图。",
-  evidence_image_count: 1,
-  evidence_image_descriptions: ["显示两道题均为 Accepted 的截图。"],
   images: [
     {
       mime_type: "image/jpeg",
@@ -88,7 +121,8 @@ test("health identifies the deployed Worker release", async () => {
   const body = await response.json();
 
   assert.equal(response.status, 200);
-  assert.equal(body.release, "2026-08-25-scheduled-email-proof-1");
+  assert.equal(body.release, "2026-08-30-monster-image-budget-recovery-1");
+  assert.equal(body.monsterServiceConfigured, false);
   assert.equal(response.headers.get("X-LifeMedals-Release"), body.release);
 });
 
@@ -119,9 +153,38 @@ test("builds a stateless vision request for task generation", () => {
   assert.match(request.input[0].content[1].image_url, /^data:image\/jpeg;base64,/);
   assert.match(request.instructions, /extract every independent executable action/);
   assert.match(request.instructions, /heading such as Next Steps.*not a child task/);
+  assert.match(request.instructions, /Preserve explicit dates exactly/);
+  assert.match(request.instructions, /same calendar date one month later/);
+  assert.equal("deadline_preset" in request.text.format.schema.properties, false);
   assert.match(request.instructions, /own objective, lightweight evidence requirement/);
   assert.match(request.instructions, /names, email addresses, phone numbers/);
   assert.match(request.instructions, /never cause redaction, omission, refusal/);
+  assert.match(request.instructions, /monster_tag/);
+  assert.match(request.instructions, /Use monster_match_kind=existing/i);
+  assert.match(request.instructions, /Life includes chores, cooking, errands, sending packages, games/i);
+  assert.match(request.instructions, /Exercise and sports always use Athlete/i);
+  assert.match(request.instructions, /sports\.basketball/);
+  assert.match(request.instructions, /Never collapse a named sport into fitness\.workout/i);
+  assert.match(request.instructions, /same specificity rule across every badge/i);
+  assert.match(request.instructions, /chores\.take_out_trash rather than chores\.household/i);
+  assert.match(request.instructions, /taxonomy is always English/i);
+  assert.match(request.instructions, /gaming\.console, not controls\.toggle/i);
+  assert.doesNotMatch(request.instructions, /monster_display_name/);
+  assert.deepEqual(
+    request.text.format.schema.properties.suggested_badge.enum,
+    ["Solver", "Builder", "Career", "Athlete", "Life"],
+  );
+  assert.equal("monster_display_name" in request.text.format.schema.properties, false);
+  assert.equal(
+    "monster_display_name" in request.text.format.schema.properties.children.items.properties,
+    false,
+  );
+  assert.equal("evidence_image_count" in request.text.format.schema.properties, false);
+  assert.equal("evidence_image_descriptions" in request.text.format.schema.properties, false);
+  assert.equal(
+    "evidence_image_count" in request.text.format.schema.properties.children.items.properties,
+    false,
+  );
   assert.doesNotMatch(request.instructions, /privacy-conscious/);
 });
 
@@ -135,7 +198,7 @@ test("allows visible personal information during evidence verification", () => {
   assert.match(request.instructions, /printed name is visible text, not biometric identification/i);
 });
 
-test("treats a confirmed scheduled email as completed without accepting a draft", () => {
+test("treats drafts, scheduled emails, and sent emails as task-related effort", () => {
   const generationRequest = buildTaskGenerationOpenAIRequest(
     {
       text: "Write and send my professor an email tomorrow morning.",
@@ -148,20 +211,18 @@ test("treats a confirmed scheduled email as completed without accepting a draft"
     {
       ...validEvidenceBody,
       evidence_requirement: "Show that the email to the professor was sent.",
-      evidence_image_descriptions: [
-        "Show the recipient, message body, and sent or scheduled-send confirmation.",
-      ],
+      task_title: "Send my RA resume to the professor",
     },
     "test-model",
   );
 
-  assert.match(generationRequest.instructions, /confirmed scheduled-send state counts as completion/i);
-  assert.match(generationRequest.instructions, /Never require the user to wait for the future send time/i);
-  assert.match(verificationRequest.instructions, /confirmed scheduled send counts as completed and is equivalent to sent/i);
-  assert.match(verificationRequest.instructions, /scheduled time is in the future/i);
-  assert.match(verificationRequest.instructions, /intended recipient, the substantive message body/i);
-  assert.match(verificationRequest.instructions, /draft or compose view alone/i);
-  assert.match(verificationRequest.instructions, /unconfirmed Schedule Send menu/i);
+  assert.match(generationRequest.instructions, /confirmed scheduled-send state/i);
+  assert.match(generationRequest.instructions, /Never invent or require a formal application page/i);
+  assert.match(verificationRequest.instructions, /visible email conversation, draft, sent message, scheduled message/i);
+  assert.match(verificationRequest.instructions, /task-related effort and must be verified/i);
+  assert.match(verificationRequest.instructions, /writing, drafting, scheduling, or sending/i);
+  assert.match(verificationRequest.instructions, /Do not require proof of recipient, content, delivery, timing, or sent status/i);
+  assert.doesNotMatch(verificationRequest.instructions, /unsent draft.*not enough/i);
 });
 
 test("generate-task forwards the source image without storing response state", async (t) => {
@@ -174,13 +235,14 @@ test("generate-task forwards the source image without storing response state", a
       output_text: JSON.stringify({
         kind: "single_task",
         title: "报名校园摄影社",
+        description: "根据海报要求完成校园摄影社报名。",
         deadline: "2026-08-24T23:59:00-04:00",
         deadline_preset: "tomorrow",
         evidence_requirement: "提交报名成功页面截图。",
-        evidence_image_count: 1,
-        evidence_image_descriptions: ["显示报名成功状态的页面截图。"],
         suggested_badge: "Career",
         estimated_hours: 0.25,
+        monster_tag: "communication.career",
+        monster_match_kind: "existing",
         children: [],
       }),
     });
@@ -216,8 +278,12 @@ test("generate-task forwards the source image without storing response state", a
 test("validates compressed evidence without accepting extra fields", () => {
   assert.equal(validateEvidenceVerificationInput(validEvidenceBody), null);
   assert.match(
-    validateEvidenceVerificationInput({ ...validEvidenceBody, task_title: "ignored" }),
+    validateEvidenceVerificationInput({ ...validEvidenceBody, ignored: "extra" }),
     /unsupported fields/,
+  );
+  assert.match(
+    validateEvidenceVerificationInput({ ...validEvidenceBody, task_title: "" }),
+    /task_title/,
   );
   assert.match(
     validateEvidenceVerificationInput({
@@ -228,15 +294,30 @@ test("validates compressed evidence without accepting extra fields", () => {
   );
 });
 
-test("builds a stateless vision request around the locked requirement", () => {
+test("builds a supportive vision request using title-or-criterion verification", () => {
   const request = buildEvidenceVerificationOpenAIRequest(validEvidenceBody, "test-model");
 
   assert.equal(request.model, "test-model");
   assert.equal(request.store, false);
   assert.equal(request.input[0].content[0].type, "input_text");
-  assert.match(request.input[0].content[0].text, /提交显示两道题均为 Accepted 的截图。/);
-  assert.match(request.input[0].content[0].text, /EXPECTED_IMAGE_COUNT\n1/);
-  assert.match(request.input[0].content[0].text, /显示两道题均为 Accepted 的截图。/);
+  assert.match(request.input[0].content[0].text, /TASK_TITLE\n完成两道 LeetCode/);
+  assert.match(request.input[0].content[0].text, /ACCEPTANCE_CRITERION\n提交显示两道题均为 Accepted 的截图。/);
+  assert.doesNotMatch(request.input[0].content[0].text, /EXPECTED_IMAGE_COUNT/);
+  assert.match(request.instructions, /PRIMARY DECISION RULE/i);
+  assert.match(request.instructions, /matching either one is enough/i);
+  assert.match(request.instructions, /any work, effort, activity, artifact, attempt, partial progress/i);
+  assert.match(request.instructions, /Assume the user finished any unseen remainder/i);
+  assert.match(request.instructions, /only Today and Tomorrow is verified/i);
+  assert.match(request.instructions, /criterion asks to show an ordinary date beyond/i);
+  assert.match(request.instructions, /machine-learning notes/i);
+  assert.match(request.instructions, /RA or job application performed by email/i);
+  assert.match(request.instructions, /Never demand a formal application page/i);
+  assert.match(request.instructions, /Any 1 to 5 submitted images/i);
+  assert.match(request.instructions, /so blurry, dark, blank, blocked, or unreadable/i);
+  assert.match(request.instructions, /every submitted image is clearly unrelated/i);
+  assert.doesNotMatch(request.instructions, /materially contradict completion/i);
+  assert.doesNotMatch(request.instructions, /clearly show the task remains incomplete/i);
+  assert.doesNotMatch(request.instructions, /unsent draft with no other completion signal is not enough/i);
   assert.equal(request.input[0].content[1].type, "input_image");
   assert.match(request.input[0].content[1].image_url, /^data:image\/jpeg;base64,/);
   assert.deepEqual(
@@ -245,20 +326,18 @@ test("builds a stateless vision request around the locked requirement", () => {
   );
 });
 
-test("validates task contracts with count-aware evidence descriptions", () => {
+test("validates task contracts without requiring a photo plan", () => {
   const baseContract = {
     kind: "single_task",
     title: "完成两道 LeetCode",
+    description: "完成两道指定难度的题目。",
     deadline: "2026-08-01T22:00:00+08:00",
     deadline_preset: "this_weekend",
     evidence_requirement: "提交两道题均为 Accepted 的截图。",
-    evidence_image_count: 2,
-    evidence_image_descriptions: [
-      "第一道 LeetCode 题的 Accepted 截图。",
-      "第二道 LeetCode 题的 Accepted 截图。",
-    ],
     suggested_badge: "Solver",
     estimated_hours: 0.5,
+    monster_tag: "coding.leetcode",
+    monster_match_kind: "existing",
     children: [],
   };
 
@@ -267,17 +346,17 @@ test("validates task contracts with count-aware evidence descriptions", () => {
     isTaskContract({
       ...baseContract,
       evidence_image_count: 5,
-      evidence_image_descriptions: ["五道 LeetCode 题的完成截图。"],
+      evidence_image_descriptions: ["旧客户端留下的兼容字段。"],
     }),
     true,
   );
   assert.equal(
-    isTaskContract({ ...baseContract, evidence_image_descriptions: ["只有一条"] }),
-    false,
+    isTaskContract({ ...baseContract, evidence_image_descriptions: [] }),
+    true,
   );
   assert.equal(
-    isTaskContract({ ...baseContract, deadline_preset: "next_weekend" }),
-    false,
+    isTaskContract((({ deadline_preset: _, ...contract }) => contract)(baseContract)),
+    true,
   );
   assert.equal(
     isTaskContract({ ...baseContract, estimated_hours: 0.1 }),
@@ -291,26 +370,36 @@ test("validates task contracts with count-aware evidence descriptions", () => {
     isTaskContract({ ...baseContract, estimated_hours: 1.1 }),
     false,
   );
+  assert.equal(
+    isTaskContract({ ...baseContract, title: "这是一个超过十二个字的中文任务标题" }),
+    false,
+  );
+  assert.equal(
+    isTaskContract({ ...baseContract, title: "This task title contains more than eight English words total" }),
+    false,
+  );
 });
 
-test("validates task groups and requires child-specific evidence plans", () => {
+test("validates task groups and requires child-specific acceptance criteria", () => {
   const child = (title) => ({
     title,
+    description: `Details for ${title}.`,
     evidence_requirement: `Show completion of ${title}.`,
-    evidence_image_count: 1,
-    evidence_image_descriptions: [`Completion result for ${title}.`],
     estimated_hours: 0.25,
+    monster_tag: "study.learning",
+    monster_match_kind: "existing",
   });
   const group = {
     kind: "task_group",
     title: "Complete all Next Steps",
+    description: "Finish the listed follow-up actions.",
     deadline: "2026-08-25T23:59:00-04:00",
     deadline_preset: "tomorrow",
     evidence_requirement: "",
-    evidence_image_count: 0,
-    evidence_image_descriptions: [],
     suggested_badge: "Solver",
     estimated_hours: 0.5,
+    monster_tag: null,
+    monster_match_kind: null,
     children: [child("Complete the survey"), child("Join Piazza")],
   };
 
@@ -331,22 +420,21 @@ test("validates task groups and requires child-specific evidence plans", () => {
   );
 });
 
-test("requires evidence payloads to match the planned image count", () => {
-  assert.match(
+test("accepts any 1–5 evidence photos regardless of a legacy planned count", () => {
+  assert.equal(
     validateEvidenceVerificationInput({
       ...validEvidenceBody,
       evidence_image_count: 2,
       evidence_image_descriptions: ["第一张", "第二张"],
     }),
-    /exactly evidence_image_count/,
+    null,
   );
   assert.match(
     validateEvidenceVerificationInput({
       ...validEvidenceBody,
-      evidence_image_count: 3,
-      evidence_image_descriptions: ["第一张", "第二张", "第三张"],
+      images: [],
     }),
-    /exactly 1 valid description/,
+    /between 1 and 5/,
   );
 });
 

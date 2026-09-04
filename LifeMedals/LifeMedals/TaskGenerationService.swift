@@ -8,7 +8,11 @@
 import Foundation
 
 enum LifeMedalsAPIConfiguration {
+#if DEBUG
+    static let defaultBaseURL = "https://lifemedals-api-staging.david-lian0809.workers.dev/"
+#else
     static let defaultBaseURL = "https://lifemedals-api.david-lian0809.workers.dev/"
+#endif
 
     static var baseURL: URL? {
         let environmentValue = ProcessInfo.processInfo.environment["LIFEMEDALS_API_BASE_URL"]
@@ -30,10 +34,13 @@ enum GeneratedTaskKind: String, Decodable, Sendable {
 struct GeneratedTaskChild: Decodable, Identifiable, Sendable {
     let id = UUID()
     let title: String
+    let taskDescription: String
     let evidenceRequirement: String
     let evidenceImageCount: Int
     let evidenceImageDescriptions: [String]
     let estimatedHours: Double
+    let monsterTag: String?
+    let monsterMatchKind: MonsterMatchKind?
 
     var suggestedXP: Int {
         XPRules.xp(forEstimatedHours: estimatedHours)
@@ -41,15 +48,20 @@ struct GeneratedTaskChild: Decodable, Identifiable, Sendable {
 
     private enum CodingKeys: String, CodingKey {
         case title
+        case taskDescription = "description"
         case evidenceRequirement = "evidence_requirement"
         case evidenceImageCount = "evidence_image_count"
         case evidenceImageDescriptions = "evidence_image_descriptions"
         case estimatedHours = "estimated_hours"
+        case monsterTag = "monster_tag"
+        case monsterMatchKind = "monster_match_kind"
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        title = (try? container.decode(String.self, forKey: .title)) ?? ""
+        title = TaskTitleRules.limited((try? container.decode(String.self, forKey: .title)) ?? "")
+        taskDescription = ((try? container.decode(String.self, forKey: .taskDescription)) ?? "")
+            .trimmingCharacters(in: .whitespacesAndNewlines)
         let rawRequirement = (try? container.decode(String.self, forKey: .evidenceRequirement)) ?? ""
         evidenceRequirement = GeneratedTaskContract.normalizedRequirement(rawRequirement)
         evidenceImageCount = GeneratedTaskContract.normalizedEvidenceCount(
@@ -63,12 +75,15 @@ struct GeneratedTaskChild: Decodable, Identifiable, Sendable {
         estimatedHours = GeneratedTaskContract.normalizedHours(
             (try? container.decode(Double.self, forKey: .estimatedHours)) ?? 0.25
         )
+        monsterTag = try? container.decode(String.self, forKey: .monsterTag)
+        monsterMatchKind = try? container.decode(MonsterMatchKind.self, forKey: .monsterMatchKind)
     }
 }
 
 struct GeneratedTaskContract: Decodable, Sendable {
     let kind: GeneratedTaskKind
     let title: String
+    let taskDescription: String
     let deadline: String
     let deadlinePreset: TaskDeadlinePreset?
     let evidenceRequirement: String
@@ -81,9 +96,12 @@ struct GeneratedTaskContract: Decodable, Sendable {
     let estimatedHours: Double
     let suggestedXP: Int
     let children: [GeneratedTaskChild]
+    let monsterTag: String?
+    let monsterMatchKind: MonsterMatchKind?
 
     enum CodingKeys: String, CodingKey {
         case title
+        case taskDescription = "description"
         case kind
         case deadline
         case deadlinePreset = "deadline_preset"
@@ -94,11 +112,17 @@ struct GeneratedTaskContract: Decodable, Sendable {
         case estimatedHours = "estimated_hours"
         case suggestedXP = "suggested_xp"
         case children
+        case monsterTag = "monster_tag"
+        case monsterMatchKind = "monster_match_kind"
     }
 
     init(from decoder: Decoder) throws {
         let container = try decoder.container(keyedBy: CodingKeys.self)
-        let rootTitle = ((try? container.decode(String.self, forKey: .title)) ?? "")
+        let rootTitle = TaskTitleRules.limited(
+            ((try? container.decode(String.self, forKey: .title)) ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        )
+        let rootDescription = ((try? container.decode(String.self, forKey: .taskDescription)) ?? "")
             .trimmingCharacters(in: .whitespacesAndNewlines)
         deadline = (try? container.decode(String.self, forKey: .deadline)) ?? ""
         deadlinePreset = try? container.decode(TaskDeadlinePreset.self, forKey: .deadlinePreset)
@@ -120,10 +144,13 @@ struct GeneratedTaskContract: Decodable, Sendable {
         if validChildren.count >= 2 {
             kind = .taskGroup
             title = rootTitle.isEmpty ? "Complete all tasks" : rootTitle
+            taskDescription = rootDescription
             evidenceRequirement = ""
             evidenceImageCount = 0
             evidenceImageDescriptions = []
             children = validChildren
+            monsterTag = nil
+            monsterMatchKind = nil
         } else {
             kind = .singleTask
             children = []
@@ -131,11 +158,15 @@ struct GeneratedTaskContract: Decodable, Sendable {
                 // A one-child group is a normal task, using the child's own
                 // evidence plan rather than the empty parent container plan.
                 title = onlyChild.title.trimmingCharacters(in: .whitespacesAndNewlines)
+                taskDescription = onlyChild.taskDescription
                 evidenceRequirement = onlyChild.evidenceRequirement
                 evidenceImageCount = onlyChild.evidenceImageCount
                 evidenceImageDescriptions = onlyChild.evidenceImageDescriptions
+                monsterTag = onlyChild.monsterTag
+                monsterMatchKind = onlyChild.monsterMatchKind
             } else {
                 title = rootTitle
+                taskDescription = rootDescription
                 evidenceRequirement = Self.normalizedRequirement(
                     (try? container.decode(String.self, forKey: .evidenceRequirement)) ?? ""
                 )
@@ -147,6 +178,8 @@ struct GeneratedTaskContract: Decodable, Sendable {
                     count: evidenceImageCount,
                     requirement: evidenceRequirement
                 )
+                monsterTag = try? container.decode(String.self, forKey: .monsterTag)
+                monsterMatchKind = try? container.decode(MonsterMatchKind.self, forKey: .monsterMatchKind)
             }
         }
 
@@ -207,6 +240,55 @@ struct GeneratedTaskContract: Decodable, Sendable {
 
         formatter.formatOptions = [.withInternetDateTime]
         return formatter.date(from: deadline)
+    }
+}
+
+enum TaskTitleRules {
+    static let chineseCharacterLimit = 12
+    static let englishWordLimit = 8
+
+    static func isValid(_ value: String) -> Bool {
+        let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else { return false }
+        if containsHan(in: trimmed) {
+            return trimmed.filter { !$0.isWhitespace }.count <= chineseCharacterLimit
+        }
+        return words(in: trimmed).count <= englishWordLimit
+    }
+
+    static func limited(_ value: String) -> String {
+        let trimmed = value
+            .split(whereSeparator: \Character.isWhitespace)
+            .joined(separator: " ")
+        guard containsHan(in: trimmed) else {
+            return words(in: trimmed).prefix(englishWordLimit).joined(separator: " ")
+        }
+
+        var count = 0
+        return String(trimmed.prefix { character in
+            guard !character.isWhitespace else { return true }
+            guard count < chineseCharacterLimit else { return false }
+            count += 1
+            return true
+        }).trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    static func limitDescription(for value: String) -> String {
+        containsHan(in: value)
+            ? L10n.text("最多 12 个字", english: "Up to 12 characters")
+            : L10n.text("最多 8 个单词", english: "Up to 8 words")
+    }
+
+    private static func words(in value: String) -> [Substring] {
+        value.split(whereSeparator: \Character.isWhitespace)
+    }
+
+    private static func containsHan(in value: String) -> Bool {
+        value.unicodeScalars.contains { scalar in
+            (0x3400...0x4DBF).contains(scalar.value) ||
+                (0x4E00...0x9FFF).contains(scalar.value) ||
+                (0xF900...0xFAFF).contains(scalar.value)
+        }
     }
 }
 

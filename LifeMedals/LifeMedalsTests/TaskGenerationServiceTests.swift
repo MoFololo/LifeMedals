@@ -3,6 +3,15 @@ import XCTest
 @testable import LifeMedals
 
 final class TaskGenerationServiceTests: XCTestCase {
+    func testDebugBuildDefaultsToStagingAPI() {
+#if DEBUG
+        XCTAssertEqual(
+            LifeMedalsAPIConfiguration.defaultBaseURL,
+            "https://lifemedals-api-staging.david-lian0809.workers.dev/"
+        )
+#endif
+    }
+
     func testLegacySingleTaskResponseRemainsCompatible() throws {
         let contract = try decode(#"""
         {
@@ -19,6 +28,27 @@ final class TaskGenerationServiceTests: XCTestCase {
         XCTAssertEqual(contract.evidenceImageCount, 1)
         XCTAssertEqual(contract.suggestedXP, 25)
         XCTAssertTrue(contract.children.isEmpty)
+    }
+
+    func testExplicitCalendarDeadlineWithoutPresetDecodes() throws {
+        let contract = try decode(#"""
+        {
+          "kind":"single_task",
+          "title":"Submit the application",
+          "description":"Use the application link provided by the user.",
+          "deadline":"2026-08-30T23:59:00-04:00",
+          "evidence_requirement":"Show the submission confirmation.",
+          "suggested_badge":"Career",
+          "estimated_hours":1,
+          "monster_tag":"communication.career",
+          "monster_match_kind":"existing",
+          "children":[]
+        }
+        """#)
+
+        XCTAssertNil(contract.deadlinePreset)
+        XCTAssertNotNil(contract.parsedDeadline)
+        XCTAssertEqual(contract.taskDescription, "Use the application link provided by the user.")
     }
 
     func testTwoValidActionsCreateTaskGroup() throws {
@@ -64,6 +94,57 @@ final class TaskGenerationServiceTests: XCTestCase {
         XCTAssertFalse(contract.evidenceRequirement.isEmpty)
     }
 
+    func testMonsterFieldsDecodeForSingleTask() throws {
+        let contract = try decode(#"""
+        {
+          "kind":"single_task",
+          "title":"Practice algorithms",
+          "deadline":"2026-08-25T23:59:00-04:00",
+          "deadline_preset":"tomorrow",
+          "evidence_requirement":"Show two accepted solutions.",
+          "evidence_image_count":1,
+          "evidence_image_descriptions":["Accepted results"],
+          "suggested_badge":"Solver",
+          "estimated_hours":1,
+          "monster_tag":"coding.leetcode",
+          "monster_match_kind":"existing",
+          "children":[]
+        }
+        """#)
+
+        XCTAssertEqual(contract.monsterTag, "coding.leetcode")
+        XCTAssertEqual(contract.monsterMatchKind, .existing)
+    }
+
+    func testTaskGroupParentHasNoMonsterWhileChildrenKeepAssignments() throws {
+        let contract = try decode(groupJSON(children: [
+            childJSON(title: "Practice algorithms", monsterTag: "coding.leetcode"),
+            childJSON(title: "Send the email", monsterTag: "communication.send_email")
+        ]))
+
+        XCTAssertNil(contract.monsterTag)
+        XCTAssertEqual(contract.children.map(\.monsterTag), ["coding.leetcode", "communication.send_email"])
+    }
+
+    func testGeneratedTitlesAreLimitedByLanguage() throws {
+        let english = try decode(#"""
+        {
+          "kind":"single_task",
+          "title":"Write and send the detailed quarterly project status email today",
+          "description":"Include milestones, risks, and next steps.",
+          "deadline":"2026-08-25T23:59:00-04:00",
+          "evidence_requirement":"Show the email draft.",
+          "suggested_badge":"Career",
+          "estimated_hours":1,
+          "monster_tag":"communication.send_email",
+          "monster_match_kind":"existing",
+          "children":[]
+        }
+        """#)
+        XCTAssertEqual(english.title, "Write and send the detailed quarterly project status")
+        XCTAssertEqual(TaskTitleRules.limited("完成今天课程要求的全部十二道练习题"), "完成今天课程要求的全部十")
+    }
+
     private func decode(_ json: String) throws -> GeneratedTaskContract {
         try JSONDecoder().decode(GeneratedTaskContract.self, from: Data(json.utf8))
     }
@@ -73,6 +154,7 @@ final class TaskGenerationServiceTests: XCTestCase {
         {
           "kind":"task_group",
           "title":"Complete all Next Steps",
+          "description":"Complete every listed action.",
           "deadline":"2026-08-25T23:59:00-04:00",
           "deadline_preset":"tomorrow",
           "evidence_requirement":"",
@@ -87,15 +169,19 @@ final class TaskGenerationServiceTests: XCTestCase {
 
     private func childJSON(
         title: String,
-        requirement: String = "Show the completion result."
+        requirement: String = "Show the completion result.",
+        monsterTag: String = "coding.practice"
     ) -> String {
         """
         {
           "title":"\(title)",
+          "description":"Details for \(title).",
           "evidence_requirement":"\(requirement)",
           "evidence_image_count":1,
           "evidence_image_descriptions":["Completion result"],
-          "estimated_hours":0.25
+          "estimated_hours":0.25,
+          "monster_tag":"\(monsterTag)",
+          "monster_match_kind":"existing"
         }
         """
     }

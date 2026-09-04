@@ -94,7 +94,7 @@ struct ContentView: View {
             switch self {
             case .create: L10n.text("新任务", english: "New Task")
             case .tasks: L10n.text("任务", english: "Tasks")
-            case .medals: L10n.text("勋章", english: "Medals")
+            case .medals: L10n.text("成就", english: "Achievements")
             }
         }
 
@@ -102,7 +102,28 @@ struct ContentView: View {
             switch self {
             case .create: "plus"
             case .tasks: "checklist"
+            case .medals: "trophy"
+            }
+        }
+    }
+
+    private enum AchievementTab: String, CaseIterable, Identifiable {
+        case medals
+        case monsters
+
+        var id: Self { self }
+
+        var title: String {
+            switch self {
+            case .medals: L10n.text("勋章", english: "Medals")
+            case .monsters: L10n.text("怪物图鉴", english: "Monster Atlas")
+            }
+        }
+
+        var icon: String {
+            switch self {
             case .medals: "medal"
+            case .monsters: "book.closed"
             }
         }
     }
@@ -115,18 +136,31 @@ struct ContentView: View {
     private struct TaskChildDraft: Identifiable {
         let id = UUID()
         var title: String
+        var taskDescription: String
         var evidenceRequirement: String
         var evidenceImageCount: Int
         var evidenceImageDescriptions: [String]
         var xpReward: Int
+        var monsterTag: String?
+        var monsterMatchKind: MonsterMatchKind?
 
         init(_ child: GeneratedTaskChild) {
             title = child.title
+            taskDescription = child.taskDescription
             evidenceRequirement = child.evidenceRequirement
             evidenceImageCount = child.evidenceImageCount
             evidenceImageDescriptions = child.evidenceImageDescriptions
             xpReward = child.suggestedXP
+            monsterTag = child.monsterTag
+            monsterMatchKind = child.monsterMatchKind
         }
+    }
+
+    private struct DraftMonsterPreviewRequest: Sendable {
+        let key: String
+        let descriptor: MonsterDescriptor
+        let badgeKind: String
+        let level: Int
     }
 
     private struct EvidenceVerificationPresentation: Equatable {
@@ -206,6 +240,11 @@ struct ContentView: View {
             case .overdue: PixelTheme.danger
             }
         }
+    }
+
+    private enum EdgeSwipeDirection: Equatable {
+        case towardPrevious
+        case towardNext
     }
 
     private struct TaskRowAction: Identifiable {
@@ -353,8 +392,10 @@ struct ContentView: View {
     private static let badgeOptions = BadgeKind.allCases.map(\.rawValue)
 
     @Environment(\.modelContext) private var modelContext
+    @Environment(\.scenePhase) private var scenePhase
     @Query(sort: \TaskContract.createdAt, order: .reverse) private var taskContracts: [TaskContract]
     @Query(sort: \BadgeCategory.createdAt) private var badgeCategories: [BadgeCategory]
+    @Query(sort: \MonsterDiscovery.discoveredAt) private var monsterDiscoveries: [MonsterDiscovery]
 
     @AppStorage("pendingTaskInput") private var taskInput = ""
     @State private var selectedPage = AppPage.create
@@ -372,12 +413,16 @@ struct ContentView: View {
     @State private var isReminderStatusDismissed = false
     @GestureState private var reminderBannerTranslation: CGFloat = 0
     @State private var selectedTaskTab = TaskListTab.unfinished
+    @State private var taskTabTransitionDirection = EdgeSwipeDirection.towardNext
     /// Absence means expanded, so newly created and synced groups default open.
     @State private var collapsedTaskGroupIDs: Set<UUID> = []
     @State private var selectedLibraryBadge: String?
+    @State private var selectedAchievementTab = AchievementTab.medals
+    @State private var achievementTabTransitionDirection = EdgeSwipeDirection.towardNext
     @State private var medalAnimationPresentation: XPAwardEvent?
     @State private var deferredMedalAnimationPresentation: XPAwardEvent?
     @State private var evidenceVerificationPresentation: EvidenceVerificationPresentation?
+    @State private var monsterRevealPresentation: MonsterDiscoveryEvent?
     @State private var isShowingSettings = false
     @State private var selectedSourcePhoto: PhotosPickerItem?
     @State private var draftSourceImageData: Data?
@@ -388,15 +433,21 @@ struct ContentView: View {
     @FocusState private var isTaskInputFocused: Bool
 
     @State private var draftTitle = ""
-    @State private var draftDeadlinePreset: TaskDeadlinePreset? = .tomorrow
+    @State private var draftTaskDescription = ""
+    @State private var draftDeadline = DeadlineDateOptions.defaultSelection()
     @State private var draftEvidenceRequirement = ""
     @State private var draftEvidenceImageCount = 1
     @State private var draftEvidenceImageDescriptions: [String] = []
     @State private var draftBadge = BadgeKind.solver.rawValue
     @State private var draftXP = 10
     @State private var draftChildren: [TaskChildDraft] = []
+    @State private var draftMonsterTag: String?
+    @State private var draftMonsterMatchKind: MonsterMatchKind?
+    @State private var draftMonsterPreviewStates: [String: MonsterDraftPreviewState] = [:]
+    @State private var monsterArtworkSyncActivation = 0
 
     private let generationService = TaskGenerationService()
+    private let monsterVariantService = MonsterVariantService()
     private let notificationService = TaskNotificationService()
 
     var body: some View {
@@ -432,15 +483,23 @@ struct ContentView: View {
                     isReminderStatusDismissed = false
                 }
             }
+            .onChange(of: scenePhase) { _, phase in
+                if phase == .active {
+                    monsterArtworkSyncActivation += 1
+                }
+            }
             .task {
                 await restoreTaskReminders()
+            }
+            .task(id: pendingMonsterArtworkSyncKey) {
+                await ensureMonsterVariants(for: tasksAwaitingMonsterArtwork)
             }
             .onReceive(NotificationCenter.default.publisher(for: .xpAwarded)) { notification in
                 guard let event = notification.object as? XPAwardEvent else { return }
                 guard event.currentXP > event.previousXP else { return }
                 guard event.previousXP < BadgeRank.silver.cumulativeXPThreshold else { return }
 
-                if evidenceVerificationPresentation != nil {
+                if evidenceVerificationPresentation != nil || monsterRevealPresentation != nil {
                     deferredMedalAnimationPresentation = event
                 } else {
                     withAnimation(.smooth(duration: 0.3)) {
@@ -498,6 +557,14 @@ struct ContentView: View {
                 )
                 .transition(.opacity.combined(with: .scale(scale: 0.97)))
                 .zIndex(15)
+            }
+
+            if let monsterRevealPresentation {
+                MonsterRevealOverlay(event: monsterRevealPresentation) {
+                    finishMonsterReveal(for: monsterRevealPresentation)
+                }
+                .transition(.opacity.combined(with: .scale(scale: 0.97)))
+                .zIndex(18)
             }
 
 #if os(macOS)
@@ -560,7 +627,7 @@ struct ContentView: View {
 
 #if os(iOS)
     private func mobileTab<Content: View>(
-        _: AppPage,
+        _ page: AppPage,
         containerSize: CGSize,
         @ViewBuilder content: @escaping () -> Content
     ) -> some View {
@@ -570,6 +637,49 @@ struct ContentView: View {
                 .frame(width: containerSize.width)
         }
         .frame(width: containerSize.width)
+        .overlay(alignment: .leading) {
+            if page == .tasks || page == .medals {
+                edgeSwipeRegion(direction: .towardPrevious) {
+                    handleEdgeSwipe(on: page, direction: .towardPrevious)
+                }
+            }
+        }
+        .overlay(alignment: .trailing) {
+            if page == .tasks || page == .medals {
+                edgeSwipeRegion(direction: .towardNext) {
+                    handleEdgeSwipe(on: page, direction: .towardNext)
+                }
+            }
+        }
+    }
+
+    private func edgeSwipeRegion(
+        direction: EdgeSwipeDirection,
+        action: @escaping () -> Void
+    ) -> some View {
+        Color.clear
+            .frame(width: 26)
+            .frame(maxHeight: .infinity)
+            .contentShape(Rectangle())
+            .gesture(
+                DragGesture(minimumDistance: 18, coordinateSpace: .local)
+                    .onEnded { value in
+                        let horizontalDistance = value.translation.width
+                        let verticalDistance = value.translation.height
+                        guard abs(horizontalDistance) >= 54 else { return }
+                        guard abs(horizontalDistance) > abs(verticalDistance) * 1.25 else { return }
+
+                        switch direction {
+                        case .towardPrevious where horizontalDistance > 0:
+                            action()
+                        case .towardNext where horizontalDistance < 0:
+                            action()
+                        default:
+                            break
+                        }
+                    }
+            )
+            .accessibilityHidden(true)
     }
 #endif
 
@@ -930,6 +1040,8 @@ struct ContentView: View {
                         }
                     }
 
+                    taskDescriptionContractField
+
                     if isCompactLayout {
                         VStack(alignment: .leading, spacing: 18) {
                             badgeContractField
@@ -942,6 +1054,10 @@ struct ContentView: View {
                             deadlineContractField
                                 .frame(maxWidth: .infinity)
                         }
+                    }
+
+                    if !isDraftTaskGroup {
+                        draftMonsterContractField
                     }
 
                     if let draftContractSourceImageData {
@@ -980,9 +1096,18 @@ struct ContentView: View {
                                                 .textFieldStyle(.plain)
                                                 .font(PixelTheme.font(.headline))
                                                 .lineLimit(1...3)
+                                                .onChange(of: child.title) { _, newValue in
+                                                    if !newValue.isEmpty, !TaskTitleRules.isValid(newValue) {
+                                                        child.title = TaskTitleRules.limited(newValue)
+                                                    }
+                                                }
                                         }
 
-                                        TextField("该子任务的验收标准", text: $child.evidenceRequirement, axis: .vertical)
+                                        Text(TaskTitleRules.limitDescription(for: child.title))
+                                            .font(PixelTheme.font(.caption2))
+                                            .foregroundStyle(PixelTheme.inkMuted)
+
+                                        TextField("任务说明（可选）", text: $child.taskDescription, axis: .vertical)
                                             .textFieldStyle(.plain)
                                             .font(PixelTheme.font(.subheadline))
                                             .foregroundStyle(PixelTheme.inkMuted)
@@ -990,13 +1115,19 @@ struct ContentView: View {
 
                                         Label(
                                             L10n.text(
-                                                "需要 \(child.evidenceImageCount) 张照片 · 约 +\(child.xpReward) EXP 工作量",
-                                                english: "\(child.evidenceImageCount) photo(s) · about +\(child.xpReward) EXP of effort"
+                                                "完成时可提交 1–5 张照片 · 约 +\(child.xpReward) EXP 工作量",
+                                                english: "Submit 1–5 photos when done · about +\(child.xpReward) EXP of effort"
                                             ),
                                             systemImage: "photo.stack"
                                         )
                                         .font(PixelTheme.font(.caption))
                                         .foregroundStyle(PixelTheme.inkMuted)
+
+                                        MonsterDraftPreviewCard(
+                                            descriptor: monsterDescriptor(for: child),
+                                            level: draftMonsterLevel,
+                                            state: draftMonsterPreviewStates[child.id.uuidString] ?? .loading
+                                        )
                                     }
                                     .padding(14)
                                     .frame(maxWidth: .infinity, alignment: .leading)
@@ -1008,24 +1139,8 @@ struct ContentView: View {
                     } else {
                         contractField("证据照片") {
                             VStack(alignment: .leading, spacing: 10) {
-                                Label("需要 \(draftEvidenceImageCount) 张照片", systemImage: "photo.stack")
+                                Label("完成时可提交 1–5 张照片", systemImage: "photo.stack")
                                     .font(PixelTheme.font(.subheadline, weight: .semibold))
-
-                                ForEach(Array(draftEvidenceImageDescriptions.enumerated()), id: \.offset) { index, description in
-                                    HStack(alignment: .top, spacing: 8) {
-                                        if draftEvidenceImageCount <= 2 {
-                                            Text("\(index + 1)")
-                                                .font(PixelTheme.statFont(size: 11))
-                                                .foregroundStyle(.white)
-                                                .frame(width: 20, height: 20)
-                                                .background(PixelTheme.selection, in: PixelCornerShape(step: 2))
-                                        }
-                                        Text(L10n.text(description))
-                                            .font(PixelTheme.font(.subheadline))
-                                            .foregroundStyle(PixelTheme.inkMuted)
-                                            .fixedSize(horizontal: false, vertical: true)
-                                    }
-                                }
                             }
                             .padding(14)
                             .frame(maxWidth: .infinity, alignment: .leading)
@@ -1063,6 +1178,9 @@ struct ContentView: View {
             .platformScrollableContentWidth(790)
             .frame(maxWidth: .infinity)
         }
+        .task(id: draftMonsterPreviewKey) {
+            await refreshDraftMonsterPreviews()
+        }
     }
 
     private var contractReviewTitle: some View {
@@ -1077,8 +1195,8 @@ struct ContentView: View {
             Text(
                 isDraftTaskGroup
                     ? L10n.text(
-                        "已识别 \(draftChildren.count) 项；确认主任务与每项验收标准后即可保存。",
-                        english: "\(draftChildren.count) actions found. Review the group and each acceptance criterion before saving."
+                        "已识别 \(draftChildren.count) 项；确认主任务与每项任务说明后即可保存。",
+                        english: "\(draftChildren.count) actions found. Review the group and each task description before saving."
                     )
                     : L10n.text(
                         "确认截止日期和证据照片后，即可开始执行。",
@@ -1113,6 +1231,32 @@ struct ContentView: View {
                 .padding(14)
                 .background(PixelTheme.paperRaised, in: PixelCornerShape())
                 .overlay { PixelCornerShape().stroke(PixelTheme.gold.opacity(0.62), lineWidth: 1) }
+                .onChange(of: draftTitle) { _, newValue in
+                    if !newValue.isEmpty, !TaskTitleRules.isValid(newValue) {
+                        draftTitle = TaskTitleRules.limited(newValue)
+                    }
+                }
+
+            Text(TaskTitleRules.limitDescription(for: draftTitle))
+                .font(PixelTheme.font(.caption2))
+                .foregroundStyle(PixelTheme.inkMuted)
+        }
+    }
+
+    private var taskDescriptionContractField: some View {
+        contractField(L10n.text("任务说明", english: "Task description")) {
+            TextField(
+                L10n.text("补充任务的具体内容（可选）", english: "Add task details (optional)"),
+                text: $draftTaskDescription,
+                axis: .vertical
+            )
+            .textFieldStyle(.plain)
+            .font(PixelTheme.font(.body))
+            .lineLimit(3...7)
+            .frame(maxWidth: .infinity)
+            .padding(14)
+            .background(PixelTheme.paperRaised, in: PixelCornerShape())
+            .overlay { PixelCornerShape().stroke(PixelTheme.gold.opacity(0.62), lineWidth: 1) }
         }
     }
 
@@ -1130,20 +1274,141 @@ struct ContentView: View {
 
     private var badgeContractField: some View {
         contractField("所属勋章") {
-            MedalArtworkView(categoryName: draftBadge, rank: badgeRank(for: draftBadge))
-                .frame(width: 132, height: 132)
-                .frame(maxWidth: .infinity)
-                .clipped()
-                .padding(4)
-                .frame(maxWidth: .infinity, minHeight: 144, maxHeight: 144)
-                .background(PixelTheme.paperRaised, in: PixelCornerShape())
-                .overlay { PixelCornerShape().stroke(PixelTheme.gold.opacity(0.62), lineWidth: 1) }
+            VStack(spacing: PixelTheme.space8) {
+                MedalArtworkView(categoryName: draftBadge, rank: badgeRank(for: draftBadge))
+                    .frame(width: 108, height: 108)
+                    .clipped()
+
+                Picker(L10n.text("所属勋章", english: "Medal"), selection: $draftBadge) {
+                    ForEach(Self.badgeOptions, id: \.self) { badge in
+                        Text(badgeDisplayName(badge)).tag(badge)
+                    }
+                }
+                .pickerStyle(.menu)
+                .labelsHidden()
+                .accessibilityLabel(L10n.text("选择所属勋章", english: "Choose medal category"))
+            }
+            .padding(8)
+            .frame(maxWidth: .infinity, minHeight: 144)
+            .background(PixelTheme.paperRaised, in: PixelCornerShape())
+            .overlay { PixelCornerShape().stroke(PixelTheme.gold.opacity(0.62), lineWidth: 1) }
         }
+    }
+
+    private var draftMonsterContractField: some View {
+        contractField(L10n.text("任务怪物", english: "Task Monster")) {
+            MonsterDraftPreviewCard(
+                descriptor: singleDraftMonsterDescriptor,
+                level: draftMonsterLevel,
+                state: draftMonsterPreviewStates["single"] ?? .loading
+            )
+        }
+    }
+
+    private var draftMonsterLevel: Int {
+        badgeRank(for: draftBadge).rawValue
+    }
+
+    private var singleDraftMonsterDescriptor: MonsterDescriptor {
+        MonsterTaxonomy.descriptor(
+            canonicalTag: draftMonsterTag,
+            matchKind: draftMonsterMatchKind,
+            fallbackText: "\(draftTitle) \(draftEvidenceRequirement)",
+            badgeKind: draftBadge
+        )
+    }
+
+    private func monsterDescriptor(for child: TaskChildDraft) -> MonsterDescriptor {
+        MonsterTaxonomy.descriptor(
+            canonicalTag: child.monsterTag,
+            matchKind: child.monsterMatchKind,
+            fallbackText: "\(child.title) \(child.evidenceRequirement)",
+            badgeKind: draftBadge
+        )
+    }
+
+    private var draftMonsterPreviewRequests: [DraftMonsterPreviewRequest] {
+        if isDraftTaskGroup {
+            return draftChildren.map { child in
+                DraftMonsterPreviewRequest(
+                    key: child.id.uuidString,
+                    descriptor: monsterDescriptor(for: child),
+                    badgeKind: draftBadge,
+                    level: draftMonsterLevel
+                )
+            }
+        }
+        return [
+            DraftMonsterPreviewRequest(
+                key: "single",
+                descriptor: singleDraftMonsterDescriptor,
+                badgeKind: draftBadge,
+                level: draftMonsterLevel
+            )
+        ]
+    }
+
+    private var draftMonsterPreviewKey: String {
+        draftMonsterPreviewRequests
+            .map { "\($0.key):\($0.descriptor.canonicalTag):\($0.level)" }
+            .joined(separator: "|")
+    }
+
+    @MainActor
+    private func refreshDraftMonsterPreviews() async {
+        let requests = draftMonsterPreviewRequests
+        draftMonsterPreviewStates = Dictionary(
+            uniqueKeysWithValues: requests.map { ($0.key, MonsterDraftPreviewState.loading) }
+        )
+
+        for request in requests {
+            guard !Task.isCancelled else { return }
+            do {
+                let snapshot = try await monsterVariantService.ensureVariant(
+                    canonicalTag: request.descriptor.canonicalTag,
+                    badgeKind: request.badgeKind,
+                    level: request.level
+                )
+                guard !Task.isCancelled else { return }
+                draftMonsterPreviewStates[request.key] = .variant(snapshot)
+            } catch {
+                guard !Task.isCancelled else { return }
+                draftMonsterPreviewStates[request.key] = .unavailable
+            }
+        }
+
+        for _ in 0..<MonsterVariantPollingPolicy.maxAttempts {
+            let pending = requests.filter { request in
+                guard case let .variant(snapshot) = draftMonsterPreviewStates[request.key] else { return false }
+                return snapshot.status == .pending || snapshot.status == .generating
+            }
+            guard !pending.isEmpty, !Task.isCancelled else { return }
+
+            do {
+                try await Task.sleep(for: .seconds(MonsterVariantPollingPolicy.intervalSeconds))
+            } catch {
+                return
+            }
+
+            for request in pending {
+                guard !Task.isCancelled else { return }
+                guard let snapshot = try? await monsterVariantService.fetchVariant(
+                    canonicalTag: request.descriptor.canonicalTag,
+                    level: request.level
+                ) else { continue }
+                draftMonsterPreviewStates[request.key] = .variant(snapshot)
+            }
+        }
+    }
+
+    private func draftMonsterSnapshot(for key: String) -> MonsterVariantSnapshot? {
+        guard case let .variant(snapshot) = draftMonsterPreviewStates[key] else { return nil }
+        return snapshot
     }
 
     private var deadlineContractField: some View {
         contractField("截止日期") {
-            DeadlinePresetWheelPicker(selection: $draftDeadlinePreset)
+            DeadlinePickerField(selection: $draftDeadline)
         }
     }
 
@@ -1161,12 +1426,6 @@ struct ContentView: View {
                 )
         } else {
             taskListRoot
-                .transition(
-                    .asymmetric(
-                        insertion: .opacity.combined(with: .move(edge: .leading)),
-                        removal: .opacity.combined(with: .move(edge: .trailing))
-                    )
-                )
         }
     }
 
@@ -1186,16 +1445,28 @@ struct ContentView: View {
         case .overdue: overdueTasks
         }
 
-        return List {
+        return VStack(spacing: 0) {
             taskListHeader(
                 unfinishedCount: unfinishedTasks.count,
                 completedCount: completedTasks.count,
                 overdueCount: overdueTasks.count
             )
-            .listRowBackground(Color.clear)
-            .listRowSeparator(.hidden)
-            .listRowInsets(EdgeInsets(top: 24, leading: pageHorizontalInset, bottom: 12, trailing: pageHorizontalInset))
+            .padding(.top, 24)
+            .padding(.horizontal, pageHorizontalInset)
+            .padding(.bottom, 12)
 
+            ZStack {
+                taskListContent(tasks: selectedTasks, now: now)
+                    .id(selectedTaskTab)
+                    .transition(horizontalTabTransition(direction: taskTabTransitionDirection))
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .clipped()
+        }
+    }
+
+    private func taskListContent(tasks selectedTasks: [TaskContract], now: Date) -> some View {
+        List {
             if selectedTasks.isEmpty {
                 taskListEmptyState(for: selectedTaskTab)
                     .listRowBackground(Color.clear)
@@ -1301,9 +1572,7 @@ struct ContentView: View {
                     }
 
                     Button {
-                        withAnimation(.smooth(duration: 0.3)) {
-                            selectedTaskTab = tab
-                        }
+                        selectTaskTab(tab)
                     } label: {
                         Group {
                             if isCompactLayout {
@@ -1434,38 +1703,54 @@ struct ContentView: View {
         let childTasks = children(of: task)
         let completedCount = childTasks.filter { $0.status == .verified }.count
         let isExpanded = !collapsedTaskGroupIDs.contains(task.id)
+        let middleLayerOffset: CGFloat = isExpanded ? 0 : 5
+        let backLayerOffset: CGFloat = isExpanded ? 0 : 10
 
-        return HStack(spacing: isCompactLayout ? 10 : 14) {
-            MedalArtworkView(
-                categoryName: task.badgeCategory?.name,
-                rank: task.badgeCategory?.userBadge?.rank ?? .bronze
-            )
-            .frame(width: isCompactLayout ? 42 : 50, height: isCompactLayout ? 42 : 50)
+        return ZStack {
+            PixelCornerShape()
+                .fill(PixelTheme.background.opacity(0.92))
+                .offset(x: PixelTheme.shadowOffset, y: PixelTheme.shadowOffset)
+                .opacity(isExpanded ? 1 : 0)
+                .accessibilityHidden(true)
 
-            VStack(alignment: .leading, spacing: 6) {
-                Text(L10n.text(task.title))
-                    .font(PixelTheme.font(.headline))
-                    .foregroundStyle(PixelTheme.ink)
-                    .lineLimit(3)
-                    .layoutPriority(1)
+            taskGroupStackLayer(fill: PixelTheme.paper.opacity(0.72), borderOpacity: 0.45)
+                .offset(x: backLayerOffset, y: backLayerOffset)
+                .opacity(isExpanded ? 0 : 1)
 
-                Label(
-                    deadlineDisplayText(task.deadline, relativeTo: now),
-                    systemImage: task.deadline <= now && task.status != .verified
-                        ? "clock.badge.exclamationmark"
-                        : "clock"
+            taskGroupStackLayer(fill: PixelTheme.paperRaised.opacity(0.88), borderOpacity: 0.68)
+                .offset(x: middleLayerOffset, y: middleLayerOffset)
+                .opacity(isExpanded ? 0 : 1)
+
+            HStack(spacing: isCompactLayout ? 10 : 14) {
+                MedalArtworkView(
+                    categoryName: task.badgeCategory?.name,
+                    rank: task.badgeCategory?.userBadge?.rank ?? .bronze
                 )
-                .font(PixelTheme.font(.caption))
-                .foregroundStyle(
-                    task.deadline <= now && task.status != .verified
-                        ? PixelTheme.danger
-                        : PixelTheme.inkMuted
-                )
-            }
+                .frame(width: isCompactLayout ? 42 : 50, height: isCompactLayout ? 42 : 50)
 
-            Spacer(minLength: 8)
+                VStack(alignment: .leading, spacing: 6) {
+                    Text(L10n.text(task.title))
+                        .font(PixelTheme.font(.headline))
+                        .foregroundStyle(PixelTheme.ink)
+                        .lineLimit(3)
+                        .layoutPriority(1)
 
-            HStack(spacing: isCompactLayout ? 8 : 12) {
+                    Label(
+                        deadlineDisplayText(task.deadline, relativeTo: now),
+                        systemImage: task.deadline <= now && task.status != .verified
+                            ? "clock.badge.exclamationmark"
+                            : "clock"
+                    )
+                    .font(PixelTheme.font(.caption))
+                    .foregroundStyle(
+                        task.deadline <= now && task.status != .verified
+                            ? PixelTheme.danger
+                            : PixelTheme.inkMuted
+                    )
+                }
+
+                Spacer(minLength: 8)
+
                 VStack(alignment: .trailing, spacing: 7) {
                     Text("\(completedCount)/\(childTasks.count)")
                         .font(PixelTheme.statFont(size: isCompactLayout ? 14 : 16))
@@ -1477,17 +1762,23 @@ struct ContentView: View {
                             .foregroundStyle(PixelTheme.brown)
                     }
                 }
-
-                Image(systemName: isExpanded ? "chevron.down" : "chevron.right")
-                    .font(PixelTheme.font(.subheadline, weight: .bold))
-                    .foregroundStyle(PixelTheme.selection)
-                    .frame(width: 18)
+            }
+            .padding(isCompactLayout ? 14 : 18)
+            .foregroundStyle(PixelTheme.ink)
+            .background(PixelTheme.paper, in: PixelCornerShape())
+            .overlay {
+                PixelCornerShape()
+                    .stroke(PixelTheme.gold, lineWidth: PixelTheme.borderWidth)
+            }
+            .overlay {
+                PixelCornerShape(step: 2)
+                    .stroke(PixelTheme.paperRaised.opacity(0.42), lineWidth: 1)
+                    .padding(3)
             }
         }
-        .padding(isCompactLayout ? 14 : 18)
-        .foregroundStyle(PixelTheme.ink)
+        .padding(.trailing, isExpanded ? 0 : 10)
+        .padding(.bottom, isExpanded ? 0 : 10)
         .contentShape(PixelCornerShape())
-        .pixelSurface(fill: PixelTheme.paper, border: PixelTheme.gold, step: 4, hasShadow: true)
         .accessibilityElement(children: .combine)
         .accessibilityLabel(
             L10n.text(
@@ -1500,6 +1791,16 @@ struct ContentView: View {
                 ? L10n.text("收起子任务", english: "Collapse subtasks")
                 : L10n.text("展开子任务", english: "Expand subtasks")
         )
+    }
+
+    private func taskGroupStackLayer(fill: Color, borderOpacity: Double) -> some View {
+        PixelCornerShape()
+            .fill(fill)
+            .overlay {
+                PixelCornerShape()
+                    .stroke(PixelTheme.gold.opacity(borderOpacity), lineWidth: PixelTheme.borderWidth)
+            }
+            .accessibilityHidden(true)
     }
 
     @ViewBuilder
@@ -1582,11 +1883,15 @@ struct ContentView: View {
                 }
 
                 LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 16)], spacing: 16) {
-                    detailCard(
+                    DeadlinePickerField(
                         title: "截止日期",
-                        value: deadlineDisplayText(task.deadline),
-                        icon: task.deadline < .now ? "clock.badge.exclamationmark" : "calendar.badge.clock",
-                        tint: task.deadline < .now ? PixelTheme.danger : PixelTheme.selection
+                        selection: Binding(
+                            get: { task.deadline },
+                            set: { _ in }
+                        ),
+                        onCommit: { deadline in
+                            updateDeadline(deadline, for: task)
+                        }
                     )
                     detailCard(
                         title: "所属勋章",
@@ -1605,6 +1910,13 @@ struct ContentView: View {
                             : "+\(task.xpReward) EXP",
                         icon: "sparkles",
                         tint: PixelTheme.gold
+                    )
+                }
+
+                if task.monsterTag != nil, task.monsterLevel != nil {
+                    MonsterEncounterCard(
+                        task: task,
+                        discovery: monsterDiscovery(for: task)
                     )
                 }
 
@@ -1628,68 +1940,35 @@ struct ContentView: View {
                     .pixelSurface(fill: PixelTheme.paperRaised, border: PixelTheme.gold, step: 4, hasShadow: true)
                 }
 
-                VStack(alignment: .leading, spacing: 14) {
-                    HStack {
-                        Label("验收标准", systemImage: "doc.text.magnifyingglass")
+                if let taskDescription = task.taskDescription?.trimmingCharacters(in: .whitespacesAndNewlines),
+                   !taskDescription.isEmpty {
+                    VStack(alignment: .leading, spacing: 14) {
+                        Label("任务说明", systemImage: "text.alignleft")
                             .font(PixelTheme.displayFont(size: 17))
                             .foregroundStyle(PixelTheme.ink)
-                        Spacer()
-                        Label("已锁定", systemImage: "lock.fill")
-                            .font(PixelTheme.font(.caption, weight: .semibold))
-                            .foregroundStyle(PixelTheme.inkMuted)
-                            .padding(.horizontal, 11)
-                            .padding(.vertical, 7)
-                            .background(PixelTheme.paper, in: PixelCornerShape(step: 2))
-                            .overlay { PixelCornerShape(step: 2).stroke(PixelTheme.gold.opacity(0.7), lineWidth: 1) }
+
+                        Text(taskDescription)
+                            .font(PixelTheme.font(.body))
+                            .foregroundStyle(PixelTheme.ink)
+                            .lineSpacing(5)
+                            .textSelection(.enabled)
+                            .fixedSize(horizontal: false, vertical: true)
                     }
-
-                    Text(L10n.text(task.evidenceRequirement))
-                        .font(PixelTheme.font(.body))
-                        .foregroundStyle(PixelTheme.ink)
-                        .lineSpacing(5)
-                        .textSelection(.enabled)
-                        .fixedSize(horizontal: false, vertical: true)
-
-                    Divider()
-                        .opacity(0.45)
-
-                    VStack(alignment: .leading, spacing: 8) {
-                        Label("需要 \(task.requiredEvidenceImageCount) 张照片", systemImage: "photo.stack")
-                            .font(PixelTheme.font(.subheadline, weight: .semibold))
-                        ForEach(Array(task.evidenceImageDescriptions.enumerated()), id: \.offset) { index, description in
-                            Text(
-                                task.requiredEvidenceImageCount <= 2
-                                    ? "\(index + 1). \(L10n.text(description))"
-                                    : L10n.text(description)
-                            )
-                                .font(PixelTheme.font(.subheadline))
-                                .foregroundStyle(PixelTheme.inkMuted)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                    }
-
-                    Divider()
-                        .opacity(0.45)
-
-                    Text(
-                        L10n.text(
-                            "创建于 \(L10n.date(task.createdAt, dateStyle: .long, timeStyle: .short))",
-                            english: "Created \(L10n.date(task.createdAt, dateStyle: .long, timeStyle: .short))"
-                        )
-                    )
-                        .font(PixelTheme.font(.caption))
-                        .foregroundStyle(PixelTheme.inkMuted.opacity(0.72))
+                    .padding(22)
+                    .pixelSurface(fill: PixelTheme.paperRaised, border: PixelTheme.gold, step: 4, hasShadow: true)
                 }
-                .padding(22)
-                .pixelSurface(fill: PixelTheme.paperRaised, border: PixelTheme.gold, step: 4, hasShadow: true)
 
                 EvidenceSubmissionView(
                     task: task,
                     onVerificationStarted: {
                         beginEvidenceVerification(for: task)
                     },
-                    onVerificationFinished: { verdict in
-                        finishEvidenceVerification(for: task, verdict: verdict)
+                    onVerificationFinished: { verdict, monsterEvent in
+                        finishEvidenceVerification(
+                            for: task,
+                            verdict: verdict,
+                            monsterEvent: monsterEvent
+                        )
                     }
                 )
                 taskReminderDetail(for: task)
@@ -1698,6 +1977,9 @@ struct ContentView: View {
             .padding(.vertical, 38)
             .platformScrollableContentWidth(790)
             .frame(maxWidth: .infinity)
+        }
+        .task(id: monsterDetailSyncKey(for: task)) {
+            await ensureMonsterVariant(for: task)
         }
     }
 
@@ -1739,50 +2021,100 @@ struct ContentView: View {
                     )
                 )
         } else {
-            medalsGridPage
-                .transition(
-                    .asymmetric(
-                        insertion: .opacity.combined(with: .move(edge: .leading)),
-                        removal: .opacity.combined(with: .move(edge: .trailing))
-                    )
-                )
+            VStack(spacing: 0) {
+                achievementOverviewHeader
+
+                ZStack {
+                    Group {
+                        switch selectedAchievementTab {
+                        case .medals:
+                            medalsGridPage
+                        case .monsters:
+                            monsterAtlasPage
+                        }
+                    }
+                    .id(selectedAchievementTab)
+                    .transition(horizontalTabTransition(direction: achievementTabTransitionDirection))
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .clipped()
+            }
         }
+    }
+
+    private var achievementOverviewHeader: some View {
+        VStack(alignment: .leading, spacing: 20) {
+            pageHeader(
+                title: "成就",
+                subtitle: isCompactLayout
+                    ? nil
+                    : selectedAchievementTab == .medals
+                        ? "收集碎片，铸造属于每个领域的勋章。点开后可回顾历史任务和证据。"
+                        : L10n.text(
+                            "只有亲自完成并通过核验的怪物才会进入你的图鉴。",
+                            english: "Only monsters you personally reveal through verified tasks enter your atlas."
+                        )
+            )
+
+            achievementTabPicker
+        }
+        .padding(.top, 38)
+        .padding(.horizontal, pageHorizontalInset)
+        .padding(.bottom, 12)
+        .frame(maxWidth: 790, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private var medalsGridPage: some View {
         ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                pageHeader(
-                    title: "勋章",
-                    subtitle: isCompactLayout
-                        ? nil
-                        : "收集碎片，铸造属于每个领域的勋章。点开后可回顾历史任务和证据。"
-                )
-
-                LazyVGrid(
-                    columns: [
-                        GridItem(.flexible(minimum: 0), spacing: 16),
-                        GridItem(.flexible(minimum: 0), spacing: 16)
-                    ],
-                    spacing: 16
-                ) {
-                    ForEach(Self.badgeOptions, id: \.self) { badge in
-                        Button {
-                            withAnimation(.smooth(duration: 0.38)) {
-                                selectedLibraryBadge = badge
-                            }
-                        } label: {
-                            medalCard(for: badge)
+            LazyVGrid(
+                columns: [
+                    GridItem(.flexible(minimum: 0), spacing: 16),
+                    GridItem(.flexible(minimum: 0), spacing: 16)
+                ],
+                spacing: 16
+            ) {
+                ForEach(Self.badgeOptions, id: \.self) { badge in
+                    Button {
+                        withAnimation(.smooth(duration: 0.38)) {
+                            selectedLibraryBadge = badge
                         }
-                        .buttonStyle(.plain)
+                    } label: {
+                        medalCard(for: badge)
                     }
+                    .buttonStyle(.plain)
                 }
             }
             .padding(.horizontal, pageHorizontalInset)
-            .padding(.vertical, 38)
+            .padding(.top, 8)
+            .padding(.bottom, 38)
             .platformScrollableContentWidth(790)
             .frame(maxWidth: .infinity)
         }
+    }
+
+    private var monsterAtlasPage: some View {
+        ScrollView {
+            MonsterAtlasView()
+                .padding(.horizontal, pageHorizontalInset)
+                .padding(.top, 8)
+                .padding(.bottom, 38)
+                .platformScrollableContentWidth(790)
+                .frame(maxWidth: .infinity)
+        }
+    }
+
+    private var achievementTabPicker: some View {
+        PixelTabBar(
+            items: AchievementTab.allCases.map {
+                PixelTabItem(id: $0.rawValue, title: $0.title, systemImage: $0.icon)
+            },
+            selection: selectedAchievementTab.rawValue
+        ) { rawValue in
+            guard let tab = AchievementTab(rawValue: rawValue) else { return }
+            selectAchievementTab(tab)
+        }
+        .accessibilityLabel(L10n.text("成就类别", english: "Achievement category"))
     }
 
     private func medalCard(for badge: String) -> some View {
@@ -2123,15 +2455,22 @@ struct ContentView: View {
                 }
 
                 draftTitle = contract.title
-                draftDeadlinePreset = contract.deadlinePreset
-                    ?? deadlinePreset(for: deadline, relativeTo: .now)
+                draftTaskDescription = contract.taskDescription
+                draftDeadline = DeadlineDateOptions.normalized(deadline, relativeTo: .now)
                 draftEvidenceRequirement = contract.evidenceRequirement
                 draftEvidenceImageCount = contract.evidenceImageCount
                 draftEvidenceImageDescriptions = contract.evidenceImageDescriptions
-                draftBadge = Self.badgeOptions.contains(contract.suggestedBadge)
-                    ? contract.suggestedBadge
+                let normalizedBadge = MonsterTaxonomy.normalizedBadgeKind(
+                    suggestedBadge: contract.suggestedBadge,
+                    canonicalTags: [contract.monsterTag] + contract.children.map(\.monsterTag)
+                )
+                draftBadge = Self.badgeOptions.contains(normalizedBadge)
+                    ? normalizedBadge
                     : Self.badgeOptions[0]
                 draftXP = contract.suggestedXP
+                draftMonsterTag = contract.monsterTag
+                draftMonsterMatchKind = contract.monsterMatchKind
+                draftMonsterPreviewStates = [:]
                 draftChildren = contract.kind == .taskGroup
                     ? contract.children.map(TaskChildDraft.init)
                     : []
@@ -2152,19 +2491,18 @@ struct ContentView: View {
         let requirement = draftEvidenceRequirement.trimmingCharacters(in: .whitespacesAndNewlines)
         let wasTaskGroup = isDraftTaskGroup
         guard
-            !title.isEmpty,
+            TaskTitleRules.isValid(title),
             (isDraftTaskGroup || !requirement.isEmpty),
             draftChildren.allSatisfy({
-                !$0.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+                TaskTitleRules.isValid($0.title) &&
                     !$0.evidenceRequirement.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
-            }),
-            let draftDeadlinePreset
+            })
         else { return }
 
-        let deadline = taskDeadline(for: draftDeadlinePreset, relativeTo: .now)
+        let deadline = DeadlineDateOptions.normalized(draftDeadline, relativeTo: .now)
         guard deadline > Date.now else {
             errorMessage = "截止时间必须晚于当前时间，请重新选择。"
-            self.draftDeadlinePreset = .tomorrow
+            draftDeadline = DeadlineDateOptions.defaultSelection()
             return
         }
 
@@ -2179,11 +2517,13 @@ struct ContentView: View {
                 modelContext.insert(category)
                 modelContext.insert(userBadge)
             }
+            let lockedMonsterLevel = MonsterEncounterRules.lockedLevel(for: category)
 
             let savedTasks: [TaskContract]
             if wasTaskGroup {
                 let parent = TaskContract(
                     title: title,
+                    taskDescription: draftTaskDescription.trimmingCharacters(in: .whitespacesAndNewlines),
                     deadline: deadline,
                     evidenceRequirement: "",
                     evidenceImageCount: 1,
@@ -2196,8 +2536,16 @@ struct ContentView: View {
                 modelContext.insert(parent)
 
                 let children = draftChildren.enumerated().map { index, draft in
-                    TaskContract(
+                    let monster = MonsterTaxonomy.descriptor(
+                        canonicalTag: draft.monsterTag,
+                        matchKind: draft.monsterMatchKind,
+                        fallbackText: "\(draft.title) \(draft.evidenceRequirement)",
+                        badgeKind: draftBadge
+                    )
+                    let snapshot = draftMonsterSnapshot(for: draft.id.uuidString)
+                    return TaskContract(
                         title: draft.title.trimmingCharacters(in: .whitespacesAndNewlines),
+                        taskDescription: draft.taskDescription.trimmingCharacters(in: .whitespacesAndNewlines),
                         deadline: deadline,
                         evidenceRequirement: draft.evidenceRequirement.trimmingCharacters(in: .whitespacesAndNewlines),
                         evidenceImageCount: draft.evidenceImageCount,
@@ -2206,20 +2554,38 @@ struct ContentView: View {
                         hierarchyRole: .child,
                         parentTaskID: parent.id,
                         childOrder: index,
+                        monsterTag: monster.canonicalTag,
+                        monsterLevel: lockedMonsterLevel,
+                        monsterVariantID: snapshot?.variantID,
+                        monsterImageURL: snapshot?.status == .ready ? snapshot?.imageURL : nil,
+                        monsterStyleVersion: snapshot?.styleVersion,
                         badgeCategory: category
                     )
                 }
                 children.forEach(modelContext.insert)
                 savedTasks = children
             } else {
+                let monster = MonsterTaxonomy.descriptor(
+                    canonicalTag: draftMonsterTag,
+                    matchKind: draftMonsterMatchKind,
+                    fallbackText: "\(title) \(requirement)",
+                    badgeKind: draftBadge
+                )
+                let snapshot = draftMonsterSnapshot(for: "single")
                 let task = TaskContract(
                     title: title,
+                    taskDescription: draftTaskDescription.trimmingCharacters(in: .whitespacesAndNewlines),
                     deadline: deadline,
                     evidenceRequirement: requirement,
                     evidenceImageCount: draftEvidenceImageCount,
                     evidenceImageDescriptions: draftEvidenceImageDescriptions,
                     xpReward: draftXP,
                     sourceImageData: draftContractSourceImageData,
+                    monsterTag: monster.canonicalTag,
+                    monsterLevel: lockedMonsterLevel,
+                    monsterVariantID: snapshot?.variantID,
+                    monsterImageURL: snapshot?.status == .ready ? snapshot?.imageURL : nil,
+                    monsterStyleVersion: snapshot?.styleVersion,
                     badgeCategory: category
                 )
                 modelContext.insert(task)
@@ -2231,12 +2597,18 @@ struct ContentView: View {
                     LocalTaskReminder(taskID: task.id, title: task.title, deadline: task.deadline)
                 )
             }
+            Task { await ensureMonsterVariants(for: savedTasks) }
 
             taskInput = ""
             selectedSourcePhoto = nil
             draftSourceImageData = nil
             draftContractSourceImageData = nil
             draftChildren = []
+            draftTaskDescription = ""
+            draftMonsterTag = nil
+            draftMonsterMatchKind = nil
+            draftMonsterPreviewStates = [:]
+            draftDeadline = DeadlineDateOptions.defaultSelection()
             imageTaskNote = ""
             sourceImageError = nil
             errorMessage = nil
@@ -2283,6 +2655,44 @@ struct ContentView: View {
         }
     }
 
+    private func updateDeadline(_ deadline: Date, for task: TaskContract) {
+        let normalizedDeadline = DeadlineDateOptions.normalized(deadline, relativeTo: .now)
+
+        do {
+            if task.isTaskGroup {
+                task.deadline = normalizedDeadline
+                children(of: task).forEach { $0.deadline = normalizedDeadline }
+            } else {
+                task.deadline = normalizedDeadline
+
+                if
+                    let parentTaskID = task.parentTaskID,
+                    let parent = taskContracts.first(where: { $0.id == parentTaskID && $0.isTaskGroup })
+                {
+                    parent.deadline = children(of: parent).map(\.deadline).max() ?? normalizedDeadline
+                }
+            }
+
+            try modelContext.save()
+            reminderFeedback = L10n.text(
+                "截止日期已更新为 \(deadlineDisplayText(normalizedDeadline))。",
+                english: "Deadline updated to \(deadlineDisplayText(normalizedDeadline))."
+            )
+            reminderFeedbackIsError = false
+
+            Task {
+                await restoreTaskReminders()
+            }
+        } catch {
+            modelContext.rollback()
+            reminderFeedback = L10n.text(
+                "截止日期更新失败：\(error.localizedDescription)",
+                english: "Could not update the deadline: \(error.localizedDescription)"
+            )
+            reminderFeedbackIsError = true
+        }
+    }
+
     private func beginEvidenceVerification(for task: TaskContract) {
         let parent = task.parentTaskID.flatMap { parentID in
             taskContracts.first { $0.id == parentID && $0.isTaskGroup }
@@ -2304,7 +2714,11 @@ struct ContentView: View {
         }
     }
 
-    private func finishEvidenceVerification(for task: TaskContract, verdict: EvidenceVerdict?) {
+    private func finishEvidenceVerification(
+        for task: TaskContract,
+        verdict: EvidenceVerdict?,
+        monsterEvent: MonsterDiscoveryEvent?
+    ) {
         guard evidenceVerificationPresentation?.taskID == task.id else { return }
 
         guard verdict == .verified else {
@@ -2319,37 +2733,72 @@ struct ContentView: View {
         }
 
         Task { @MainActor in
-            try? await Task.sleep(for: .seconds(reduceMotion ? 0.9 : 1.45))
+            try? await Task.sleep(for: .seconds(reduceMotion ? 0.45 : 0.9))
             guard
                 evidenceVerificationPresentation?.taskID == task.id,
                 evidenceVerificationPresentation?.phase == .completed
             else { return }
 
-            withAnimation(reduceMotion ? nil : .smooth(duration: 0.38)) {
-                selectedPage = .tasks
-                if evidenceVerificationPresentation?.isSubtask == true,
-                   evidenceVerificationPresentation?.completesTaskGroup == false {
-                    selectedTaskTab = task.deadline <= .now ? .overdue : .unfinished
-                } else {
-                    selectedTaskTab = .completed
+            if let monsterEvent {
+                withAnimation(reduceMotion ? nil : .smooth(duration: 0.32)) {
+                    evidenceVerificationPresentation = nil
+                    monsterRevealPresentation = monsterEvent
                 }
-                selectedTask = nil
-                taskDetailOrigin = .taskList
-                evidenceVerificationPresentation = nil
+                return
             }
 
-            if let deferredEvent = deferredMedalAnimationPresentation {
-                deferredMedalAnimationPresentation = nil
-                try? await Task.sleep(for: .milliseconds(180))
-                withAnimation(reduceMotion ? nil : .smooth(duration: 0.3)) {
-                    medalAnimationPresentation = deferredEvent
-                }
+            completeVerifiedTaskTransition(for: task)
+        }
+    }
+
+    private func finishMonsterReveal(for event: MonsterDiscoveryEvent) {
+        guard monsterRevealPresentation?.id == event.id else { return }
+        let task = taskContracts.first { $0.id == event.sourceTaskID }
+
+        withAnimation(reduceMotion ? nil : .smooth(duration: 0.28)) {
+            monsterRevealPresentation = nil
+        }
+
+        if let task {
+            completeVerifiedTaskTransition(for: task)
+        } else {
+            presentDeferredMedalAnimationIfNeeded()
+        }
+    }
+
+    private func completeVerifiedTaskTransition(for task: TaskContract) {
+        withAnimation(reduceMotion ? nil : .smooth(duration: 0.38)) {
+            selectedPage = .tasks
+            let wasSubtask = task.isSubtask
+            let parent = task.parentTaskID.flatMap { parentID in
+                taskContracts.first { $0.id == parentID }
+            }
+            if wasSubtask, parent?.status != .verified {
+                selectedTaskTab = task.deadline <= .now ? .overdue : .unfinished
+            } else {
+                selectedTaskTab = .completed
+            }
+            selectedTask = nil
+            taskDetailOrigin = .taskList
+            evidenceVerificationPresentation = nil
+        }
+
+        presentDeferredMedalAnimationIfNeeded()
+    }
+
+    private func presentDeferredMedalAnimationIfNeeded() {
+        guard let deferredEvent = deferredMedalAnimationPresentation else { return }
+        deferredMedalAnimationPresentation = nil
+        Task { @MainActor in
+            try? await Task.sleep(for: .milliseconds(180))
+            withAnimation(reduceMotion ? nil : .smooth(duration: 0.3)) {
+                medalAnimationPresentation = deferredEvent
             }
         }
     }
 
     private func closeTaskDetail() {
-        withAnimation(.smooth(duration: 0.4)) {
+        withAnimation(reduceMotion ? nil : .smooth(duration: 0.4)) {
             selectedTask = nil
 
             switch taskDetailOrigin {
@@ -2361,6 +2810,88 @@ struct ContentView: View {
             }
 
             taskDetailOrigin = .taskList
+        }
+    }
+
+    private func horizontalTabTransition(direction: EdgeSwipeDirection) -> AnyTransition {
+        guard !reduceMotion else { return .opacity }
+
+        let insertionEdge: Edge = direction == .towardNext ? .trailing : .leading
+        let removalEdge: Edge = direction == .towardNext ? .leading : .trailing
+        return .asymmetric(
+            insertion: .move(edge: insertionEdge).combined(with: .opacity),
+            removal: .move(edge: removalEdge).combined(with: .opacity)
+        )
+    }
+
+    private func selectTaskTab(_ tab: TaskListTab) {
+        guard tab != selectedTaskTab else { return }
+        let tabs = TaskListTab.allCases
+        guard
+            let currentIndex = tabs.firstIndex(of: selectedTaskTab),
+            let destinationIndex = tabs.firstIndex(of: tab)
+        else { return }
+
+        taskTabTransitionDirection = destinationIndex > currentIndex ? .towardNext : .towardPrevious
+        withAnimation(reduceMotion ? nil : .smooth(duration: 0.32)) {
+            selectedTaskTab = tab
+        }
+    }
+
+    private func selectAchievementTab(_ tab: AchievementTab) {
+        guard tab != selectedAchievementTab else { return }
+        let tabs = AchievementTab.allCases
+        guard
+            let currentIndex = tabs.firstIndex(of: selectedAchievementTab),
+            let destinationIndex = tabs.firstIndex(of: tab)
+        else { return }
+
+        achievementTabTransitionDirection = destinationIndex > currentIndex ? .towardNext : .towardPrevious
+        withAnimation(reduceMotion ? nil : .smooth(duration: 0.32)) {
+            selectedAchievementTab = tab
+        }
+    }
+
+    private func handleEdgeSwipe(on page: AppPage, direction: EdgeSwipeDirection) {
+        switch page {
+        case .create:
+            break
+        case .tasks:
+            if selectedTask != nil {
+                if direction == .towardPrevious {
+                    closeTaskDetail()
+                }
+                return
+            }
+
+            let destination: TaskListTab? = switch (selectedTaskTab, direction) {
+            case (.unfinished, .towardNext): .completed
+            case (.completed, .towardPrevious): .unfinished
+            case (.completed, .towardNext): .overdue
+            case (.overdue, .towardPrevious): .completed
+            default: nil
+            }
+
+            guard let destination else { return }
+            selectTaskTab(destination)
+        case .medals:
+            guard selectedLibraryBadge == nil else {
+                if direction == .towardPrevious {
+                    withAnimation(reduceMotion ? nil : .smooth(duration: 0.38)) {
+                        selectedLibraryBadge = nil
+                    }
+                }
+                return
+            }
+
+            let destination: AchievementTab? = switch (selectedAchievementTab, direction) {
+            case (.medals, .towardNext): .monsters
+            case (.monsters, .towardPrevious): .medals
+            default: nil
+            }
+
+            guard let destination else { return }
+            selectAchievementTab(destination)
         }
     }
 
@@ -2414,6 +2945,86 @@ struct ContentView: View {
     }
 
     // MARK: - Helpers
+
+    private var tasksAwaitingMonsterArtwork: [TaskContract] {
+        taskContracts.filter {
+            !$0.isTaskGroup &&
+                $0.monsterTag != nil &&
+                $0.monsterLevel != nil &&
+                ($0.monsterImageURL?.isEmpty != false)
+        }
+    }
+
+    private var pendingMonsterArtworkSyncKey: String {
+        let taskIDs = tasksAwaitingMonsterArtwork
+            .map(\.id.uuidString)
+            .sorted()
+            .joined(separator: ",")
+        return "\(monsterArtworkSyncActivation):\(taskIDs)"
+    }
+
+    @MainActor
+    private func ensureMonsterVariants(for tasks: [TaskContract]) async {
+        for task in tasks {
+            await ensureMonsterVariant(for: task)
+        }
+    }
+
+    @MainActor
+    private func ensureMonsterVariant(for task: TaskContract) async {
+        guard
+            let canonicalTag = task.monsterTag,
+            let level = task.monsterLevel,
+            let badgeKind = task.badgeCategory?.name
+        else { return }
+
+        guard var snapshot = try? await monsterVariantService.ensureVariant(
+            canonicalTag: canonicalTag,
+            badgeKind: badgeKind,
+            level: level
+        ) else { return }
+
+        applyMonsterSnapshot(snapshot, to: task)
+
+        for _ in 0..<MonsterVariantPollingPolicy.maxAttempts
+        where snapshot.status == .pending || snapshot.status == .generating {
+            do {
+                try await Task.sleep(for: .seconds(MonsterVariantPollingPolicy.intervalSeconds))
+            } catch {
+                return
+            }
+            guard !Task.isCancelled else { return }
+            guard let refreshed = try? await monsterVariantService.fetchVariant(
+                canonicalTag: canonicalTag,
+                level: level
+            ) else { continue }
+            snapshot = refreshed
+            applyMonsterSnapshot(snapshot, to: task)
+        }
+    }
+
+    @MainActor
+    private func applyMonsterSnapshot(_ snapshot: MonsterVariantSnapshot, to task: TaskContract) {
+        MonsterVariantSync.apply(
+            snapshot,
+            to: task,
+            discovery: monsterDiscovery(for: task)
+        )
+        try? modelContext.save()
+    }
+
+    private func monsterDetailSyncKey(for task: TaskContract) -> String {
+        "\(task.id.uuidString):\(task.monsterTag ?? "none"):\(task.monsterLevel ?? 0):\(task.monsterImageURL ?? "pending")"
+    }
+
+    private func monsterDiscovery(for task: TaskContract) -> MonsterDiscovery? {
+        guard let tag = task.monsterTag, let level = task.monsterLevel else { return nil }
+        return monsterDiscoveries.first {
+            $0.canonicalTag == tag &&
+                $0.level == level &&
+                (task.monsterStyleVersion == nil || $0.styleVersion == task.monsterStyleVersion)
+        }
+    }
 
     private func migrateLegacySolverCategoriesIfNeeded() {
         let legacyName = BadgeKind.legacySolverName
@@ -2510,10 +3121,34 @@ struct ContentView: View {
             selectedPage = .tasks
         case "medals":
             selectedPage = .medals
+        case "atlas":
+            selectedPage = .medals
+            selectedAchievementTab = .monsters
+            if monsterDiscoveries.isEmpty {
+                modelContext.insert(
+                    MonsterDiscovery(
+                        canonicalTag: "coding.leetcode",
+                        level: 1,
+                        badgeKindRawValue: BadgeKind.solver.rawValue,
+                        sourceTaskID: UUID(),
+                        discoveryCount: 3
+                    )
+                )
+                modelContext.insert(
+                    MonsterDiscovery(
+                        canonicalTag: "fitness.workout",
+                        level: 2,
+                        badgeKindRawValue: BadgeKind.athlete.rawValue,
+                        sourceTaskID: UUID()
+                    )
+                )
+                try? modelContext.save()
+            }
         case "account":
             isShowingSettings = true
         case "review":
-            draftTitle = "完成一次 30 分钟专注阅读"
+            draftTitle = "完成专注阅读"
+            draftTaskDescription = "专注阅读 30 分钟，并记录本次阅读的关键收获。"
             draftEvidenceRequirement = "提交计时结束页面，并确保阅读时长和书名清晰可见。"
             draftEvidenceImageCount = 2
             draftEvidenceImageDescriptions = ["计时结束页面", "本次阅读的书籍页面"]
@@ -2528,7 +3163,8 @@ struct ContentView: View {
                 modelContext.insert(userBadge)
             }
             let task = TaskContract(
-                title: "完成一次 30 分钟专注阅读并记录关键收获",
+                title: "完成专注阅读",
+                taskDescription: "专注阅读 30 分钟，并记录本次阅读的关键收获。",
                 deadline: .now.addingTimeInterval(86_400),
                 evidenceRequirement: "提交两张照片，分别证明专注时长和本次阅读内容。",
                 evidenceImageCount: 2,
@@ -2571,60 +3207,21 @@ struct ContentView: View {
     }
 
     private var canSaveDraft: Bool {
-        !draftTitle.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+        TaskTitleRules.isValid(draftTitle) &&
             (isDraftTaskGroup || !draftEvidenceRequirement.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty) &&
             (!isDraftTaskGroup || draftChildren.allSatisfy {
-                !$0.title.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
+                TaskTitleRules.isValid($0.title) &&
                     !$0.evidenceRequirement.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
             }) &&
-            draftDeadlinePreset.map { taskDeadline(for: $0, relativeTo: .now) > Date.now } == true
+            DeadlineDateOptions.normalized(draftDeadline, relativeTo: .now) > Date.now
     }
 
     private var isDraftTaskGroup: Bool {
         draftChildren.count >= 2
     }
 
-    private func taskDeadline(for preset: TaskDeadlinePreset, relativeTo date: Date) -> Date {
-        let calendar = Calendar.current
-        let dayOffset: Int
-        switch preset {
-        case .today:
-            dayOffset = 0
-        case .tomorrow:
-            dayOffset = 1
-        case .thisWeekend:
-            let weekday = calendar.component(.weekday, from: date)
-            dayOffset = (8 - weekday) % 7
-        }
-        let targetDay = calendar.date(byAdding: .day, value: dayOffset, to: date) ?? date
-        return calendar.date(bySettingHour: 23, minute: 59, second: 0, of: targetDay) ?? targetDay
-    }
-
-    private func deadlinePreset(for deadline: Date, relativeTo date: Date) -> TaskDeadlinePreset {
-        let calendar = Calendar.current
-        let startOfToday = calendar.startOfDay(for: date)
-        let startOfDeadline = calendar.startOfDay(for: deadline)
-        let days = calendar.dateComponents([.day], from: startOfToday, to: startOfDeadline).day ?? 0
-
-        if days <= 0 { return .today }
-        if days == 1 { return .tomorrow }
-        return .thisWeekend
-    }
-
     private func deadlineDisplayText(_ deadline: Date, relativeTo date: Date = .now) -> String {
-        let calendar = Calendar.current
-        let startOfToday = calendar.startOfDay(for: date)
-        let startOfDeadline = calendar.startOfDay(for: deadline)
-        let days = calendar.dateComponents([.day], from: startOfToday, to: startOfDeadline).day
-
-        switch days {
-        case 0:
-            return L10n.text("今日", english: "Today")
-        case 1:
-            return L10n.text("明日", english: "Tomorrow")
-        default:
-            return L10n.monthAndDay(deadline)
-        }
+        DeadlineDateOptions.displayText(for: deadline, relativeTo: date)
     }
 
     private var pendingTasks: [TaskContract] {
@@ -2774,14 +3371,7 @@ struct ContentView: View {
                 } else {
                     switch reminderAuthorization {
                     case .authorized:
-                        statusBanner(
-                            icon: "bell.badge.fill",
-                            message: L10n.text(
-                                "截止提醒已开启；未来任务会在截止时间发送系统通知。",
-                                english: "Deadline reminders are on. Future tasks will send a system notification at their deadline."
-                            ),
-                            color: PixelTheme.success
-                        )
+                        EmptyView()
                     case .denied:
                         statusBanner(icon: "bell.slash.fill", message: "系统通知已关闭。任务仍会保存在本机；可在系统设置中为 LifeMedals 开启通知。", color: PixelTheme.gold)
                     case .notDetermined:
@@ -2861,14 +3451,7 @@ struct ContentView: View {
         } else {
             switch reminderAuthorization {
             case .authorized:
-                statusBanner(
-                    icon: "bell.badge.fill",
-                    message: L10n.text(
-                        "将在 \(deadlineDisplayText(task.deadline)) 发送本地通知。",
-                        english: "A local notification will be sent on \(deadlineDisplayText(task.deadline))."
-                    ),
-                    color: PixelTheme.success
-                )
+                EmptyView()
             case .denied:
                 statusBanner(icon: "bell.slash.fill", message: "系统通知权限已关闭；任务本身不受影响。", color: PixelTheme.gold)
             case .notDetermined:
@@ -3087,8 +3670,8 @@ private struct PixelEvidenceVerificationOverlay: View {
                         isCompleted
                             ? completionMessage
                             : L10n.text(
-                                "公会鉴定师正在核对锁定的验收标准…",
-                                english: "The guild appraiser is checking the locked requirements…"
+                                "公会鉴定师正在核验任务证据…",
+                                english: "The guild appraiser is checking the task evidence…"
                             )
                     )
                         .font(PixelTheme.font(.subheadline))
@@ -3223,6 +3806,7 @@ private struct PixelEvidenceVerificationOverlay: View {
             BadgeCategory.self,
             UserBadge.self,
             TaskContract.self,
+            MonsterDiscovery.self,
             Evidence.self,
             XPLog.self
         ], inMemory: true)

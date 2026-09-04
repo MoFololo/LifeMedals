@@ -41,7 +41,7 @@ struct EvidenceSubmissionView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Bindable var task: TaskContract
     let onVerificationStarted: () -> Void
-    let onVerificationFinished: (EvidenceVerdict?) -> Void
+    let onVerificationFinished: (EvidenceVerdict?, MonsterDiscoveryEvent?) -> Void
 
     @State private var selectedPhotos: [PhotosPickerItem] = []
     @State private var draftImages: [DraftImage] = []
@@ -55,14 +55,16 @@ struct EvidenceSubmissionView: View {
     @State private var feedbackMessage: String?
     @State private var feedbackIsError = false
     @State private var cardSize: CGSize = .zero
+    @State private var monsterDiscoveryEvent: MonsterDiscoveryEvent?
     @FocusState private var isDraftAreaFocused: Bool
 
     private let verificationService = EvidenceVerificationService()
+    private let monsterVariantService = MonsterVariantService()
 
     init(
         task: TaskContract,
         onVerificationStarted: @escaping () -> Void = {},
-        onVerificationFinished: @escaping (EvidenceVerdict?) -> Void = { _ in }
+        onVerificationFinished: @escaping (EvidenceVerdict?, MonsterDiscoveryEvent?) -> Void = { _, _ in }
     ) {
         self.task = task
         self.onVerificationStarted = onVerificationStarted
@@ -77,8 +79,13 @@ struct EvidenceSubmissionView: View {
 
                 VStack(alignment: .leading, spacing: 10) {
                     evidenceHeaderTitle
-                    if let latestEvidenceBatch {
-                        verdictPill(latestEvidenceBatch.verdict)
+                    HStack {
+                        if task.status != .verified {
+                            draftImageCount
+                        }
+                        if let latestEvidenceBatch {
+                            verdictPill(latestEvidenceBatch.verdict)
+                        }
                     }
                 }
             }
@@ -137,7 +144,7 @@ struct EvidenceSubmissionView: View {
         .fileImporter(
             isPresented: $isFileImporterPresented,
             allowedContentTypes: [.image],
-            allowsMultipleSelection: fileImportTargetSlot == nil
+            allowsMultipleSelection: true
         ) { result in
             Task { await importFileResult(result, targetSlot: fileImportTargetSlot) }
         }
@@ -169,6 +176,10 @@ struct EvidenceSubmissionView: View {
 
             Spacer()
 
+            if task.status != .verified {
+                draftImageCount
+            }
+
             if let latestEvidenceBatch {
                 verdictPill(latestEvidenceBatch.verdict)
             }
@@ -179,9 +190,6 @@ struct EvidenceSubmissionView: View {
         VStack(alignment: .leading, spacing: 5) {
             Label("证据核验", systemImage: "photo.on.rectangle.angled")
                 .font(PixelTheme.font(.headline))
-            Text("图片副本压缩后保存在本机；只有点击提交后才会发送核验。")
-                .font(PixelTheme.font(.caption))
-                .foregroundStyle(PixelTheme.inkMuted)
         }
     }
 
@@ -240,23 +248,7 @@ struct EvidenceSubmissionView: View {
 
     private var actionArea: some View {
         VStack(alignment: .leading, spacing: 14) {
-            HStack {
-                Text("待提交照片")
-                    .font(PixelTheme.font(.subheadline, weight: .semibold))
-                Spacer()
-                Text("\(draftImages.count)/\(requiredImageCount)")
-                    .font(PixelTheme.statFont(size: 12))
-                    .foregroundStyle(PixelTheme.inkMuted)
-            }
-
-            switch requiredImageCount {
-            case 1:
-                singleImageLayout
-            case 2:
-                twoImageLayout
-            default:
-                multiImageLayout
-            }
+            multiImageLayout
 
             if remainingDraftSlots > 0 {
                 Button {
@@ -300,7 +292,7 @@ struct EvidenceSubmissionView: View {
                 Button {
                     Task { await submitDraftEvidence() }
                 } label: {
-                    Label(submitButtonTitle, systemImage: isDraftComplete ? "paperplane.fill" : "photo.badge.plus")
+                    Label(submitButtonTitle, systemImage: "paperplane.fill")
                         .font(PixelTheme.font(.subheadline, weight: .semibold))
                         .frame(maxWidth: .infinity)
                         .padding(.vertical, 12)
@@ -316,7 +308,7 @@ struct EvidenceSubmissionView: View {
                 HStack(spacing: 9) {
                     ProgressView()
                         .controlSize(.small)
-                    Text("本地副本已保存，正在按锁定的验收标准核验…")
+                    Text("正在核验任务证据…")
                         .font(PixelTheme.font(.caption))
                         .foregroundStyle(PixelTheme.inkMuted)
                 }
@@ -325,6 +317,15 @@ struct EvidenceSubmissionView: View {
         }
         .animation(reduceMotion ? nil : .smooth(duration: 0.3), value: isWorking)
         .animation(reduceMotion ? nil : .smooth(duration: 0.25), value: draftImages.count)
+    }
+
+    private var draftImageCount: some View {
+        Text("\(draftImages.count)/5")
+            .font(PixelTheme.statFont(size: 12))
+            .foregroundStyle(PixelTheme.inkMuted)
+            .padding(.horizontal, 9)
+            .padding(.vertical, 6)
+            .background(PixelTheme.paper, in: PixelCornerShape(step: 2))
     }
 
     private var singleImageLayout: some View {
@@ -354,7 +355,7 @@ struct EvidenceSubmissionView: View {
 
     private var multiImageLayout: some View {
         VStack(alignment: .leading, spacing: 12) {
-            Text(L10n.text(normalizedImageDescriptions[0]))
+            Text("可提交截图、笔记、邮件对话或其他能合理说明完成情况的照片。")
                 .font(PixelTheme.font(.subheadline))
                 .foregroundStyle(PixelTheme.inkMuted)
                 .fixedSize(horizontal: false, vertical: true)
@@ -755,27 +756,15 @@ struct EvidenceSubmissionView: View {
     }
 
     private var requiredImageCount: Int {
-        if task.evidenceImageCount != nil {
-            return task.requiredEvidenceImageCount
-        }
-
-        // The immediately preceding client stored each image independently,
-        // but images from one submit are only milliseconds apart. Preserve the
-        // intended count for those already-created tasks during migration.
-        return min(max(evidenceBatches.map { $0.evidences.count }.max() ?? 1, 1), 5)
+        // This is a capacity, not a requirement. Legacy tasks may still carry
+        // a planned count, but the supportive flow accepts any 1–5 photos.
+        5
     }
 
+    // Kept for the legacy fixed-slot view helpers while existing task data is
+    // migration-compatible. The active UI always uses the unified gallery.
     private var normalizedImageDescriptions: [String] {
-        let descriptions = task.evidenceImageDescriptions
-            .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
-            .filter { !$0.isEmpty }
-
-        if requiredImageCount <= 2 {
-            return (0..<requiredImageCount).map { index in
-                descriptions.indices.contains(index) ? descriptions[index] : task.evidenceRequirement
-            }
-        }
-        return [descriptions.first ?? task.evidenceRequirement]
+        Array(repeating: task.evidenceRequirement, count: requiredImageCount)
     }
 
     private var evidenceBatches: [EvidenceBatch] {
@@ -844,34 +833,23 @@ struct EvidenceSubmissionView: View {
     }
 
     private var isDraftComplete: Bool {
-        draftImages.count == requiredImageCount
+        (1...requiredImageCount).contains(draftImages.count)
     }
 
     private var submitButtonTitle: String {
         if isWorking { return L10n.text("正在核验", english: "Verifying") }
-        if isDraftComplete {
-            return L10n.text(
-                "提交 \(requiredImageCount) 张照片",
-                english: "Submit \(requiredImageCount) Photos"
-            )
-        }
         return L10n.text(
-            "还需添加 \(remainingDraftSlots) 张照片",
-            english: "Add \(remainingDraftSlots) More Photos"
+            "提交 \(draftImages.count) 张照片",
+            english: "Submit \(draftImages.count) Photo(s)"
         )
     }
 
     private var pasteAndDropHint: String {
 #if os(macOS)
-        requiredImageCount <= 2
-            ? L10n.text(
-                "可拖放到指定图片框；⌘V 会从第一个空位开始添加截图",
-                english: "Drop images into a specific slot; ⌘V adds screenshots starting at the first empty slot"
-            )
-            : L10n.text(
-                "拖放图片到上方栏框，或按 ⌘V 粘贴截图",
-                english: "Drop images into the slots above, or press ⌘V to paste screenshots"
-            )
+        L10n.text(
+            "拖放图片到上方栏框，或按 ⌘V 粘贴截图（最多 5 张）",
+            english: "Drop images above or press ⌘V to paste screenshots (up to 5)"
+        )
 #else
         L10n.text(
             "可从照片图库选择，或直接拍摄证据照片",
@@ -998,8 +976,8 @@ struct EvidenceSubmissionView: View {
     private func addDraftImage(_ sourceData: Data, targetSlot: Int) throws {
         guard (0..<requiredImageCount).contains(targetSlot) else {
             feedbackMessage = L10n.text(
-                "本任务需要提交 \(requiredImageCount) 张照片。",
-                english: "This task requires \(requiredImageCount) photos."
+                "每次可提交 1–5 张照片。",
+                english: "Each submission can contain 1–5 photos."
             )
             feedbackIsError = true
             return
@@ -1037,9 +1015,10 @@ struct EvidenceSubmissionView: View {
         isWorking = true
         feedbackMessage = nil
         var verificationVerdict: EvidenceVerdict?
+        monsterDiscoveryEvent = nil
         defer {
             isWorking = false
-            onVerificationFinished(verificationVerdict)
+            onVerificationFinished(verificationVerdict, monsterDiscoveryEvent)
         }
         let previousStatus = task.status
         let submittedImages = draftImages.sorted { $0.slotIndex < $1.slotIndex }
@@ -1088,9 +1067,10 @@ struct EvidenceSubmissionView: View {
         isWorking = true
         feedbackMessage = nil
         var verificationVerdict: EvidenceVerdict?
+        monsterDiscoveryEvent = nil
         defer {
             isWorking = false
-            onVerificationFinished(verificationVerdict)
+            onVerificationFinished(verificationVerdict, monsterDiscoveryEvent)
         }
         task.status = .awaitingVerification
         try? modelContext.save()
@@ -1104,9 +1084,8 @@ struct EvidenceSubmissionView: View {
 
         do {
             let result = try await verificationService.verify(
+                taskTitle: task.title,
                 lockedRequirement: task.evidenceRequirement,
-                expectedImageCount: requiredImageCount,
-                imageDescriptions: normalizedImageDescriptions,
                 imageData: images
             )
 
@@ -1128,7 +1107,12 @@ struct EvidenceSubmissionView: View {
             var awardEvent: XPAwardEvent?
             switch result.verdict {
             case .verified:
+                await refreshMonsterArtworkBeforeDiscovery()
                 task.status = .verified
+                monsterDiscoveryEvent = try? MonsterDiscoveryService.recordEncounter(
+                    for: task,
+                    in: modelContext
+                )
                 if task.isSubtask {
                     awardEvent = try TaskGroupService.reconcileParent(for: task, in: modelContext)
                 } else {
@@ -1150,6 +1134,7 @@ struct EvidenceSubmissionView: View {
             // Roll back parent status, XPLog, badge totals, and evidence verdicts
             // together if the final atomic save fails.
             modelContext.rollback()
+            monsterDiscoveryEvent = nil
             for evidence in evidences {
                 evidence.verdict = .pending
             }
@@ -1159,5 +1144,22 @@ struct EvidenceSubmissionView: View {
             feedbackIsError = true
             return nil
         }
+    }
+
+    @MainActor
+    private func refreshMonsterArtworkBeforeDiscovery() async {
+        guard
+            let canonicalTag = task.monsterTag,
+            let level = task.monsterLevel,
+            let badgeKind = task.badgeCategory?.name
+        else { return }
+
+        guard let snapshot = try? await monsterVariantService.ensureVariant(
+            canonicalTag: canonicalTag,
+            badgeKind: badgeKind,
+            level: level
+        ) else { return }
+
+        MonsterVariantSync.apply(snapshot, to: task)
     }
 }
