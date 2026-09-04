@@ -11,13 +11,18 @@
 		"required": ["OPENAI_API_KEY"]
 	},
 
-	// The top-level environment remains the currently deployed production API.
-	// Monster storage bindings will be added here only after production resources
-	// have been created and staging has passed end-to-end verification.
+	// The top-level environment is the production API used by release/TestFlight builds.
 	"vars": {
 		"OPENAI_MODEL": "gpt-5.6-terra",
+		"MONSTER_IMAGE_MODEL": "gpt-image-2",
+		"MONSTER_STYLE_VERSION": "grotesque-pixel-v2",
+		"MONSTER_PROMPT_VERSION": "monster-image-v4",
+		"MONSTER_CONCEPT_PROMPT_VERSION": "monster-concept-v3",
+		"MONSTER_ASSET_BASE_URL": "https://lifemedals-api.david-lian0809.workers.dev/monster-assets",
 		"GLOBAL_REQUESTS_PER_MINUTE": "20",
-		"MONTHLY_REQUEST_BUDGET": "500"
+		"MONTHLY_REQUEST_BUDGET": "500",
+		"MONSTER_IMAGES_PER_MINUTE": "2",
+		"MONTHLY_MONSTER_IMAGE_BUDGET": "100"
 	},
 	"durable_objects": {
 		"bindings": [
@@ -32,6 +37,39 @@
 			"type": "durable-object",
 			"storage": "sqlite"
 		}
+	},
+	"d1_databases": [
+		{
+			"binding": "MONSTER_DB",
+			"database_name": "lifemedals-monsters",
+			"database_id": "ab36ec03-21be-458d-80be-ae4cca11f17c",
+			"migrations_dir": "migrations"
+		}
+	],
+	"r2_buckets": [
+		{
+			"binding": "MONSTER_ASSETS",
+			"bucket_name": "lifemedals-monster-assets"
+		}
+	],
+	"queues": {
+		"producers": [
+			{
+				"binding": "MONSTER_GENERATION_QUEUE",
+				"queue": "lifemedals-monster-generation"
+			}
+		],
+		"consumers": [
+			{
+				"queue": "lifemedals-monster-generation",
+				"max_batch_size": 1,
+				"max_batch_timeout": 5,
+				"max_retries": 5,
+				"retry_delay": 60,
+				"max_concurrency": 1,
+				"dead_letter_queue": "lifemedals-monster-generation-dlq"
+			}
+		]
 	},
 	"observability": {
 		"enabled": true,

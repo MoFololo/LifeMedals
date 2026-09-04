@@ -7,7 +7,7 @@ This runbook covers the Cloudflare/OpenAI service that supplies generic monster 
 | Environment | API Worker | OpenAI and usage gate | D1/R2/Queue monster bindings | Status |
 | --- | --- | --- | --- | --- |
 | Staging | `lifemedals-api-staging` | Configured | Configured | Deployed; health returned 200 on 2026-09-03 |
-| Production | `lifemedals-api` | Configured by the base Worker setup | Not present in committed top-level config | Monster promotion pending |
+| Production | `lifemedals-api` | Configured | Configured | Production resources created and promoted on 2026-09-04 |
 
 The staging configuration currently names:
 
@@ -19,6 +19,14 @@ The staging configuration currently names:
 - Image prompt: `monster-image-v4`
 - Concept prompt: `monster-concept-v3`
 - Image model: `gpt-image-2`
+
+The production configuration names:
+
+- D1: `lifemedals-monsters`
+- R2: `lifemedals-monster-assets`
+- Queue: `lifemedals-monster-generation`
+- Dead-letter queue: `lifemedals-monster-generation-dlq`
+- Public asset path: `https://lifemedals-api.david-lian0809.workers.dev/monster-assets`
 
 Resource identifiers already committed in `wrangler.jsonc` are configuration, not secrets. Never commit the OpenAI key or Cloudflare API credentials.
 
@@ -183,15 +191,15 @@ Then verify:
 
 ## 9. Production promotion
 
-Production promotion is still pending. Use separate production resources rather than renaming or reusing staging:
+Production promotion completed on 2026-09-04 using separate production resources rather than renaming or reusing staging. The completed rollout was:
 
-1. Create production D1, R2, generation Queue, and dead-letter Queue resources.
-2. Add their exact bindings to the top-level `wrangler.jsonc` configuration.
-3. Configure production style/model/budget variables and the encrypted OpenAI secret.
-4. Apply all migrations to the production D1 database.
-5. Run the same smoke tests against production with a small budget.
-6. Confirm Release uses the production Worker base URL.
-7. Monitor errors, dead letters, OpenAI spend, R2 object growth, and D1 variant state during rollout.
+1. Created production D1, R2, generation Queue, and dead-letter Queue resources.
+2. Added their exact bindings to the top-level `wrangler.jsonc` configuration.
+3. Configured production style/model/budget variables and confirmed the encrypted OpenAI secret.
+4. Applied all migrations to the production D1 database.
+5. Ran a production smoke test from ensure through Queue, OpenAI, R2, and immutable asset delivery.
+6. Confirmed Release uses the production Worker base URL and builds successfully.
+7. Continue monitoring errors, dead letters, OpenAI spend, R2 object growth, and D1 variant state during rollout.
 
 Do not promote solely because `/health` is green. Validate actual ensure, sequential generation, asset delivery, and client refresh behavior.
 

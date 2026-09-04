@@ -2,6 +2,7 @@ import CloudKit
 import CoreData
 import Foundation
 import Observation
+import OSLog
 
 enum LifeMedalsCloud {
     static let containerIdentifier = "iCloud.mofololo.LifeMedals"
@@ -23,6 +24,7 @@ private struct CloudKitEventSnapshot: Sendable {
     let endDate: Date?
     let succeeded: Bool
     let failure: Failure?
+    let diagnosticDescription: String?
     let isExport: Bool
     let isImport: Bool
 
@@ -31,10 +33,12 @@ private struct CloudKitEventSnapshot: Sendable {
         endDate = event.endDate
         succeeded = event.succeeded
         if let error = event.error {
+            diagnosticDescription = Self.describe(error)
             failure = Self.containsQuotaExceeded(error)
                 ? .quotaExceeded
-                : .other(error.localizedDescription)
+                : .other(diagnosticDescription ?? error.localizedDescription)
         } else {
+            diagnosticDescription = nil
             failure = nil
         }
         isExport = event.type == .export
@@ -48,11 +52,69 @@ private struct CloudKitEventSnapshot: Sendable {
             containsQuotaExceeded(partialError)
         } ?? false
     }
+
+    private static func describe(_ error: Error, depth: Int = 0) -> String {
+        let indentation = String(repeating: "  ", count: depth)
+        guard let cloudError = error as? CKError else {
+            let nsError = error as NSError
+            return "\(indentation)\(nsError.domain) code=\(nsError.code): \(nsError.localizedDescription)"
+        }
+
+        var line = "\(indentation)CKError.\(codeName(cloudError.code)) (\(cloudError.code.rawValue))"
+        if let retryAfter = cloudError.retryAfterSeconds {
+            line += ", retryAfter=\(Int(retryAfter.rounded(.up)))s"
+        }
+        line += ": \(cloudError.localizedDescription)"
+
+        guard let partialErrors = cloudError.partialErrorsByItemID, !partialErrors.isEmpty else {
+            return line
+        }
+
+        let children = partialErrors.values
+            .prefix(12)
+            .map { describe($0, depth: depth + 1) }
+            .joined(separator: "\n")
+        let omittedCount = max(0, partialErrors.count - 12)
+        let omitted = omittedCount > 0
+            ? "\n\(indentation)  … \(omittedCount) more item error(s)"
+            : ""
+        return "\(line)\n\(children)\(omitted)"
+    }
+
+    private static func codeName(_ code: CKError.Code) -> String {
+        switch code {
+        case .partialFailure: "partialFailure"
+        case .quotaExceeded: "quotaExceeded"
+        case .notAuthenticated: "notAuthenticated"
+        case .networkUnavailable: "networkUnavailable"
+        case .networkFailure: "networkFailure"
+        case .serviceUnavailable: "serviceUnavailable"
+        case .requestRateLimited: "requestRateLimited"
+        case .permissionFailure: "permissionFailure"
+        case .missingEntitlement: "missingEntitlement"
+        case .badContainer: "badContainer"
+        case .badDatabase: "badDatabase"
+        case .zoneNotFound: "zoneNotFound"
+        case .userDeletedZone: "userDeletedZone"
+        case .serverRejectedRequest: "serverRejectedRequest"
+        case .constraintViolation: "constraintViolation"
+        case .invalidArguments: "invalidArguments"
+        case .batchRequestFailed: "batchRequestFailed"
+        case .serverRecordChanged: "serverRecordChanged"
+        case .accountTemporarilyUnavailable: "accountTemporarilyUnavailable"
+        default: "code\(code.rawValue)"
+        }
+    }
 }
 
 @Observable
 @MainActor
 final class CloudSyncMonitor {
+    @ObservationIgnored private static let logger = Logger(
+        subsystem: "mofololo.LifeMedals",
+        category: "CloudKitSync"
+    )
+
     private(set) var accountStatus: CKAccountStatus?
     private(set) var isCheckingAccount = true
     private(set) var isSyncing = false
@@ -191,6 +253,11 @@ final class CloudSyncMonitor {
             }
             syncErrorMessage = nil
         } else if let failure = event.failure {
+            if let diagnosticDescription = event.diagnosticDescription {
+                Self.logger.error(
+                    "CloudKit \(event.isExport ? "export" : event.isImport ? "import" : "setup") failed:\n\(diagnosticDescription, privacy: .public)"
+                )
+            }
             switch failure {
             case .quotaExceeded:
                 syncErrorMessage = L10n.text(
