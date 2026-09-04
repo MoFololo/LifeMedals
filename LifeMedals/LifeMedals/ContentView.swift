@@ -71,17 +71,10 @@ private struct PixelCheckmark: Shape {
 }
 
 struct ContentView: View {
-    @EnvironmentObject private var accountManager: AppleAccountManager
-    @EnvironmentObject private var syncMonitor: CloudSyncMonitor
+    @Environment(CloudSyncMonitor.self) private var syncMonitor
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Environment(\.locale) private var locale
-
-    private let onSignOut: () -> Void
-
-    init(onSignOut: @escaping () -> Void = {}) {
-        self.onSignOut = onSignOut
-    }
 
     private enum AppPage: String, CaseIterable, Identifiable {
         case create
@@ -508,9 +501,8 @@ struct ContentView: View {
                 }
             }
             .sheet(isPresented: $isShowingSettings) {
-                SettingsView(onSignOut: onSignOut)
-                    .environmentObject(accountManager)
-                    .environmentObject(syncMonitor)
+                SettingsView()
+                    .environment(syncMonitor)
             }
             .iOSFullScreenCover(item: $medalAnimationPresentation) { event in
                 MedalAwardAnimationOverlay(event: event) {
@@ -1920,19 +1912,28 @@ struct ContentView: View {
                     )
                 }
 
-                if let sourceImageData = task.sourceImageData {
+                if task.hadSourceImage == true || task.localSourceImageData != nil {
                     VStack(alignment: .leading, spacing: 12) {
                         Label("任务来源", systemImage: "photo.text.magnifyingglass")
                             .font(PixelTheme.displayFont(size: 17))
                             .foregroundStyle(PixelTheme.ink)
 
-                        PlatformImageView(data: sourceImageData)
-                            .scaledToFit()
-                            .frame(maxWidth: .infinity, maxHeight: 440)
-                            .background(PixelTheme.background.opacity(0.08))
-                            .clipShape(PixelCornerShape(step: 3))
+                        if let sourceImageData = task.localSourceImageData {
+                            PlatformImageView(data: sourceImageData)
+                                .scaledToFit()
+                                .frame(maxWidth: .infinity, maxHeight: 440)
+                                .background(PixelTheme.background.opacity(0.08))
+                                .clipShape(PixelCornerShape(step: 3))
+                        } else {
+                            Label("来源图片仅保存在创建它的设备", systemImage: "internaldrive")
+                                .font(PixelTheme.font(.subheadline))
+                                .foregroundStyle(PixelTheme.inkMuted)
+                                .frame(maxWidth: .infinity, minHeight: 120)
+                                .background(PixelTheme.background.opacity(0.08))
+                                .clipShape(PixelCornerShape(step: 3))
+                        }
 
-                        Text("创建任务时由 AI 读取的来源图片副本")
+                        Text("来源图片不会上传到 iCloud")
                             .font(PixelTheme.font(.caption))
                             .foregroundStyle(PixelTheme.inkMuted)
                     }
@@ -2276,7 +2277,7 @@ struct ContentView: View {
 
     private func libraryEvidenceThumbnail(_ evidence: Evidence) -> some View {
         Group {
-            if let imageData = evidence.imageData {
+            if let imageData = evidence.localImageData {
                 PlatformImageView(data: imageData)
                     .scaledToFill()
             } else {
@@ -2506,6 +2507,7 @@ struct ContentView: View {
             return
         }
 
+        var newlyStoredSourceImageIDs: [UUID] = []
         do {
             let category: BadgeCategory
             if let existingCategory = badgeCategories.first(where: { $0.name == draftBadge }) {
@@ -2521,7 +2523,13 @@ struct ContentView: View {
 
             let savedTasks: [TaskContract]
             if wasTaskGroup {
+                let parentID = UUID()
+                if let sourceImageData = draftContractSourceImageData {
+                    try LocalImageStore.shared.save(sourceImageData, kind: .taskSource, id: parentID)
+                    newlyStoredSourceImageIDs.append(parentID)
+                }
                 let parent = TaskContract(
+                    id: parentID,
                     title: title,
                     taskDescription: draftTaskDescription.trimmingCharacters(in: .whitespacesAndNewlines),
                     deadline: deadline,
@@ -2530,7 +2538,7 @@ struct ContentView: View {
                     evidenceImageDescriptions: [],
                     xpReward: draftXP,
                     hierarchyRole: .group,
-                    sourceImageData: draftContractSourceImageData,
+                    hadSourceImage: draftContractSourceImageData != nil,
                     badgeCategory: category
                 )
                 modelContext.insert(parent)
@@ -2572,7 +2580,13 @@ struct ContentView: View {
                     badgeKind: draftBadge
                 )
                 let snapshot = draftMonsterSnapshot(for: "single")
+                let taskID = UUID()
+                if let sourceImageData = draftContractSourceImageData {
+                    try LocalImageStore.shared.save(sourceImageData, kind: .taskSource, id: taskID)
+                    newlyStoredSourceImageIDs.append(taskID)
+                }
                 let task = TaskContract(
+                    id: taskID,
                     title: title,
                     taskDescription: draftTaskDescription.trimmingCharacters(in: .whitespacesAndNewlines),
                     deadline: deadline,
@@ -2580,7 +2594,7 @@ struct ContentView: View {
                     evidenceImageCount: draftEvidenceImageCount,
                     evidenceImageDescriptions: draftEvidenceImageDescriptions,
                     xpReward: draftXP,
-                    sourceImageData: draftContractSourceImageData,
+                    hadSourceImage: draftContractSourceImageData != nil,
                     monsterTag: monster.canonicalTag,
                     monsterLevel: lockedMonsterLevel,
                     monsterVariantID: snapshot?.variantID,
@@ -2641,6 +2655,9 @@ struct ContentView: View {
             }
         } catch {
             modelContext.rollback()
+            newlyStoredSourceImageIDs.forEach {
+                LocalImageStore.shared.remove(kind: .taskSource, id: $0)
+            }
             errorMessage = L10n.text(
                 "保存失败：\(error.localizedDescription)",
                 english: "Could not save: \(error.localizedDescription)"
@@ -2904,9 +2921,16 @@ struct ContentView: View {
     private func deleteTask(_ task: TaskContract) {
         do {
             var awardEvent: XPAwardEvent?
+            var deletedTasks = [task]
             if task.isTaskGroup {
-                children(of: task).forEach(modelContext.delete)
+                let childTasks = children(of: task)
+                deletedTasks.append(contentsOf: childTasks)
                 collapsedTaskGroupIDs.remove(task.id)
+            }
+            let deletedTaskIDs = deletedTasks.map(\.id)
+            let deletedEvidenceIDs = deletedTasks.flatMap { ($0.evidences ?? []).map(\.id) }
+            if task.isTaskGroup {
+                deletedTasks.dropFirst().forEach(modelContext.delete)
             }
             modelContext.delete(task)
 
@@ -2918,6 +2942,8 @@ struct ContentView: View {
                 )
             }
             try modelContext.save()
+            deletedTaskIDs.forEach { LocalImageStore.shared.remove(kind: .taskSource, id: $0) }
+            deletedEvidenceIDs.forEach { LocalImageStore.shared.remove(kind: .evidence, id: $0) }
             if let awardEvent {
                 XPService.publishAward(awardEvent)
             }

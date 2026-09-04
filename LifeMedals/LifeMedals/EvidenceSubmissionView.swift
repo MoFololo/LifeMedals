@@ -270,7 +270,7 @@ struct EvidenceSubmissionView: View {
                 .font(PixelTheme.font(.caption2))
                 .foregroundStyle(PixelTheme.inkMuted.opacity(0.72))
 
-            if hasPendingEvidence && draftImages.isEmpty {
+            if hasPendingEvidence && pendingEvidenceImagesAvailable && draftImages.isEmpty {
                 Button {
                     Task { await retryPendingVerification() }
                 } label: {
@@ -286,6 +286,10 @@ struct EvidenceSubmissionView: View {
                 .disabled(isWorking)
                 .foregroundStyle(.white)
                 .pixelSurface(fill: PixelTheme.selection, border: PixelTheme.gold, step: 3, hasShadow: true)
+            } else if hasPendingEvidence && !pendingEvidenceImagesAvailable && draftImages.isEmpty {
+                Label("待核验图片只保存在提交它的设备，请在本机重新添加证据。", systemImage: "internaldrive")
+                    .font(PixelTheme.font(.caption))
+                    .foregroundStyle(PixelTheme.inkMuted)
             }
 
             if !draftImages.isEmpty {
@@ -707,7 +711,7 @@ struct EvidenceSubmissionView: View {
 
     private func evidenceThumbnail(_ evidence: Evidence) -> some View {
         Group {
-            if let imageData = evidence.imageData {
+            if let imageData = evidence.localImageData {
                 PlatformImageView(data: imageData)
                     .scaledToFill()
             } else {
@@ -1028,8 +1032,10 @@ struct EvidenceSubmissionView: View {
 
         do {
             for draftImage in submittedImages {
+                let evidenceID = UUID()
+                try LocalImageStore.shared.save(draftImage.data, kind: .evidence, id: evidenceID)
                 let evidence = Evidence(
-                    imageData: draftImage.data,
+                    id: evidenceID,
                     submittedAt: submittedAt,
                     submissionBatchID: submissionBatchID,
                     submissionIndex: draftImage.slotIndex
@@ -1046,6 +1052,7 @@ struct EvidenceSubmissionView: View {
         } catch {
             for evidence in insertedEvidences {
                 modelContext.delete(evidence)
+                LocalImageStore.shared.remove(kind: .evidence, id: evidence.id)
             }
             task.status = previousStatus
             try? modelContext.save()
@@ -1077,10 +1084,19 @@ struct EvidenceSubmissionView: View {
         verificationVerdict = await verify(pendingBatch.evidences)
     }
 
+    private var pendingEvidenceImagesAvailable: Bool {
+        guard let pendingBatch = evidenceBatches.first(where: { $0.verdict == .pending }) else {
+            return false
+        }
+        return !pendingBatch.evidences.isEmpty && pendingBatch.evidences.allSatisfy {
+            $0.localImageData != nil
+        }
+    }
+
     @MainActor
     private func verify(_ evidences: [Evidence]) async -> EvidenceVerdict? {
         let orderedEvidences = evidences.sorted { ($0.submissionIndex ?? 0) < ($1.submissionIndex ?? 0) }
-        let images = orderedEvidences.compactMap(\.imageData)
+        let images = orderedEvidences.compactMap(\.localImageData)
 
         do {
             let result = try await verificationService.verify(

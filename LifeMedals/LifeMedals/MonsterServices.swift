@@ -526,7 +526,9 @@ actor MonsterImageCache {
 
     func data(for url: URL) async throws -> Data {
         let fileURL = cacheDirectory.appending(path: cacheKey(for: url))
-        if let cached = try? Data(contentsOf: fileURL), !cached.isEmpty {
+        if fileManager.fileExists(atPath: fileURL.path),
+           let cached = try? Data(contentsOf: fileURL),
+           !cached.isEmpty {
             return cached
         }
 

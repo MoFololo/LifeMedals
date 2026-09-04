@@ -38,7 +38,7 @@ The implemented MVP supports:
 - Task groups for multiple independently actionable items.
 - Five medal families: Solver, Builder, Career, Athlete, and Life.
 - SwiftData local persistence and CloudKit-compatible models.
-- Sign in with Apple with a Keychain session, plus an offline entry path.
+- Direct app entry with private sync owned by the device's iCloud account.
 - Unfinished, completed, and overdue task views.
 - Local deadline notifications.
 - Camera, photo library, and file evidence on iOS; macOS also supports drag-and-drop and paste.
@@ -138,9 +138,9 @@ Core models:
 - `XPLog`
 - `MonsterDiscovery`
 
-Models use stable UUIDs, optional relationships where CloudKit requires them, and no SwiftData uniqueness constraints unsupported by CloudKit. The Release configuration uses the private `iCloud.noorg.LifeMedals` container. Debug defines `LIFEMEDALS_LOCAL_DEVELOPMENT`, explicitly disables the cloud database and cloud entitlements, and presents local-development status in the UI.
+Models use stable UUIDs, optional relationships where CloudKit requires them, and no SwiftData uniqueness constraints unsupported by CloudKit. Debug uses the Development environment and Release uses Production for the private `iCloud.mofololo.LifeMedals` container. Source and evidence image bytes are stored only in backup-excluded Application Support files; CloudKit synchronizes their business metadata but not the image bytes.
 
-The CloudKit integration and sync monitor exist, but paid-team signing, schema activation, physical-device sync, conflict handling, offline recovery, and evidence-image synchronization still require acceptance testing. After a production CloudKit schema is published, model changes must remain additive and migration-safe.
+The CloudKit integration and sync monitor exist, but paid-team signing, schema activation, physical-device sync, conflict handling, offline recovery, and confirmation of image non-sync still require acceptance testing. After a production CloudKit schema is published, model changes must remain additive and migration-safe.
 
 ## 9. Worker architecture and privacy
 
@@ -160,14 +160,14 @@ The Worker must never persist a user's task, evidence, medals, EXP, or discoveri
 
 A later commercial release may add:
 
-1. server validation of Sign in with Apple and an app session;
+1. an optional future account/session service only if the product later needs identity independent of the device iCloud account;
 2. StoreKit 2 auto-renewable subscriptions;
 3. `appAccountToken` linkage and signed transaction validation;
 4. minimal `UserAccount`, `SubscriptionEntitlement`, and `UsageLedger` records;
 5. per-user quotas and rate limits;
 6. purchase restoration, refund/expiry handling, and account deletion with token revocation.
 
-iCloud identity, App Store purchase ownership, and Sign in with Apple identity remain separate systems. Even in this phase, the server must not gain access to private tasks or evidence.
+iCloud identity and App Store purchase ownership remain separate systems. Even in this phase, the server must not gain access to private tasks or evidence.
 
 ## 11. Acceptance priorities
 

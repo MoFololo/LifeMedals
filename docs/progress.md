@@ -6,7 +6,7 @@
 
 **Phase:** iOS v2 task-monster and Monster Atlas loop is implemented in the client and staging Worker.
 
-**Implemented:** local-first task flow, task groups, image-based generation, flexible evidence verification, medals/EXP, multi-platform UI, Sign in with Apple integration, CloudKit-compatible persistence, monster taxonomy and discovery, D1/R2/Queue generation, sequential Level 1-9 artwork, budget recovery, disk caching, and iOS edge navigation.
+**Implemented:** local-first task flow, task groups, image-based generation, flexible evidence verification, medals/EXP, multi-platform UI, direct private-CloudKit persistence without an app account, device-local private images, monster taxonomy and discovery, D1/R2/Queue generation, sequential Level 1-9 artwork, budget recovery, disk caching, and iOS edge navigation.
 
 **Deployed:** the configured staging Worker is live. On 2026-09-03, `GET /health` returned HTTP 200 with OpenAI, usage protection, and monster services configured. Production still has only the base API configuration and does not yet include the staging monster bindings.
 
@@ -41,7 +41,7 @@
 
 ### 2. Session, task generation, and groups
 
-- [x] Add Sign in with Apple, Keychain session persistence, revocation checks, and offline entry.
+- [x] Open directly without an app account and use the device iCloud account for private sync.
 - [x] Implement `POST /generate-task` with size validation and Structured Outputs.
 - [x] Apply an atomic global rate limit and monthly request budget before OpenAI calls.
 - [x] Support text or one compressed source image plus optional context.
@@ -110,12 +110,12 @@
 
 ### 8. CloudKit and physical-device acceptance
 
-- [x] Configure the `iCloud.noorg.LifeMedals` private container and cloud entitlements for Release.
+- [x] Configure the `iCloud.mofololo.LifeMedals` private container for Development and Production builds.
 - [x] Make the SwiftData schema CloudKit compatible.
 - [x] Display account and synchronization states.
-- [x] Keep Debug in explicit local-development mode without cloud entitlements.
+- [x] Enable CloudKit Development and remote-notification background delivery in Debug.
 - [ ] Activate paid-team signing and container access.
-- [ ] Validate offline recovery, conflicts, evidence images, EXP, task groups, and discoveries between Mac and iPhone.
+- [ ] Validate offline recovery, conflicts, EXP, task groups, and discoveries between two physical devices; confirm source/evidence images remain device-local.
 - [ ] Publish the verified CloudKit development schema to Production.
 
 ### 9. Product validation and distribution
@@ -130,7 +130,7 @@
 
 ### 10. Later commercial phase
 
-- [ ] Validate Sign in with Apple tokens on a LifeMedals account server.
+- [x] Remove the planned LifeMedals account server and Sign in with Apple requirement from the current product architecture.
 - [ ] Add StoreKit 2 subscriptions, transaction listening, and purchase restoration.
 - [ ] Add minimal account, entitlement, and usage-ledger records.
 - [ ] Link purchases with `appAccountToken` and validate signed transactions.
@@ -140,6 +140,8 @@
 This phase must not move private task or evidence data to the server.
 
 ## Milestone log
+
+- 2026-09-04 — Removed Sign in with Apple and the login gate. Unified the app and private CloudKit container identifiers, enabled Development/Production CloudKit environments and background remote notifications, moved task-source/evidence images to backup-excluded device-local storage, and added safe legacy image migration.
 
 - 2026-09-03 — Added iOS edge-swipe navigation for task tabs, task-detail return, and achievement tabs; unified directional transitions and limited them to the changing content region. Refined task-group cards so collapsed groups stack toward the lower right and expanded groups return to a normal single-card parent. Current iOS Simulator Debug build passed.
 - 2026-09-02 — Added validated short task titles and a separate task description throughout generation, persistence, notifications, verification, and task-group editing. Compressed a large medal asset.

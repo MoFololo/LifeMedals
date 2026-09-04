@@ -54,9 +54,15 @@ final class TaskContract {
     var childOrder: Int?
     /// Parent containers have no evidence, so this records their completion time.
     var groupCompletedAt: Date?
-    /// App-owned compressed copy of the image that was used to generate this task.
-    /// Optional external storage keeps text-created tasks and existing stores migration-compatible.
+    /// Deprecated CloudKit-backed image payload. New versions always keep this
+    /// nil and use `LocalImageStore`; it remains temporarily for safe migration.
     @Attribute(.externalStorage) var sourceImageData: Data?
+    /// Cloud metadata used to show an explanatory placeholder on other devices.
+    var hadSourceImage: Bool?
+
+    var localSourceImageData: Data? {
+        LocalImageStore.shared.data(kind: .taskSource, id: id) ?? sourceImageData
+    }
 
     // Optional monster encounter fields keep legacy stores and CloudKit
     // lightweight migration compatible. A task group parent intentionally
@@ -136,7 +142,7 @@ final class TaskContract {
         parentTaskID: UUID? = nil,
         childOrder: Int? = nil,
         groupCompletedAt: Date? = nil,
-        sourceImageData: Data? = nil,
+        hadSourceImage: Bool = false,
         monsterTag: String? = nil,
         monsterLevel: Int? = nil,
         monsterVariantID: String? = nil,
@@ -165,7 +171,8 @@ final class TaskContract {
         self.parentTaskID = hierarchyRole == .child ? parentTaskID : nil
         self.childOrder = hierarchyRole == .child ? childOrder : nil
         self.groupCompletedAt = hierarchyRole == .group ? groupCompletedAt : nil
-        self.sourceImageData = sourceImageData
+        self.sourceImageData = nil
+        self.hadSourceImage = hadSourceImage
         self.monsterTag = monsterTag
         self.monsterLevel = monsterLevel.map { min(max($0, 1), 9) }
         self.monsterVariantID = monsterVariantID

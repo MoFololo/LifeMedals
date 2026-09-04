@@ -14,10 +14,8 @@ struct LifeMedalsApp: App {
     @Environment(\.openWindow) private var openWindow
 #endif
 
-    @AppStorage("hasEnteredApp") private var hasEnteredApp = false
     @AppStorage(AppLanguage.storageKey) private var appLanguage = AppLanguage.simplifiedChinese.rawValue
-    @StateObject private var accountManager = AppleAccountManager()
-    @StateObject private var syncMonitor = CloudSyncMonitor()
+    @State private var syncMonitor = CloudSyncMonitor()
     private let modelContainer: ModelContainer
 
     init() {
@@ -32,13 +30,13 @@ struct LifeMedalsApp: App {
             XPLog.self
         ])
         let configuration: ModelConfiguration
-#if LIFEMEDALS_LOCAL_DEVELOPMENT
-        configuration = ModelConfiguration(cloudKitDatabase: .none)
-#else
-        configuration = ModelConfiguration(
-            cloudKitDatabase: .private(LifeMedalsCloud.containerIdentifier)
-        )
-#endif
+        if LifeMedalsCloud.isEnabledForCurrentBuild {
+            configuration = ModelConfiguration(
+                cloudKitDatabase: .private(LifeMedalsCloud.containerIdentifier)
+            )
+        } else {
+            configuration = ModelConfiguration(cloudKitDatabase: .none)
+        }
 
         do {
             modelContainer = try ModelContainer(for: schema, configurations: [configuration])
@@ -56,41 +54,17 @@ struct LifeMedalsApp: App {
 
     private var appWindowGroup: some Scene {
         WindowGroup {
-            Group {
-                if hasEnteredApp {
-                    ContentView {
-                        withAnimation(.smooth(duration: 0.4)) {
-                            hasEnteredApp = false
-                        }
-                    }
-                        .transition(.opacity.combined(with: .scale(scale: 1.015)))
-                } else {
-                    LoginView {
-                        withAnimation(.smooth(duration: 0.52)) {
-                            hasEnteredApp = true
-                        }
-                    }
-                    .transition(.opacity.combined(with: .scale(scale: 0.985)))
-                }
-            }
+            ContentView()
             .font(PixelTheme.font())
             .environment(\.locale, resolvedLanguage.locale)
             .preferredColorScheme(.light)
-            .animation(.smooth(duration: 0.52), value: hasEnteredApp)
-            .environmentObject(accountManager)
-            .environmentObject(syncMonitor)
+            .environment(syncMonitor)
             .task {
-                async let validateAccount: Void = accountManager.validateStoredCredential()
-                async let checkCloud: Void = syncMonitor.refreshAccountStatus()
-                _ = await (validateAccount, checkCloud)
-                if accountManager.isSignedIn {
-                    hasEnteredApp = true
-                }
+                LocalImageMigration.migrateLegacyCloudImages(in: modelContainer.mainContext)
+                await syncMonitor.refreshAccountStatus()
             }
-            .onChange(of: accountManager.requiresReauthentication) { _, requiresReauthentication in
-                if requiresReauthentication {
-                    hasEnteredApp = false
-                }
+            .onChange(of: syncMonitor.lastSuccessfulSync) { _, _ in
+                LocalImageMigration.migrateLegacyCloudImages(in: modelContainer.mainContext)
             }
         }
         .modelContainer(modelContainer)

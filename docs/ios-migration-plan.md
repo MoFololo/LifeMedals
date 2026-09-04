@@ -2,7 +2,7 @@
 
 ## Approach
 
-LifeMedals uses the existing SwiftUI target for macOS, iOS, and iPadOS. The platforms share their SwiftData schema, private CloudKit container, Sign in with Apple session, AI services, notification logic, and business UI. Platform adapters are limited to images, camera preview, WebKit, window commands, and compact layouts.
+LifeMedals uses the existing SwiftUI target for macOS, iOS, and iPadOS. The platforms share their SwiftData schema, private CloudKit container, AI services, notification logic, and business UI. No separate app account is required; private sync follows the device iCloud account.
 
 ## Status
 
@@ -10,8 +10,8 @@ LifeMedals uses the existing SwiftUI target for macOS, iOS, and iPadOS. The plat
 
 - [x] Support `macosx`, `iphoneos`, and `iphonesimulator` in one target.
 - [x] Configure iPhone/iPad device families, iOS deployment target, and camera/photo usage descriptions.
-- [x] Keep Debug in local-development mode without cloud entitlements.
-- [x] Keep Release entitlements for `iCloud.noorg.LifeMedals`, Sign in with Apple, and notifications.
+- [x] Use the CloudKit Development environment in Debug.
+- [x] Keep Release entitlements for `iCloud.mofololo.LifeMedals` and remote notifications.
 - [x] Build macOS and iOS Simulator Debug configurations.
 
 ### 2. Platform APIs and responsive UI — complete
@@ -51,7 +51,7 @@ LifeMedals uses the existing SwiftUI target for macOS, iOS, and iPadOS. The plat
 
 - [ ] Produce the iOS icon, launch experience, and device screenshots.
 - [ ] Complete the privacy manifest, privacy policy, and camera/photo/iCloud/AI disclosures.
-- [ ] Create the iOS version in App Store Connect and configure Sign in with Apple.
+- [ ] Create the iOS version in App Store Connect and verify its iCloud container association.
 - [ ] Archive and validate signing, entitlements, and privacy declarations.
 - [ ] Run a TestFlight beta covering crashes, performance, network failure, and data migration.
 - [ ] Submit to App Review.
