@@ -851,34 +851,28 @@ struct ContentView: View {
     }
 
     private var taskComposer: some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: PixelTheme.space16) {
-                pageHeader(title: "创建新任务")
+        VStack(spacing: isCompactLayout ? 8 : 16) {
+            pageHeader(title: "创建新任务")
+                .padding(.horizontal, pageHorizontalInset)
+                .padding(.top, isCompactLayout ? 12 : 32)
+                .zIndex(10)
 
-                PixelPanel(fill: PixelTheme.paper, padding: isCompactLayout ? PixelTheme.space16 : PixelTheme.space24) {
-                    VStack(alignment: .leading, spacing: PixelTheme.space16) {
-                        PixelSectionHeader(title: "任务委托")
-                        taskCreationModeTabs
+            GeometryReader { proxy in
+                let maximumPosterWidth = min(max(proxy.size.width, 1), isCompactLayout ? 460 : 700)
+                let posterScale = min(maximumPosterWidth / 853, max(proxy.size.height, 1) / 830)
+                let posterWidth = 853 * posterScale
+                let posterHeight = 830 * posterScale
 
-                        Group {
-                            switch creationInputMode {
-                            case .text:
-                                textTaskComposer
-                            case .image:
-                                imageTaskComposer
-                            }
-                        }
-                        .transition(.opacity.combined(with: .scale(scale: 0.99)))
-                    }
-                }
+                taskComposerCard
+                    .scaleEffect(posterScale, anchor: .top)
+                    .frame(width: posterWidth, height: posterHeight, alignment: .top)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
             }
-            .padding(.horizontal, max(compactPageInset, PixelTheme.space16))
-            .padding(.vertical, isCompactLayout ? PixelTheme.space24 : 56)
-            .platformScrollableContentWidth(790)
-            .frame(maxWidth: .infinity)
+            .clipped()
+            .zIndex(0)
         }
 #if os(iOS)
-        .scrollDismissesKeyboard(.interactively)
+        .ignoresSafeArea(.keyboard, edges: .bottom)
 #endif
         .platformCameraPresentation(isPresented: $isSourceCameraPresented) {
             EvidenceCameraView(
@@ -894,177 +888,236 @@ struct ContentView: View {
         }
     }
 
-    private var taskCreationModeTabs: some View {
-        PixelTabBar(
-            items: TaskCreationInputMode.allCases.map {
-                PixelTabItem(id: $0.rawValue, title: $0.title, systemImage: $0.icon)
-            },
-            selection: creationInputMode.rawValue
-        ) { rawValue in
-            guard let mode = TaskCreationInputMode(rawValue: rawValue) else { return }
-            selectCreationInputMode(mode)
-        }
-        .accessibilityLabel("任务生成方式")
+    /// The supplied artwork uses a full-phone canvas with transparent space
+    /// above and below the parchment. Crop that space so the interactive card
+    /// stays fixed to the top of the creation page instead of becoming scrollable.
+    private var taskComposerCard: some View {
+        taskComposerPoster
+            .offset(y: -560)
+            .frame(width: 853, height: 830, alignment: .top)
+            .clipped()
     }
 
-    private var textTaskComposer: some View {
-        VStack(alignment: .leading, spacing: PixelTheme.space16) {
-            PixelInput(isFocused: isTaskInputFocused) {
-                TextField("例如：本周完成三次 30 分钟跑步", text: $taskInput, axis: .vertical)
-                    .textFieldStyle(.plain)
-                    .font(PixelTheme.font(size: isCompactLayout ? 18 : 22, weight: .medium))
-                    .foregroundStyle(PixelTheme.ink)
-                    .lineLimit(3...6)
-                    .focused($isTaskInputFocused)
-                    .frame(maxWidth: .infinity, minHeight: isCompactLayout ? 76 : 96, alignment: .topLeading)
-                    .accessibilityLabel("输入你想完成的任务")
-#if os(iOS)
-                    .toolbar {
-                        ToolbarItemGroup(placement: .keyboard) {
-                            Spacer()
-                            Button("完成") {
-                                isTaskInputFocused = false
-                            }
-                        }
-                    }
-#endif
-                    .onSubmit(generateTask)
-            }
+    private var taskComposerPoster: some View {
+        ZStack(alignment: .topLeading) {
+            Image("TaskComposerBackground")
+                .resizable()
+                .interpolation(.high)
+                .frame(width: 853, height: 1844)
+                .accessibilityHidden(true)
 
-            generationAction
-            generationError
-        }
-    }
+            taskComposerModeButtons
+                .frame(width: 650, height: 78)
+                .position(x: 426, y: 711)
 
-    private var imageTaskComposer: some View {
-        VStack(alignment: .leading, spacing: PixelTheme.space16) {
-            taskSourceImagePicker
-
-            if draftSourceImageData != nil {
-                PixelInput {
-                    TextField("补充说明（可选）", text: $imageTaskNote, axis: .vertical)
-                        .textFieldStyle(.plain)
-                        .font(PixelTheme.font(.body))
-                        .foregroundStyle(PixelTheme.ink)
-                        .lineLimit(1...3)
-                        .frame(maxWidth: .infinity, minHeight: 38, alignment: .topLeading)
-                        .accessibilityLabel("图片补充说明")
-                        .onSubmit(generateTask)
+            Group {
+                switch creationInputMode {
+                case .text:
+                    posterTextTaskComposer
+                case .image:
+                    posterImageTaskComposer
                 }
             }
+            .frame(width: 620, height: 410)
+            .position(x: 426, y: 1007)
+            .transition(.opacity.combined(with: .scale(scale: 0.99)))
 
-            generationAction
+            posterGenerationButton
+                .frame(width: 245, height: 66)
+                .position(x: 620, y: 1298)
+        }
+        .frame(width: 853, height: 1844)
+    }
+
+    private var taskComposerModeButtons: some View {
+        HStack(spacing: 8) {
+            ForEach(TaskCreationInputMode.allCases) { mode in
+                Button {
+                    selectCreationInputMode(mode)
+                } label: {
+                    Label(mode.title, systemImage: mode.icon)
+                        .font(PixelTheme.displayFont(size: 28))
+                        .foregroundStyle(creationInputMode == mode ? PixelTheme.selection : PixelTheme.inkMuted)
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .background {
+                            if creationInputMode == mode {
+                                PixelCornerShape(step: 3)
+                                    .fill(PixelTheme.goldBright.opacity(0.13))
+                                    .padding(4)
+                            }
+                        }
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .contentShape(Rectangle())
+                .accessibilityAddTraits(creationInputMode == mode ? .isSelected : [])
+            }
+        }
+        .accessibilityElement(children: .contain)
+        .accessibilityLabel(L10n.text("任务生成方式", english: "Task creation method"))
+    }
+
+    private var posterTextTaskComposer: some View {
+        VStack(alignment: .leading, spacing: 10) {
+            TextField(
+                L10n.text("例如：本周完成三次 30 分钟跑步", english: "For example: Run for 30 minutes three times this week"),
+                text: $taskInput,
+                axis: .vertical
+            )
+            .textFieldStyle(.plain)
+            .font(PixelTheme.font(size: 30, weight: .medium))
+            .foregroundStyle(PixelTheme.ink)
+            .lineLimit(4...8)
+            .focused($isTaskInputFocused)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .accessibilityLabel(L10n.text("输入你想完成的任务", english: "Enter the task you want to complete"))
+#if os(iOS)
+            .toolbar {
+                ToolbarItemGroup(placement: .keyboard) {
+                    Spacer()
+                    Button(L10n.text("完成", english: "Done")) {
+                        isTaskInputFocused = false
+                    }
+                }
+            }
+#endif
+            .onSubmit(generateTask)
+
+            generationError
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 16)
+    }
+
+    private var posterImageTaskComposer: some View {
+        VStack(spacing: 10) {
+            if let draftSourceImageData {
+                HStack(alignment: .top, spacing: 16) {
+                    PlatformImageView(data: draftSourceImageData)
+                        .scaledToFit()
+                        .frame(width: 210, height: 220)
+                        .clipShape(PixelCornerShape(step: 3))
+                        .overlay { PixelCornerShape(step: 3).stroke(PixelTheme.gold.opacity(0.72), lineWidth: 2) }
+                        .overlay(alignment: .topTrailing) {
+                            Button(action: removeSourceImage) {
+                                Image(systemName: "xmark")
+                                    .font(PixelTheme.font(size: 18))
+                                    .foregroundStyle(.white)
+                                    .frame(width: 34, height: 34)
+                                    .background(PixelTheme.danger, in: PixelCornerShape(step: 2))
+                            }
+                            .buttonStyle(.plain)
+                            .accessibilityLabel(L10n.text("移除任务来源图片", english: "Remove source image"))
+                            .padding(8)
+                        }
+
+                    TextField(
+                        L10n.text("补充说明（可选）", english: "Additional notes (optional)"),
+                        text: $imageTaskNote,
+                        axis: .vertical
+                    )
+                    .textFieldStyle(.plain)
+                    .font(PixelTheme.font(size: 27))
+                    .foregroundStyle(PixelTheme.ink)
+                    .lineLimit(4...7)
+                    .frame(maxWidth: .infinity, maxHeight: 220, alignment: .topLeading)
+                    .accessibilityLabel(L10n.text("图片补充说明", english: "Image notes"))
+                    .onSubmit(generateTask)
+                }
+            } else {
+                VStack(spacing: 18) {
+                    if isImportingSourceImage {
+                        ProgressView()
+                            .controlSize(.regular)
+                        Text(L10n.text("正在压缩照片…", english: "Compressing photo…"))
+                            .font(PixelTheme.font(size: 23))
+                            .foregroundStyle(PixelTheme.inkMuted)
+                    } else {
+                        Image(systemName: "doc.viewfinder")
+                            .font(PixelTheme.font(size: 42))
+                            .foregroundStyle(PixelTheme.gold)
+                        Text(L10n.text("上传邮件、syllabus 或活动海报", english: "Upload an email, syllabus, or event poster"))
+                            .font(PixelTheme.font(size: 24))
+                            .foregroundStyle(PixelTheme.inkMuted)
+                    }
+
+                    HStack(spacing: 16) {
+                        PhotosPicker(selection: $selectedSourcePhoto, matching: .images) {
+                            posterSourceButtonLabel(
+                                title: L10n.text("照片图库", english: "Photo Library"),
+                                systemImage: "photo.on.rectangle"
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(isImportingSourceImage)
+
+                        Button {
+                            isSourceCameraPresented = true
+                        } label: {
+                            posterSourceButtonLabel(
+                                title: L10n.text("拍照", english: "Camera"),
+                                systemImage: "camera"
+                            )
+                        }
+                        .buttonStyle(.plain)
+                        .disabled(isImportingSourceImage)
+                    }
+                }
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            }
 
             if let sourceImageError {
                 Text(L10n.text(sourceImageError))
-                    .font(PixelTheme.font(.caption))
+                    .font(PixelTheme.font(size: 20))
                     .foregroundStyle(PixelTheme.danger)
                     .fixedSize(horizontal: false, vertical: true)
             }
-
             generationError
         }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 14)
     }
 
-    private var generationAction: some View {
-        HStack {
-            Spacer()
-            PixelButton(
-                title: buttonTitle,
-                systemImage: errorMessage == nil ? "wand.and.stars" : "arrow.clockwise",
-                isLoading: isGenerating,
-                action: generateTask
-            )
-            .disabled(isGenerating || isImportingSourceImage || !canGenerateTask)
-            .opacity(isGenerating || isImportingSourceImage || !canGenerateTask ? 0.48 : 1)
+    private func posterSourceButtonLabel(title: String, systemImage: String) -> some View {
+        Label(title, systemImage: systemImage)
+            .font(PixelTheme.font(size: 22))
+            .foregroundStyle(PixelTheme.ink)
+            .frame(maxWidth: .infinity)
+            .padding(.vertical, 12)
+            .background(PixelTheme.paperRaised.opacity(0.72), in: PixelCornerShape(step: 3))
+            .overlay { PixelCornerShape(step: 3).stroke(PixelTheme.gold.opacity(0.75), lineWidth: 2) }
+    }
+
+    private var posterGenerationButton: some View {
+        Button(action: generateTask) {
+            HStack(spacing: 10) {
+                if isGenerating {
+                    ProgressView()
+                        .tint(PixelTheme.goldBright)
+                } else {
+                    Image(systemName: errorMessage == nil ? "wand.and.stars" : "arrow.clockwise")
+                }
+                Text(buttonTitle)
+            }
+            .font(PixelTheme.displayFont(size: 26))
+            .foregroundStyle(Color(red: 0.88, green: 0.75, blue: 0.48))
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .contentShape(Rectangle())
         }
+        .buttonStyle(.plain)
+        .disabled(isGenerating || isImportingSourceImage || !canGenerateTask)
+        .opacity(isGenerating || isImportingSourceImage || !canGenerateTask ? 0.48 : 1)
     }
 
     @ViewBuilder
     private var generationError: some View {
         if let errorMessage {
             Text(L10n.text(errorMessage))
-                .font(PixelTheme.font(.caption))
+                .font(PixelTheme.font(size: 20))
                 .foregroundStyle(PixelTheme.danger)
                 .fixedSize(horizontal: false, vertical: true)
                 .transition(.opacity.combined(with: .move(edge: .top)))
-        }
-    }
-
-    private var taskSourceImagePicker: some View {
-        VStack(alignment: .leading, spacing: 8) {
-            if let draftSourceImageData {
-                PlatformImageView(data: draftSourceImageData)
-                    .scaledToFit()
-                    .frame(maxWidth: .infinity, maxHeight: 260)
-                    .background(PixelTheme.background.opacity(0.08))
-                    .clipShape(PixelCornerShape(step: 3))
-                    .overlay { PixelCornerShape(step: 3).stroke(PixelTheme.gold.opacity(0.72), lineWidth: 1) }
-                    .overlay(alignment: .topTrailing) {
-                        Button {
-                            removeSourceImage()
-                        } label: {
-                            Image(systemName: "xmark")
-                                .font(PixelTheme.font(.caption, weight: .bold))
-                                .foregroundStyle(.white)
-                                .frame(width: 30, height: 30)
-                                .background(PixelTheme.danger, in: PixelCornerShape(step: 2))
-                        }
-                        .buttonStyle(.plain)
-                        .accessibilityLabel("移除任务来源图片")
-                        .padding(10)
-                    }
-            } else {
-                VStack(spacing: 12) {
-                    if isImportingSourceImage {
-                        ProgressView()
-                            .controlSize(.small)
-                        Text("正在压缩照片…")
-                            .font(PixelTheme.font(.caption))
-                            .foregroundStyle(PixelTheme.inkMuted)
-                    } else {
-                        Image(systemName: "doc.viewfinder")
-                            .font(PixelTheme.font(size: 30, weight: .semibold))
-                            .foregroundStyle(PixelTheme.gold)
-                        Text("上传邮件、syllabus 或活动海报")
-                            .font(PixelTheme.font(.caption))
-                            .foregroundStyle(PixelTheme.inkMuted)
-                    }
-
-                    HStack(spacing: 10) {
-                        PhotosPicker(selection: $selectedSourcePhoto, matching: .images) {
-                            Label("照片图库", systemImage: "photo.on.rectangle")
-                                .font(PixelTheme.font(.subheadline, weight: .semibold))
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 10)
-                        }
-                        .buttonStyle(.plain)
-                        .disabled(isImportingSourceImage)
-                        .foregroundStyle(.white)
-                        .pixelSurface(fill: PixelTheme.selection, border: PixelTheme.gold, step: 2)
-
-                        Button {
-                            isSourceCameraPresented = true
-                        } label: {
-                            Label("拍照", systemImage: "camera")
-                                .font(PixelTheme.font(.subheadline, weight: .semibold))
-                                .frame(maxWidth: .infinity)
-                                .padding(.vertical, 10)
-                        }
-                        .buttonStyle(.plain)
-                        .disabled(isImportingSourceImage)
-                        .foregroundStyle(PixelTheme.ink)
-                        .pixelSurface(fill: PixelTheme.paperRaised, border: PixelTheme.gold, step: 2)
-                    }
-                }
-                .padding(16)
-                .frame(maxWidth: .infinity, minHeight: 130)
-                .background(PixelTheme.paperRaised, in: PixelCornerShape(step: 3))
-                .overlay {
-                    PixelCornerShape(step: 3)
-                        .stroke(PixelTheme.gold.opacity(0.58), style: StrokeStyle(lineWidth: 1, dash: [7, 5]))
-                }
-            }
         }
     }
 

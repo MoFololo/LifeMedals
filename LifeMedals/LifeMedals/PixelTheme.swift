@@ -279,6 +279,8 @@ struct PixelIconButton: View {
                 .overlay { PixelCornerShape(step: 3).stroke(PixelTheme.gold, lineWidth: 2) }
         }
         .buttonStyle(.plain)
+        .frame(width: 44, height: 44)
+        .contentShape(Rectangle())
         .accessibilityLabel(LocalizedStringKey(accessibilityLabel))
     }
 }
