@@ -177,7 +177,9 @@ final class CloudSyncMonitor {
         if isCheckingAccount { return L10n.text("检查 iCloud") }
         if isSyncing { return L10n.text("正在同步") }
         if errorMessage != nil { return L10n.text("同步需处理") }
-        if isAvailable, lastSuccessfulSync != nil { return L10n.text("iCloud 已同步") }
+        if isAvailable, lastSuccessfulSync != nil {
+            return L10n.text("iCloud 已同步", english: "iCloud Synced")
+        }
         if isAvailable { return L10n.text("等待首次同步") }
         return L10n.text("仅本机")
     }

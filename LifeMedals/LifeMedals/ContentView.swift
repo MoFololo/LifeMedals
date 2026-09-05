@@ -70,6 +70,68 @@ private struct PixelCheckmark: Shape {
     }
 }
 
+/// Keeps the compact date control visually inside the parchment while presenting
+/// the full-size picker outside the scaled poster coordinate space.
+private struct BountyDeadlineButton: View {
+    @Binding var selection: Date
+
+    @State private var isPresented = false
+    @State private var draftSelection: Date
+
+    init(selection: Binding<Date>) {
+        _selection = selection
+        _draftSelection = State(initialValue: selection.wrappedValue)
+    }
+
+    var body: some View {
+        Button {
+            draftSelection = DeadlineDateOptions.normalized(selection, relativeTo: .now)
+            isPresented = true
+        } label: {
+            VStack(alignment: .leading, spacing: 5) {
+                Text(L10n.text("截止日期", english: "Deadline"))
+                    .font(PixelTheme.font(size: 20))
+                    .foregroundStyle(PixelTheme.inkMuted)
+                Text(DeadlineDateOptions.displayText(for: selection, relativeTo: .now))
+                    .font(PixelTheme.font(size: 29))
+                    .foregroundStyle(PixelTheme.ink)
+                    .lineLimit(1)
+                    .minimumScaleFactor(0.72)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityHint(L10n.text("打开日期选择器", english: "Open the date picker"))
+        .sheet(isPresented: $isPresented) {
+            VStack(spacing: PixelTheme.space16) {
+                Text(L10n.text("选择截止日期", english: "Choose Deadline"))
+                    .font(PixelTheme.displayFont(size: 24))
+                    .foregroundStyle(PixelTheme.ink)
+
+                DeadlineWheelPicker(selection: $draftSelection)
+
+                HStack(spacing: PixelTheme.space12) {
+                    Button(L10n.text("取消", english: "Cancel")) {
+                        isPresented = false
+                    }
+                    .buttonStyle(PixelButtonStyle(tone: PixelTheme.brown))
+                    .frame(maxWidth: .infinity)
+
+                    Button(L10n.text("保存", english: "Save")) {
+                        selection = DeadlineDateOptions.normalized(draftSelection, relativeTo: .now)
+                        isPresented = false
+                    }
+                    .buttonStyle(PixelButtonStyle(tone: PixelTheme.selection))
+                    .frame(maxWidth: .infinity)
+                }
+            }
+            .padding(PixelTheme.space24)
+            .background(PixelTheme.paper)
+        }
+    }
+}
+
 struct ContentView: View {
     @Environment(CloudSyncMonitor.self) private var syncMonitor
     @Environment(\.horizontalSizeClass) private var horizontalSizeClass
@@ -630,7 +692,11 @@ struct ContentView: View {
         }
         .frame(width: containerSize.width)
         .overlay(alignment: .leading) {
-            if page == .tasks || page == .medals {
+            if page == .create, creationPhase == .reviewing {
+                edgeSwipeRegion(direction: .towardPrevious) {
+                    returnToTaskComposer()
+                }
+            } else if page == .tasks || page == .medals {
                 edgeSwipeRegion(direction: .towardPrevious) {
                     handleEdgeSwipe(on: page, direction: .towardPrevious)
                 }
@@ -674,6 +740,13 @@ struct ContentView: View {
             .accessibilityHidden(true)
     }
 #endif
+
+    private func returnToTaskComposer() {
+        withAnimation(.smooth(duration: 0.38)) {
+            creationPhase = .composing
+        }
+        focusTaskInput()
+    }
 
     private var pageStack: some View {
         ZStack {
@@ -1002,213 +1075,338 @@ struct ContentView: View {
     }
 
     private func contractReview(now: Date) -> some View {
-        return ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                if isCompactLayout {
-                    VStack(alignment: .leading, spacing: 14) {
-                        contractReviewBackButton
-                        contractReviewTitle
-                    }
-                } else {
-                    HStack(alignment: .top) {
-                        contractReviewTitle
-                        Spacer()
-                        contractReviewBackButton
-                    }
-                }
+        GeometryReader { proxy in
+            let horizontalInset: CGFloat = isCompactLayout ? 0 : 28
+            let posterWidth = min(max(proxy.size.width - horizontalInset * 2, 1), 700)
+            let posterScale = posterWidth / 781
 
-                VStack(alignment: .leading, spacing: 18) {
-                    if isCompactLayout {
-                        VStack(alignment: .leading, spacing: 18) {
-                            taskTitleContractField
-                            xpContractField
-                        }
-                    } else {
-                        HStack(alignment: .top, spacing: 22) {
-                            taskTitleContractField
-                                .frame(maxWidth: .infinity)
-                            xpContractField
-                                .frame(width: 180)
-                        }
-                    }
-
-                    taskDescriptionContractField
-
-                    if isCompactLayout {
-                        VStack(alignment: .leading, spacing: 18) {
-                            badgeContractField
-                            deadlineContractField
-                        }
-                    } else {
-                        HStack(alignment: .top, spacing: 22) {
-                            badgeContractField
-                                .frame(width: 220)
-                            deadlineContractField
-                                .frame(maxWidth: .infinity)
-                        }
-                    }
-
-                    if !isDraftTaskGroup {
-                        draftMonsterContractField
-                    }
-
-                    if let draftContractSourceImageData {
-                        contractField("任务来源") {
-                            VStack(alignment: .leading, spacing: 10) {
-                                PlatformImageView(data: draftContractSourceImageData)
-                                    .scaledToFit()
-                                    .frame(maxWidth: .infinity, maxHeight: 280)
-                                    .background(PixelTheme.background.opacity(0.08))
-                                    .clipShape(PixelCornerShape(step: 3))
-                                Label("这个任务由上图内容生成；保存后可在任务详情中回看。", systemImage: "sparkles")
-                                    .font(PixelTheme.font(.caption))
-                                    .foregroundStyle(PixelTheme.inkMuted)
-                            }
-                            .padding(12)
-                            .background(PixelTheme.paperRaised, in: PixelCornerShape())
-                            .overlay { PixelCornerShape().stroke(PixelTheme.gold.opacity(0.62), lineWidth: 1) }
-                        }
-                    }
-
-                    if isDraftTaskGroup {
-                        contractField(L10n.text(
-                            "识别到 \(draftChildren.count) 个子任务",
-                            english: "\(draftChildren.count) subtasks found"
-                        )) {
-                            VStack(spacing: 12) {
-                                ForEach($draftChildren) { $child in
-                                    VStack(alignment: .leading, spacing: 9) {
-                                        HStack(alignment: .firstTextBaseline, spacing: 9) {
-                                            Text("\((draftChildren.firstIndex(where: { $0.id == child.id }) ?? 0) + 1)")
-                                                .font(PixelTheme.statFont(size: 11))
-                                                .foregroundStyle(.white)
-                                                .frame(width: 22, height: 22)
-                                                .background(PixelTheme.selection, in: PixelCornerShape(step: 2))
-                                            TextField("子任务标题", text: $child.title, axis: .vertical)
-                                                .textFieldStyle(.plain)
-                                                .font(PixelTheme.font(.headline))
-                                                .lineLimit(1...3)
-                                                .onChange(of: child.title) { _, newValue in
-                                                    if !newValue.isEmpty, !TaskTitleRules.isValid(newValue) {
-                                                        child.title = TaskTitleRules.limited(newValue)
-                                                    }
-                                                }
-                                        }
-
-                                        Text(TaskTitleRules.limitDescription(for: child.title))
-                                            .font(PixelTheme.font(.caption2))
-                                            .foregroundStyle(PixelTheme.inkMuted)
-
-                                        TextField("任务说明（可选）", text: $child.taskDescription, axis: .vertical)
-                                            .textFieldStyle(.plain)
-                                            .font(PixelTheme.font(.subheadline))
-                                            .foregroundStyle(PixelTheme.inkMuted)
-                                            .lineLimit(2...5)
-
-                                        Label(
-                                            L10n.text(
-                                                "完成时可提交 1–5 张照片 · 约 +\(child.xpReward) EXP 工作量",
-                                                english: "Submit 1–5 photos when done · about +\(child.xpReward) EXP of effort"
-                                            ),
-                                            systemImage: "photo.stack"
-                                        )
-                                        .font(PixelTheme.font(.caption))
-                                        .foregroundStyle(PixelTheme.inkMuted)
-
-                                        MonsterDraftPreviewCard(
-                                            descriptor: monsterDescriptor(for: child),
-                                            level: draftMonsterLevel,
-                                            state: draftMonsterPreviewStates[child.id.uuidString] ?? .loading
-                                        )
-                                    }
-                                    .padding(14)
-                                    .frame(maxWidth: .infinity, alignment: .leading)
-                                    .background(PixelTheme.paperRaised, in: PixelCornerShape())
-                                    .overlay { PixelCornerShape().stroke(PixelTheme.gold.opacity(0.62), lineWidth: 1) }
-                                }
-                            }
-                        }
-                    } else {
-                        contractField("证据照片") {
-                            VStack(alignment: .leading, spacing: 10) {
-                                Label("完成时可提交 1–5 张照片", systemImage: "photo.stack")
-                                    .font(PixelTheme.font(.subheadline, weight: .semibold))
-                            }
-                            .padding(14)
-                            .frame(maxWidth: .infinity, alignment: .leading)
-                            .background(PixelTheme.paperRaised, in: PixelCornerShape())
-                            .overlay { PixelCornerShape().stroke(PixelTheme.gold.opacity(0.62), lineWidth: 1) }
-                        }
-                    }
-
-                    Button(action: saveTask) {
-                        Label("确认并保存", systemImage: "checkmark")
-                            .font(PixelTheme.font(.subheadline, weight: .semibold))
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(PixelButtonStyle(tone: PixelTheme.selection))
-                    .disabled(!canSaveDraft)
-                    .opacity(canSaveDraft ? 1 : 0.45)
-
-                    if let errorMessage {
-                        statusBanner(icon: "exclamationmark.triangle.fill", message: errorMessage, color: PixelTheme.danger)
-                    }
-                }
-                .padding(isCompactLayout ? 18 : 24)
-                .background {
-                    ZStack {
-                        PixelCornerShape()
-                            .fill(PixelTheme.background.opacity(0.92))
-                            .offset(x: 4, y: 4)
-                        PixelCornerShape().fill(PixelTheme.paper)
-                    }
-                }
-                .overlay { PixelCornerShape().stroke(PixelTheme.gold, lineWidth: 2) }
+            ScrollView {
+                bountyPoster(now: now)
+                    .frame(width: 781, height: 1766)
+                    .scaleEffect(posterScale, anchor: .top)
+                    .frame(width: posterWidth, height: 1766 * posterScale, alignment: .top)
+                    .frame(maxWidth: .infinity)
+                    .padding(.bottom, isCompactLayout ? 8 : 28)
             }
-            .padding(.horizontal, 20)
-            .padding(.vertical, 28)
-            .platformScrollableContentWidth(790)
-            .frame(maxWidth: .infinity)
+            .scrollIndicators(.hidden)
         }
         .task(id: draftMonsterPreviewKey) {
             await refreshDraftMonsterPreviews()
         }
     }
 
-    private var contractReviewTitle: some View {
-        VStack(alignment: .leading, spacing: 5) {
-            Text(
-                isDraftTaskGroup
-                    ? L10n.text("确认任务组", english: "Review Task Group")
-                    : L10n.text("确认任务契约", english: "Review Task Contract")
-            )
-                .font(PixelTheme.displayFont(size: 32))
-                .foregroundStyle(PixelTheme.paperRaised)
-            Text(
-                isDraftTaskGroup
-                    ? L10n.text(
-                        "已识别 \(draftChildren.count) 项；确认主任务与每项任务说明后即可保存。",
-                        english: "\(draftChildren.count) actions found. Review the group and each task description before saving."
-                    )
-                    : L10n.text(
-                        "确认截止日期和证据照片后，即可开始执行。",
-                        english: "Review the deadline and evidence photos before starting."
-                    )
-            )
-                .foregroundStyle(PixelTheme.paper.opacity(0.72))
+    private func bountyPoster(now _: Date) -> some View {
+        ZStack(alignment: .topLeading) {
+            Image("BountyContractBackground")
+                .resizable()
+                .interpolation(.high)
+                .frame(width: 781, height: 1766)
+                .accessibilityHidden(true)
+
+            bountyTitleField
+                .frame(width: 535, height: 104)
+                .position(x: 421, y: 137)
+
+            bountyMonsterField
+                .frame(width: 420, height: 445)
+                .position(x: 390, y: 508)
+
+            bountyBadgeField
+                .frame(width: 270, height: 108)
+                .position(x: 224, y: 868)
+
+            bountyMonsterLevelField
+                .frame(width: 270, height: 108)
+                .position(x: 557, y: 868)
+
+            bountyXPField
+                .frame(width: 270, height: 102)
+                .position(x: 224, y: 1035)
+
+            BountyDeadlineButton(selection: $draftDeadline)
+                .frame(width: 270, height: 102)
+                .position(x: 557, y: 1035)
+
+            bountyDescriptionField
+                .frame(width: 620, height: 174)
+                .position(x: 390, y: 1261)
+
+            bountyEvidenceField
+                .frame(width: 620, height: 130)
+                .position(x: 390, y: 1502)
+
+            bountySaveButton
+                .frame(width: 470, height: 76)
+                .position(x: 390, y: 1674)
+
+            if let errorMessage {
+                Text(errorMessage)
+                    .font(PixelTheme.font(size: 18))
+                    .foregroundStyle(.white)
+                    .multilineTextAlignment(.center)
+                    .lineLimit(2)
+                    .padding(.horizontal, 14)
+                    .frame(width: 610, height: 48)
+                    .background(PixelTheme.danger.opacity(0.94), in: PixelCornerShape(step: 3))
+                    .position(x: 390, y: 1609)
+            }
+        }
+        .frame(width: 781, height: 1766)
+    }
+
+    private var bountyTitleField: some View {
+        TextField(
+            isDraftTaskGroup
+                ? L10n.text("主任务标题", english: "Main Task Title")
+                : L10n.text("任务标题", english: "Task Title"),
+            text: $draftTitle,
+            axis: .vertical
+        )
+        .textFieldStyle(.plain)
+        .font(PixelTheme.displayFont(size: 42))
+        .foregroundStyle(PixelTheme.ink)
+        .multilineTextAlignment(.center)
+        .lineLimit(1...2)
+        .minimumScaleFactor(0.72)
+        .onChange(of: draftTitle) { _, newValue in
+            if !newValue.isEmpty, !TaskTitleRules.isValid(newValue) {
+                draftTitle = TaskTitleRules.limited(newValue)
+            }
+        }
+        .accessibilityLabel(L10n.text("任务标题", english: "Task title"))
+    }
+
+    @ViewBuilder
+    private var bountyMonsterField: some View {
+        if isDraftTaskGroup {
+            let columns = [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)]
+            ScrollView {
+                LazyVGrid(columns: columns, spacing: 12) {
+                    ForEach(draftChildren) { child in
+                        VStack(spacing: 4) {
+                            MonsterArtworkView(
+                                imageURL: draftMonsterReadyImageURL(for: child.id.uuidString),
+                                isDiscovered: true
+                            )
+                            .frame(height: 156)
+
+                            Text(child.title)
+                                .font(PixelTheme.font(size: 20))
+                                .foregroundStyle(PixelTheme.ink)
+                                .lineLimit(1)
+                        }
+                    }
+                }
+            }
+            .scrollIndicators(.hidden)
+            .padding(16)
+        } else {
+            VStack(spacing: 2) {
+                MonsterArtworkView(
+                    imageURL: draftMonsterReadyImageURL(for: "single"),
+                    isDiscovered: true
+                )
+                .padding(.horizontal, 24)
+
+                Text(MonsterTaxonomy.categoryLabel(for: singleDraftMonsterDescriptor.canonicalTag))
+                    .font(PixelTheme.displayFont(size: 25))
+                    .foregroundStyle(PixelTheme.ink)
+                    .lineLimit(1)
+            }
+            .padding(.vertical, 14)
         }
     }
 
-    private var contractReviewBackButton: some View {
-        Button {
-            withAnimation(.smooth(duration: 0.38)) {
-                creationPhase = .composing
+    private var bountyBadgeField: some View {
+        HStack(spacing: 12) {
+            MedalArtworkView(categoryName: draftBadge, rank: badgeRank(for: draftBadge))
+                .frame(width: 72, height: 72)
+                .clipped()
+
+            VStack(alignment: .leading, spacing: 3) {
+                Text(L10n.text("所属勋章", english: "Medal"))
+                    .font(PixelTheme.font(size: 19))
+                    .foregroundStyle(PixelTheme.inkMuted)
+
+                Picker(L10n.text("所属勋章", english: "Medal"), selection: $draftBadge) {
+                    ForEach(Self.badgeOptions, id: \.self) { badge in
+                        Text(badgeDisplayName(badge)).tag(badge)
+                    }
+                }
+                .pickerStyle(.menu)
+                .labelsHidden()
+                .font(PixelTheme.font(size: 27))
+                .tint(PixelTheme.ink)
             }
-            focusTaskInput()
-        } label: {
-            Label("返回修改想法", systemImage: "chevron.left")
         }
-        .buttonStyle(PixelButtonStyle(tone: PixelTheme.brown))
+        .padding(.horizontal, 12)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+    }
+
+    private var bountyMonsterLevelField: some View {
+        VStack(alignment: .leading, spacing: 4) {
+            Text(L10n.text("怪物等级", english: "Monster Level"))
+                .font(PixelTheme.font(size: 19))
+                .foregroundStyle(PixelTheme.inkMuted)
+            Text("LV. \(draftMonsterLevel)")
+                .font(PixelTheme.statFont(size: 36))
+                .foregroundStyle(PixelTheme.ink)
+        }
+        .padding(.horizontal, 18)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
+    }
+
+    private var bountyXPField: some View {
+        VStack(alignment: .leading, spacing: 3) {
+            Text(L10n.text("完成奖励", english: "Reward"))
+                .font(PixelTheme.font(size: 19))
+                .foregroundStyle(PixelTheme.inkMuted)
+            Text("+\(draftXP) EXP")
+                .font(PixelTheme.statFont(size: 35))
+                .foregroundStyle(PixelTheme.brown)
+                .lineLimit(1)
+        }
+        .padding(.horizontal, 18)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+        .accessibilityElement(children: .combine)
+    }
+
+    @ViewBuilder
+    private var bountyDescriptionField: some View {
+        HStack(alignment: .top, spacing: 14) {
+            VStack(alignment: .leading, spacing: 6) {
+                Text(L10n.text("任务说明", english: "Task Description"))
+                    .font(PixelTheme.font(size: 20))
+                    .foregroundStyle(PixelTheme.inkMuted)
+
+                if isDraftTaskGroup {
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 8) {
+                            TextField(
+                                L10n.text("主任务说明（可选）", english: "Main task details (optional)"),
+                                text: $draftTaskDescription,
+                                axis: .vertical
+                            )
+                            .lineLimit(1...3)
+
+                            ForEach($draftChildren) { $child in
+                                VStack(alignment: .leading, spacing: 2) {
+                                    TextField(
+                                        L10n.text("子任务标题", english: "Subtask title"),
+                                        text: $child.title,
+                                        axis: .vertical
+                                    )
+                                    .font(PixelTheme.font(size: 24))
+                                    .onChange(of: child.title) { _, newValue in
+                                        if !newValue.isEmpty, !TaskTitleRules.isValid(newValue) {
+                                            child.title = TaskTitleRules.limited(newValue)
+                                        }
+                                    }
+
+                                    TextField(
+                                        L10n.text("任务说明（可选）", english: "Task details (optional)"),
+                                        text: $child.taskDescription,
+                                        axis: .vertical
+                                    )
+                                    .font(PixelTheme.font(size: 20))
+                                    .foregroundStyle(PixelTheme.inkMuted)
+                                }
+                            }
+                        }
+                    }
+                    .scrollIndicators(.hidden)
+                } else {
+                    TextField(
+                        L10n.text("补充任务的具体内容（可选）", english: "Add task details (optional)"),
+                        text: $draftTaskDescription,
+                        axis: .vertical
+                    )
+                    .lineLimit(3...5)
+                }
+            }
+            .textFieldStyle(.plain)
+            .font(PixelTheme.font(size: 25))
+            .foregroundStyle(PixelTheme.ink)
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+
+            if let draftContractSourceImageData {
+                PlatformImageView(data: draftContractSourceImageData)
+                    .scaledToFit()
+                    .frame(width: 108, height: 108)
+                    .clipShape(PixelCornerShape(step: 3))
+                    .accessibilityLabel(L10n.text("任务来源图片", english: "Task source image"))
+            }
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 12)
+    }
+
+    private var bountyEvidenceField: some View {
+        VStack(alignment: .leading, spacing: 5) {
+            HStack {
+                Text(L10n.text("提交照片", english: "Evidence Photos"))
+                    .font(PixelTheme.font(size: 20))
+                    .foregroundStyle(PixelTheme.inkMuted)
+                Spacer()
+                Text(L10n.text("\(posterEvidencePhotoCount) 张", english: "\(posterEvidencePhotoCount) photo(s)"))
+                    .font(PixelTheme.font(size: 20))
+                    .foregroundStyle(PixelTheme.brown)
+            }
+
+            if isDraftTaskGroup {
+                ScrollView {
+                    VStack(alignment: .leading, spacing: 5) {
+                        ForEach($draftChildren) { $child in
+                            TextField(
+                                child.title,
+                                text: $child.evidenceRequirement,
+                                axis: .vertical
+                            )
+                            .lineLimit(1...2)
+                        }
+                    }
+                }
+                .scrollIndicators(.hidden)
+            } else {
+                TextField(
+                    L10n.text("写明完成任务时需要拍到什么", english: "Describe what the completion photos must show"),
+                    text: $draftEvidenceRequirement,
+                    axis: .vertical
+                )
+                .lineLimit(2...3)
+            }
+        }
+        .textFieldStyle(.plain)
+        .font(PixelTheme.font(size: 23))
+        .foregroundStyle(PixelTheme.ink)
+        .padding(.horizontal, 18)
+        .padding(.vertical, 10)
+    }
+
+    private var bountySaveButton: some View {
+        Button(action: saveTask) {
+            Label(L10n.text("确认并保存", english: "Confirm & Save"), systemImage: "checkmark")
+                .font(PixelTheme.displayFont(size: 31))
+                .foregroundStyle(Color(red: 0.88, green: 0.75, blue: 0.48))
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(!canSaveDraft)
+        .opacity(canSaveDraft ? 1 : 0.45)
+    }
+
+    private var posterEvidencePhotoCount: Int {
+        if isDraftTaskGroup {
+            return draftChildren.reduce(0) { $0 + $1.evidenceImageCount }
+        }
+        return draftEvidenceImageCount
+    }
+
+    private func draftMonsterReadyImageURL(for key: String) -> String? {
+        guard let snapshot = draftMonsterSnapshot(for: key), snapshot.status == .ready else { return nil }
+        return snapshot.imageURL
     }
 
     private var taskTitleContractField: some View {
@@ -1632,10 +1830,7 @@ struct ContentView: View {
 
     private func taskRow(_ task: TaskContract, now: Date) -> some View {
         HStack(spacing: isCompactLayout ? 12 : 16) {
-            MedalArtworkView(
-                categoryName: task.badgeCategory?.name,
-                rank: task.badgeCategory?.userBadge?.rank ?? .bronze
-            )
+            taskMonsterThumbnail(for: task)
             .frame(width: isCompactLayout ? 44 : 52, height: isCompactLayout ? 44 : 52)
 
             VStack(alignment: .leading, spacing: 6) {
@@ -1714,10 +1909,7 @@ struct ContentView: View {
                 .opacity(isExpanded ? 0 : 1)
 
             HStack(spacing: isCompactLayout ? 10 : 14) {
-                MedalArtworkView(
-                    categoryName: task.badgeCategory?.name,
-                    rank: task.badgeCategory?.userBadge?.rank ?? .bronze
-                )
+                taskMonsterThumbnail(for: task)
                 .frame(width: isCompactLayout ? 42 : 50, height: isCompactLayout ? 42 : 50)
 
                 VStack(alignment: .leading, spacing: 6) {
@@ -1783,6 +1975,18 @@ struct ContentView: View {
                 ? L10n.text("收起子任务", english: "Collapse subtasks")
                 : L10n.text("展开子任务", english: "Expand subtasks")
         )
+    }
+
+    private func taskMonsterThumbnail(for task: TaskContract) -> some View {
+        let presentation = MonsterEncounterPresentation(
+            task: task,
+            discovery: monsterDiscovery(for: task)
+        )
+        return MonsterArtworkView(
+            imageURL: presentation.imageURL,
+            isDiscovered: presentation.revealsAssignedIdentity
+        )
+        .scaleEffect(presentation.imageURL == nil ? 0.52 : 1)
     }
 
     private func taskGroupStackLayer(fill: Color, borderOpacity: Double) -> some View {
@@ -2977,7 +3181,8 @@ struct ContentView: View {
             !$0.isTaskGroup &&
                 $0.monsterTag != nil &&
                 $0.monsterLevel != nil &&
-                ($0.monsterImageURL?.isEmpty != false)
+                (($0.monsterImageURL?.isEmpty != false) ||
+                    !MonsterArtworkFormat.isCurrent($0.monsterStyleVersion))
         }
     }
 

@@ -18,6 +18,8 @@ import {
   validateQueueMessage,
 } from "../src/monsters.ts";
 
+const transparentPngBase64 = "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNgYAAAAAMAASsJTYQAAAAASUVORK5CYII=";
+
 const validConcept = {
   action_metaphor: "Repeatedly untangling algorithm mazes under time pressure.",
   signature_objects: ["maze", "bracket"],
@@ -305,7 +307,7 @@ test("builds a stable evolution prompt without user task content", () => {
     canonical_tag: "coding.leetcode",
     badge_kind: "Solver",
     visual_dna_json: JSON.stringify(validConcept),
-  }, 3, "grotesque-pixel-v2", { MONSTER_PROMPT_VERSION: "monster-image-v4" });
+  }, 3, "grotesque-pixel-v3-transparent", { MONSTER_PROMPT_VERSION: "monster-image-v5" });
 
   assert.match(prompt, /coding\.leetcode/);
   assert.doesNotMatch(prompt, /Species name:/i);
@@ -318,7 +320,9 @@ test("builds a stable evolution prompt without user task content", () => {
   assert.match(prompt, /extremely simple/i);
   assert.match(prompt, /No sprite sheet/i);
   assert.match(prompt, /glossy 3D/i);
-  assert.match(prompt, /Prompt version: monster-image-v4/);
+  assert.match(prompt, /Prompt version: monster-image-v5/);
+  assert.match(prompt, /entire area outside the monster must have zero alpha/i);
+  assert.match(prompt, /no pale matte or fringe/i);
   assert.match(prompt, /MANDATORY SIGNATURE OBJECTS OR MATERIALS/i);
   assert.match(prompt, /"maze","bracket"/);
   assert.match(prompt, /missing any listed anchor is invalid/i);
@@ -327,12 +331,12 @@ test("builds a stable evolution prompt without user task content", () => {
   assert.doesNotMatch(prompt, /task title|email address|user name/i);
 });
 
-test("requests a base WebP image with bounded low-cost settings", async (t) => {
+test("requests a base transparent PNG with bounded low-cost settings", async (t) => {
   const originalFetch = globalThis.fetch;
   let captured;
   globalThis.fetch = async (url, init) => {
     captured = { url, init, body: JSON.parse(init.body) };
-    return Response.json({ data: [{ b64_json: Buffer.from("webp-bytes").toString("base64") }] });
+    return Response.json({ data: [{ b64_json: transparentPngBase64 }] });
   };
   t.after(() => { globalThis.fetch = originalFetch; });
 
@@ -346,11 +350,12 @@ test("requests a base WebP image with bounded low-cost settings", async (t) => {
   assert.equal(captured.url, "https://api.openai.com/v1/images/generations");
   assert.equal(captured.init.headers.Authorization, "Bearer test-only");
   assert.equal(captured.body.model, "gpt-image-2");
-  assert.equal(captured.body.output_format, "webp");
-  assert.equal(captured.body.output_compression, 80);
+  assert.equal(captured.body.output_format, "png");
+  assert.equal(captured.body.background, "transparent");
+  assert.equal("output_compression" in captured.body, false);
   assert.equal(captured.body.quality, "low");
   assert.equal("input_fidelity" in captured.body, false);
-  assert.equal(Buffer.from(bytes).toString(), "webp-bytes");
+  assert.deepEqual(Array.from(bytes.slice(0, 8)), [137, 80, 78, 71, 13, 10, 26, 10]);
 });
 
 test("edits the preceding image without placing the API key in form data", async (t) => {
@@ -358,12 +363,12 @@ test("edits the preceding image without placing the API key in form data", async
   let captured;
   globalThis.fetch = async (url, init) => {
     captured = { url, init };
-    return Response.json({ data: [{ b64_json: Buffer.from("evolved-webp").toString("base64") }] });
+    return Response.json({ data: [{ b64_json: transparentPngBase64 }] });
   };
   t.after(() => { globalThis.fetch = originalFetch; });
 
   const previousObject = {
-    blob: async () => new Blob([new Uint8Array([1, 2, 3])], { type: "image/webp" }),
+    blob: async () => new Blob([new Uint8Array([1, 2, 3])], { type: "image/png" }),
   };
   await requestMonsterImage({
     prompt: "evolve safely",
@@ -376,13 +381,22 @@ test("edits the preceding image without placing the API key in form data", async
   assert.equal(captured.init.headers.Authorization, "Bearer test-only");
   assert.equal(captured.init.body.get("model"), "gpt-image-2");
   assert.equal(captured.init.body.get("quality"), "low");
+  assert.equal(captured.init.body.get("output_format"), "png");
+  assert.equal(captured.init.body.get("background"), "transparent");
+  assert.equal(captured.init.body.get("output_compression"), null);
   assert.equal(captured.init.body.get("input_fidelity"), null);
   assert.equal(captured.init.body.get("OPENAI_API_KEY"), null);
-  assert.equal(captured.init.body.get("image[]").name, "level-1.webp");
+  assert.equal(captured.init.body.get("image[]").name, "level-1.png");
 });
 
 test("rejects malformed data and serves only immutable monster keys", async () => {
   assert.throws(() => decodeImageBase64("not base64"), /invalid image data/i);
+  const opaquePng = Buffer.from(transparentPngBase64, "base64");
+  opaquePng[25] = 2;
+  assert.throws(
+    () => decodeImageBase64(opaquePng.toString("base64")),
+    /PNG with an alpha channel/i,
+  );
 
   const invalid = await handleMonsterAsset("/monster-assets/private.txt", {
     MONSTER_ASSETS: { get: async () => assert.fail("invalid keys must not reach R2") },
@@ -390,7 +404,7 @@ test("rejects malformed data and serves only immutable monster keys", async () =
   assert.equal(invalid.status, 404);
 
   const hash = "a".repeat(64);
-  const validKey = `monsters/grotesque-pixel-v1/coding.leetcode/level-1-${hash}.webp`;
+  const validKey = `monsters/grotesque-pixel-v3-transparent/coding.leetcode/level-1-${hash}.png`;
   const response = await handleMonsterAsset(`/monster-assets/${validKey}`, {
     MONSTER_ASSETS: {
       get: async (key) => {
@@ -404,6 +418,6 @@ test("rejects malformed data and serves only immutable monster keys", async () =
     },
   }, "request-2");
   assert.equal(response.status, 200);
-  assert.equal(response.headers.get("Content-Type"), "image/webp");
+  assert.equal(response.headers.get("Content-Type"), "image/png");
   assert.equal(response.headers.get("Cache-Control"), "public, max-age=31536000, immutable");
 });

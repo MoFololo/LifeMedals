@@ -17,7 +17,7 @@ const MAX_IMAGE_BASE64_LENGTH = 1_800_000;
 const DEFAULT_MODEL = "gpt-5.6-terra";
 const DEFAULT_GLOBAL_REQUESTS_PER_MINUTE = 20;
 const DEFAULT_MONTHLY_REQUEST_BUDGET = 500;
-const WORKER_RELEASE = "2026-08-30-monster-image-budget-recovery-1";
+const WORKER_RELEASE = "2026-09-04-transparent-monster-png-1";
 
 const MONSTER_TAG_SCHEMA = {
   type: "string",

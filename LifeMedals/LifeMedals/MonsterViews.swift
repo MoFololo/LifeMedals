@@ -374,7 +374,9 @@ struct MonsterAtlasView: View {
 
     private var pendingRefreshKey: String {
         discoveries
-            .filter { $0.imageURL == nil }
+            .filter {
+                $0.imageURL == nil || !MonsterArtworkFormat.isCurrent($0.styleVersion)
+            }
             .map { "\($0.canonicalTag):\($0.level)" }
             .sorted()
             .joined(separator: "|")
@@ -401,7 +403,7 @@ struct MonsterAtlasView: View {
     private func speciesCard(_ species: Species) -> some View {
         let highest = species.discoveries.max { $0.level < $1.level }
         return VStack(alignment: .leading, spacing: PixelTheme.space12) {
-            MonsterArtworkView(imageURL: highest?.imageURL, isDiscovered: true)
+            MonsterArtworkView(imageURL: currentArtworkURL(for: highest), isDiscovered: true)
                 .frame(maxWidth: .infinity)
                 .aspectRatio(1, contentMode: .fit)
                 .padding(PixelTheme.space8)
@@ -460,7 +462,10 @@ struct MonsterAtlasView: View {
 
     private func evolutionCard(level: Int, discovery: MonsterDiscovery?) -> some View {
         VStack(spacing: PixelTheme.space8) {
-            MonsterArtworkView(imageURL: discovery?.imageURL, isDiscovered: discovery != nil)
+            MonsterArtworkView(
+                imageURL: currentArtworkURL(for: discovery),
+                isDiscovered: discovery != nil
+            )
                 .frame(height: horizontalSizeClass == .compact ? 78 : 100)
 
             Text(L10n.text("等级 \(level)", english: "Level \(level)"))
@@ -523,7 +528,9 @@ struct MonsterAtlasView: View {
 
     @MainActor
     private func ensurePendingArtwork() async -> Bool {
-        let pending = discoveries.filter { $0.imageURL == nil }
+        let pending = discoveries.filter {
+            $0.imageURL == nil || !MonsterArtworkFormat.isCurrent($0.styleVersion)
+        }
         guard !pending.isEmpty else { return false }
 
         var changed = false
@@ -547,7 +554,9 @@ struct MonsterAtlasView: View {
 
     @MainActor
     private func refreshPendingArtwork() async -> Bool {
-        let pending = discoveries.filter { $0.imageURL == nil }
+        let pending = discoveries.filter {
+            $0.imageURL == nil || !MonsterArtworkFormat.isCurrent($0.styleVersion)
+        }
         guard !pending.isEmpty else { return false }
 
         var changed = false
@@ -566,5 +575,10 @@ struct MonsterAtlasView: View {
         }
         if changed { try? modelContext.save() }
         return hasInProgressArtwork
+    }
+
+    private func currentArtworkURL(for discovery: MonsterDiscovery?) -> String? {
+        guard MonsterArtworkFormat.isCurrent(discovery?.styleVersion) else { return nil }
+        return discovery?.imageURL
     }
 }

@@ -15,8 +15,8 @@ The staging configuration currently names:
 - R2: `lifemedals-monster-assets-staging`
 - Queue: `lifemedals-monster-generation-staging`
 - Dead-letter queue: `lifemedals-monster-generation-dlq-staging`
-- Style: `grotesque-pixel-v2`
-- Image prompt: `monster-image-v4`
+- Style: `grotesque-pixel-v3-transparent`
+- Image prompt: `monster-image-v5`
 - Concept prompt: `monster-concept-v3`
 - Image model: `gpt-image-2`
 
@@ -117,8 +117,8 @@ The response uses a stable envelope:
   "variant": {
     "variant_id": "...",
     "status": "ready",
-    "image_url": "https://.../monster-assets/monsters/...webp",
-    "style_version": "grotesque-pixel-v2"
+    "image_url": "https://.../monster-assets/monsters/...png",
+    "style_version": "grotesque-pixel-v3-transparent"
   }
 }
 ```
@@ -134,8 +134,8 @@ Only valid immutable monster object paths are accepted. The handler reads R2 and
 1. The consumer reloads variant state from D1 and claims a time-bounded generation lease.
 2. Level 1 derives stable visual DNA and one or two required signature objects using the server concept prompt.
 3. Level N waits until Level N-1 is ready and then uses that immutable R2 image as the edit input.
-4. The server fixes the model, square size, low quality, WebP output, compression, safety rules, and prompt versions. Clients cannot override them.
-5. The result is decoded, validated, hashed, and written to `monsters/{styleVersion}/{canonicalTag}/level-{level}-{hash}.webp`.
+4. The server fixes the model, square size, low quality, transparent PNG output, safety rules, and prompt versions. Clients cannot override them.
+5. The result is decoded, validated as a bounded PNG with an alpha channel, hashed, and written to `monsters/{styleVersion}/{canonicalTag}/level-{level}-{hash}.png`.
 6. Only after R2 succeeds does D1 atomically mark the variant ready.
 7. Safe failures update D1 and throw when Queue retry is appropriate. Logs exclude secrets, full Base64 images, and private task content.
 

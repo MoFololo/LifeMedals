@@ -142,6 +142,7 @@ This phase must not move private task or evidence data to the server.
 ## Milestone log
 
 - 2026-09-04 — Removed Sign in with Apple and the login gate. Unified the app and private CloudKit container identifiers, enabled Development/Production CloudKit environments and background remote notifications, moved task-source/evidence images to backup-excluded device-local storage, and added safe legacy image migration.
+- 2026-09-04 — Migrated monster generation and evolution assets from opaque WebP to alpha-channel PNG cutouts, versioned the transparent style family, and made clients refresh stale pre-migration monster artwork.
 
 - 2026-09-03 — Added iOS edge-swipe navigation for task tabs, task-detail return, and achievement tabs; unified directional transitions and limited them to the changing content region. Refined task-group cards so collapsed groups stack toward the lower right and expanded groups return to a normal single-card parent. Current iOS Simulator Debug build passed.
 - 2026-09-02 — Added validated short task titles and a separate task description throughout generation, persistence, notifications, verification, and task-group editing. Compressed a large medal asset.

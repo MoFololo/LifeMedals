@@ -47,6 +47,8 @@ These examples show the required strength of association. The concept model must
 - Use a low-resolution grotesque pixel mascot: compact, asymmetric, awkward, and family-friendly.
 - Use hard square pixels, stepped contours, and three or four muted dirty-gray colors.
 - Do not use antialiasing, gradients, blur, smooth 3D rendering, or dense high-resolution detail.
+- Return one PNG cutout with an alpha channel. Every pixel outside the monster must be fully transparent.
+- Do not include a background color, backdrop rectangle, paper texture, scene, floor, halo, glow, cast shadow, ground shadow, or pale matte fringe around the silhouette.
 - Do not include text, numbers, logos, trademarks, copyrighted characters, gore, exposed organs, nudity, or sexual content.
 - Concept and image services receive only canonical tag, medal family, level, stable visual DNA, and version metadata. They never receive a user's title, description, evidence, or identity.
 
@@ -57,4 +59,4 @@ These examples show the required strength of association. The concept model must
 - `MONSTER_STYLE_VERSION` selects the immutable variant family.
 - A regeneration that changes art must increment the style version and write a new R2 object. Existing historical objects must never be overwritten.
 
-The current staging configuration uses `monster-concept-v3`, `monster-image-v4`, and `grotesque-pixel-v2` with `gpt-image-2`.
+The current production and staging configuration uses `monster-concept-v3`, `monster-image-v5`, and `grotesque-pixel-v3-transparent` with `gpt-image-2`.

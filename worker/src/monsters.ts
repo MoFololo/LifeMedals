@@ -3,8 +3,8 @@ const OPENAI_IMAGE_EDITS_URL = "https://api.openai.com/v1/images/edits";
 const OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses";
 
 const DEFAULT_IMAGE_MODEL = "gpt-image-2";
-const DEFAULT_STYLE_VERSION = "grotesque-pixel-v2";
-const DEFAULT_PROMPT_VERSION = "monster-image-v4";
+const DEFAULT_STYLE_VERSION = "grotesque-pixel-v3-transparent";
+const DEFAULT_PROMPT_VERSION = "monster-image-v5";
 const DEFAULT_CONCEPT_PROMPT_VERSION = "monster-concept-v3";
 const DEFAULT_MONTHLY_IMAGE_BUDGET = 100;
 const DEFAULT_IMAGES_PER_MINUTE = 2;
@@ -324,7 +324,7 @@ export async function handleMonsterAsset(pathname, env, requestId) {
 
   const headers = new Headers();
   object.writeHttpMetadata(headers);
-  headers.set("Content-Type", "image/webp");
+  headers.set("Content-Type", "image/png");
   headers.set("Cache-Control", "public, max-age=31536000, immutable");
   headers.set("ETag", object.httpEtag);
   headers.set("X-Content-Type-Options", "nosniff");
@@ -497,12 +497,12 @@ export async function processMonsterGeneration(rawMessage, env) {
       "monsters",
       message.styleVersion,
       species.canonical_tag,
-      `level-${current.level}-${contentHash}.webp`,
+      `level-${current.level}-${contentHash}.png`,
     ].join("/");
 
     await env.MONSTER_ASSETS.put(objectKey, imageBytes, {
       httpMetadata: {
-        contentType: "image/webp",
+        contentType: "image/png",
         cacheControl: "public, max-age=31536000, immutable",
       },
       customMetadata: {
@@ -520,7 +520,7 @@ export async function processMonsterGeneration(rawMessage, env) {
        SET
          status = 'ready',
          image_object_key = ?,
-         image_content_type = 'image/webp',
+         image_content_type = 'image/png',
          image_byte_size = ?,
          image_content_hash = ?,
          model = ?,
@@ -990,8 +990,9 @@ export function buildMonsterPrompt(species, level, styleVersion, env = {}) {
     "PIXEL CONSTRUCTION IS MANDATORY: design on a logical 48 by 48 pixel canvas, then nearest-neighbor upscale it. Every edge must snap to a visible square-pixel grid with chunky staircase contours.",
     "Use crisp hard-edged pixel clusters, one- to three-pixel-thick dark outlines, no anti-aliasing, no subpixel detail, no smooth vector curves, no blur, no gradients, and no paper or paint texture.",
     "Make it extremely simple: one squat lopsided blob-like silhouette, oversized blank or worried eyes, a tiny mouth, tiny limbs if needed, and at most two category-specific details. It should be easy to redraw as a tiny game sprite.",
-    "Use only three or four dirty muted colors plus a dark outline, flat fills, and at most one blocky shadow tone. Place it on a plain warm off-white solid background.",
-    "Keep exactly one centered front-facing or slight three-quarter full-body sprite with generous empty space. No sprite sheet, alternate pose, animation frame, decorative scene, border, or ground shadow.",
+    "Use only three or four dirty muted colors plus a dark outline, flat fills, and at most one blocky shadow tone.",
+    "TRANSPARENT CUTOUT IS MANDATORY: the entire area outside the monster must have zero alpha. Do not draw any colored or opaque background, backdrop rectangle, paper texture, scenery, border, halo, glow, floor, cast shadow, or ground shadow. Keep hard pixel edges at the transparency boundary with no pale matte or fringe.",
+    "Keep exactly one centered front-facing or slight three-quarter full-body sprite with generous transparent space. No sprite sheet, alternate pose, animation frame, decorative scene, or border.",
     "No polished concept art, smooth illustration, glossy 3D, anime styling, realistic anatomy, intricate armor, high-resolution pixel detail, or painterly rendering.",
     "No text, letters, numbers, logo, watermark, trademark, recognizable interface, gore, exposed organs, or imitation of any copyrighted character or franchise.",
     `Style version: ${styleVersion}.`,
@@ -1015,9 +1016,8 @@ export async function requestMonsterImage({ prompt, previousObject, level, env }
         prompt,
         size: "1024x1024",
         quality: "low",
-        output_format: "webp",
-        output_compression: 80,
-        background: "opaque",
+        output_format: "png",
+        background: "transparent",
         n: 1,
       }),
       signal: AbortSignal.timeout(180_000),
@@ -1028,10 +1028,9 @@ export async function requestMonsterImage({ prompt, previousObject, level, env }
     form.set("prompt", prompt);
     form.set("size", "1024x1024");
     form.set("quality", "low");
-    form.set("output_format", "webp");
-    form.set("output_compression", "80");
-    form.set("background", "opaque");
-    form.append("image[]", await previousObject.blob(), `level-${level - 1}.webp`);
+    form.set("output_format", "png");
+    form.set("background", "transparent");
+    form.append("image[]", await previousObject.blob(), `level-${level - 1}.png`);
 
     response = await fetch(OPENAI_IMAGE_EDITS_URL, {
       method: "POST",
@@ -1112,7 +1111,32 @@ export function decodeImageBase64(value) {
   for (let index = 0; index < binary.length; index += 1) {
     bytes[index] = binary.charCodeAt(index);
   }
+  validateTransparentPng(bytes);
   return bytes;
+}
+
+function validateTransparentPng(bytes) {
+  const pngSignature = [137, 80, 78, 71, 13, 10, 26, 10];
+  const hasSignature = bytes.length >= 33 && pngSignature.every((byte, index) => bytes[index] === byte);
+  const hasIHDR = hasSignature &&
+    bytes[8] === 0 && bytes[9] === 0 && bytes[10] === 0 && bytes[11] === 13 &&
+    bytes[12] === 73 && bytes[13] === 72 && bytes[14] === 68 && bytes[15] === 82;
+  const width = hasIHDR
+    ? (((bytes[16] << 24) >>> 0) + (bytes[17] << 16) + (bytes[18] << 8) + bytes[19])
+    : 0;
+  const height = hasIHDR
+    ? (((bytes[20] << 24) >>> 0) + (bytes[21] << 16) + (bytes[22] << 8) + bytes[23])
+    : 0;
+  const colorType = hasIHDR ? bytes[25] : -1;
+
+  if (!hasIHDR || width === 0 || height === 0 || width > 2048 || height > 2048 || ![4, 6].includes(colorType)) {
+    throw new MonsterServiceError(
+      502,
+      "invalid_openai_transparent_png",
+      "OpenAI did not return a bounded PNG with an alpha channel.",
+      true,
+    );
+  }
 }
 
 async function findOrCreateSpecies(env, input) {
@@ -1474,7 +1498,7 @@ function publicMonsterAssetURL(env, objectKey) {
 }
 
 function isValidMonsterObjectKey(value) {
-  return /^monsters\/[a-z0-9][a-z0-9._-]{0,39}\/[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)+\/level-[1-9]-[a-f0-9]{64}\.webp$/.test(value);
+  return /^monsters\/[a-z0-9][a-z0-9._-]{0,39}\/[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)+\/level-[1-9]-[a-f0-9]{64}\.png$/.test(value);
 }
 
 function normalizeCanonicalTag(value) {

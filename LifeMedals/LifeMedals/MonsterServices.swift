@@ -7,6 +7,14 @@ enum MonsterMatchKind: String, Codable, Sendable {
     case new
 }
 
+enum MonsterArtworkFormat {
+    static let currentStyleVersion = "grotesque-pixel-v3-transparent"
+
+    static func isCurrent(_ styleVersion: String?) -> Bool {
+        styleVersion == currentStyleVersion
+    }
+}
+
 struct MonsterDescriptor: Equatable, Sendable {
     let canonicalTag: String
     let matchKind: MonsterMatchKind
@@ -430,7 +438,13 @@ struct MonsterEncounterPresentation: Equatable {
     let isAtlasDiscovered: Bool
 
     init(task: TaskContract, discovery: MonsterDiscovery?) {
-        let resolvedImageURL = discovery?.imageURL ?? task.monsterImageURL
+        let currentDiscoveryURL = MonsterArtworkFormat.isCurrent(discovery?.styleVersion)
+            ? discovery?.imageURL
+            : nil
+        let currentTaskURL = MonsterArtworkFormat.isCurrent(task.monsterStyleVersion)
+            ? task.monsterImageURL
+            : nil
+        let resolvedImageURL = currentDiscoveryURL ?? currentTaskURL
         imageURL = resolvedImageURL?.isEmpty == false ? resolvedImageURL : nil
         revealsAssignedIdentity = task.monsterTag != nil && task.monsterLevel != nil
         isAtlasDiscovered = discovery != nil
@@ -521,7 +535,17 @@ actor MonsterImageCache {
     init() {
         let baseDirectory = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
             ?? FileManager.default.temporaryDirectory
-        cacheDirectory = baseDirectory.appending(path: "LifeMedalsMonsterImages", directoryHint: .isDirectory)
+        let legacyCacheDirectory = baseDirectory.appending(
+            path: "LifeMedalsMonsterImages",
+            directoryHint: .isDirectory
+        )
+        if fileManager.fileExists(atPath: legacyCacheDirectory.path) {
+            try? fileManager.removeItem(at: legacyCacheDirectory)
+        }
+        cacheDirectory = baseDirectory.appending(
+            path: "LifeMedalsMonsterImages-v3-transparent",
+            directoryHint: .isDirectory
+        )
     }
 
     func data(for url: URL) async throws -> Data {
@@ -533,7 +557,7 @@ actor MonsterImageCache {
         }
 
         var request = URLRequest(url: url, cachePolicy: .returnCacheDataElseLoad, timeoutInterval: 20)
-        request.setValue("image/avif,image/webp,image/*", forHTTPHeaderField: "Accept")
+        request.setValue("image/png,image/*", forHTTPHeaderField: "Accept")
         let (data, response) = try await URLSession.shared.data(for: request)
         guard
             let httpResponse = response as? HTTPURLResponse,

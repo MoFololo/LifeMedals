@@ -6,8 +6,6 @@ struct SettingsView: View {
     @Environment(CloudSyncMonitor.self) private var syncMonitor
 
     @AppStorage(AppLanguage.storageKey) private var selectedLanguage = AppLanguage.simplifiedChinese.rawValue
-    @State private var isShowingProfile = false
-
     var body: some View {
         ZStack {
             PixelBackground()
@@ -37,35 +35,27 @@ struct SettingsView: View {
                     }
 
                     settingsSection(title: "同步") {
-                        Button {
-                            isShowingProfile = true
-                        } label: {
-                            HStack(spacing: PixelTheme.space12) {
-                                PixelSymbolTile(
-                                    systemImage: syncMonitor.iconName,
-                                    tint: syncMonitor.isAvailable ? PixelTheme.success : PixelTheme.selection,
-                                    size: 42
-                                )
+                        HStack(spacing: PixelTheme.space12) {
+                            PixelSymbolTile(
+                                systemImage: syncMonitor.iconName,
+                                tint: syncMonitor.errorMessage == nil
+                                    ? (syncMonitor.isAvailable ? PixelTheme.success : PixelTheme.selection)
+                                    : PixelTheme.danger,
+                                size: 42
+                            )
 
-                                VStack(alignment: .leading, spacing: PixelTheme.space4) {
-                                    Text("iCloud 同步")
-                                        .font(PixelTheme.font(.headline))
-                                        .foregroundStyle(PixelTheme.ink)
-                                    Text(profileDetail)
-                                        .font(PixelTheme.font(.caption))
-                                        .foregroundStyle(PixelTheme.inkMuted)
-                                }
-
-                                Spacer(minLength: PixelTheme.space8)
-
-                                Image(systemName: "chevron.right")
-                                    .font(PixelTheme.font(.caption, weight: .bold))
-                                    .foregroundStyle(PixelTheme.inkMuted)
+                            VStack(alignment: .leading, spacing: PixelTheme.space4) {
+                                Text("iCloud 同步")
+                                    .font(PixelTheme.font(.headline))
+                                    .foregroundStyle(PixelTheme.ink)
+                                Text(syncDetail)
+                                    .font(PixelTheme.font(.caption))
+                                    .foregroundStyle(syncMonitor.errorMessage == nil ? PixelTheme.inkMuted : PixelTheme.danger)
+                                    .fixedSize(horizontal: false, vertical: true)
                             }
-                            .contentShape(Rectangle())
+
+                            Spacer(minLength: PixelTheme.space8)
                         }
-                        .buttonStyle(.plain)
-                        .accessibilityHint("查看 iCloud 同步状态")
                     }
                 }
                 .padding(horizontalSizeClass == .compact ? 20 : 28)
@@ -73,12 +63,8 @@ struct SettingsView: View {
             }
         }
         .platformSheetWidth(540)
-        .presentationDetents([.medium, .large])
+        .presentationDetents([.large])
         .presentationDragIndicator(.visible)
-        .sheet(isPresented: $isShowingProfile) {
-            AccountSyncView()
-                .environment(syncMonitor)
-        }
     }
 
     private var header: some View {
@@ -149,9 +135,26 @@ struct SettingsView: View {
         .accessibilityAddTraits(isSelected ? .isSelected : [])
     }
 
-    private var profileDetail: String {
-        LifeMedalsCloud.isEnabledForCurrentBuild
-            ? syncMonitor.shortTitle
-            : L10n.text("本地开发模式", english: "Local development mode")
+    private var syncDetail: String {
+        guard LifeMedalsCloud.isEnabledForCurrentBuild else {
+            return L10n.text("本地开发模式", english: "Local development mode")
+        }
+        if let errorMessage = syncMonitor.errorMessage {
+            return errorMessage
+        }
+        if syncMonitor.isCheckingAccount {
+            return L10n.text("检查 iCloud", english: "Checking iCloud")
+        }
+        if syncMonitor.isSyncing {
+            return L10n.text("正在同步", english: "Syncing")
+        }
+        if syncMonitor.isAvailable, let date = syncMonitor.lastSuccessfulSync {
+            let formattedDate = L10n.date(date, dateStyle: .medium, timeStyle: .short)
+            return L10n.text(
+                "iCloud 已同步 · \(formattedDate)",
+                english: "iCloud Synced · \(formattedDate)"
+            )
+        }
+        return syncMonitor.shortTitle
     }
 }

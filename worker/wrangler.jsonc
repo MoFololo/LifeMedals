@@ -15,8 +15,8 @@
 	"vars": {
 		"OPENAI_MODEL": "gpt-5.6-terra",
 		"MONSTER_IMAGE_MODEL": "gpt-image-2",
-		"MONSTER_STYLE_VERSION": "grotesque-pixel-v2",
-		"MONSTER_PROMPT_VERSION": "monster-image-v4",
+		"MONSTER_STYLE_VERSION": "grotesque-pixel-v3-transparent",
+		"MONSTER_PROMPT_VERSION": "monster-image-v5",
 		"MONSTER_CONCEPT_PROMPT_VERSION": "monster-concept-v3",
 		"MONSTER_ASSET_BASE_URL": "https://lifemedals-api.david-lian0809.workers.dev/monster-assets",
 		"GLOBAL_REQUESTS_PER_MINUTE": "20",
@@ -85,8 +85,8 @@
 			"vars": {
 				"OPENAI_MODEL": "gpt-5.6-terra",
 				"MONSTER_IMAGE_MODEL": "gpt-image-2",
-				"MONSTER_STYLE_VERSION": "grotesque-pixel-v2",
-				"MONSTER_PROMPT_VERSION": "monster-image-v4",
+				"MONSTER_STYLE_VERSION": "grotesque-pixel-v3-transparent",
+				"MONSTER_PROMPT_VERSION": "monster-image-v5",
 				"MONSTER_CONCEPT_PROMPT_VERSION": "monster-concept-v3",
 				"MONSTER_ASSET_BASE_URL": "https://lifemedals-api-staging.david-lian0809.workers.dev/monster-assets",
 				"GLOBAL_REQUESTS_PER_MINUTE": "20",
