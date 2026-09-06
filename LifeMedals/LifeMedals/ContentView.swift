@@ -70,24 +70,13 @@ private struct PixelCheckmark: Shape {
     }
 }
 
-/// Keeps the compact date control visually inside the parchment while presenting
-/// the full-size picker outside the scaled poster coordinate space.
 private struct BountyDeadlineButton: View {
     @Binding var selection: Date
-
-    @State private var isPresented = false
-    @State private var draftSelection: Date
-
-    init(selection: Binding<Date>) {
-        _selection = selection
-        _draftSelection = State(initialValue: selection.wrappedValue)
-    }
+    let isExpanded: Bool
+    let action: () -> Void
 
     var body: some View {
-        Button {
-            draftSelection = DeadlineDateOptions.normalized(selection, relativeTo: .now)
-            isPresented = true
-        } label: {
+        Button(action: action) {
             VStack(alignment: .leading, spacing: 5) {
                 Text(L10n.text("截止日期", english: "Deadline"))
                     .font(PixelTheme.font(size: 20))
@@ -98,37 +87,58 @@ private struct BountyDeadlineButton: View {
                     .lineLimit(1)
                     .minimumScaleFactor(0.72)
             }
+            .padding(.horizontal, 18)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
             .contentShape(Rectangle())
+            .overlay(alignment: .trailing) {
+                Image(systemName: isExpanded ? "chevron.down" : "chevron.up")
+                    .font(PixelTheme.font(size: 18))
+                    .foregroundStyle(PixelTheme.brown.opacity(0.72))
+                    .padding(.trailing, 16)
+            }
         }
         .buttonStyle(.plain)
-        .accessibilityHint(L10n.text("打开日期选择器", english: "Open the date picker"))
-        .sheet(isPresented: $isPresented) {
-            VStack(spacing: PixelTheme.space16) {
-                Text(L10n.text("选择截止日期", english: "Choose Deadline"))
-                    .font(PixelTheme.displayFont(size: 24))
-                    .foregroundStyle(PixelTheme.ink)
+        .accessibilityHint(
+            isExpanded
+                ? L10n.text("收起日期选择器", english: "Close the date picker")
+                : L10n.text("在页面底部选择日期", english: "Choose a date at the bottom of the page")
+        )
+    }
+}
 
-                DeadlineWheelPicker(selection: $draftSelection)
+private struct BountyDeadlinePanel: View {
+    @Binding var draftSelection: Date
+    let onCancel: () -> Void
+    let onSave: () -> Void
 
-                HStack(spacing: PixelTheme.space12) {
-                    Button(L10n.text("取消", english: "Cancel")) {
-                        isPresented = false
-                    }
+    var body: some View {
+        VStack(spacing: 18) {
+            Text(L10n.text("选择截止日期", english: "Choose Deadline"))
+                .font(PixelTheme.displayFont(size: 29))
+                .foregroundStyle(PixelTheme.ink)
+
+            DeadlineWheelPicker(selection: $draftSelection)
+
+            HStack(spacing: 48) {
+                Button(L10n.text("取消", english: "Cancel"), action: onCancel)
                     .buttonStyle(PixelButtonStyle(tone: PixelTheme.brown))
                     .frame(maxWidth: .infinity)
 
-                    Button(L10n.text("保存", english: "Save")) {
-                        selection = DeadlineDateOptions.normalized(draftSelection, relativeTo: .now)
-                        isPresented = false
-                    }
+                Button(L10n.text("保存", english: "Save"), action: onSave)
                     .buttonStyle(PixelButtonStyle(tone: PixelTheme.selection))
                     .frame(maxWidth: .infinity)
-                }
             }
-            .padding(PixelTheme.space24)
-            .background(PixelTheme.paper)
+            .padding(.horizontal, 34)
         }
+        .padding(.horizontal, 28)
+        .padding(.vertical, 24)
+        .background(PixelTheme.paper)
+        .clipShape(PixelCornerShape(step: 5))
+        .overlay {
+            PixelCornerShape(step: 5)
+                .stroke(PixelTheme.gold.opacity(0.75), lineWidth: 2)
+        }
+        .shadow(color: PixelTheme.brown.opacity(0.25), radius: 0, x: 5, y: 6)
     }
 }
 
@@ -490,10 +500,13 @@ struct ContentView: View {
     @State private var draftTitle = ""
     @State private var draftTaskDescription = ""
     @State private var draftDeadline = DeadlineDateOptions.defaultSelection()
+    @State private var draftDeadlinePickerSelection = DeadlineDateOptions.defaultSelection()
+    @State private var isDeadlinePickerPresented = false
     @State private var draftEvidenceRequirement = ""
     @State private var draftEvidenceImageCount = 1
     @State private var draftEvidenceImageDescriptions: [String] = []
     @State private var draftBadge = BadgeKind.solver.rawValue
+    @State private var badgeSwitchDirection = 1
     @State private var draftXP = 10
     @State private var draftChildren: [TaskChildDraft] = []
     @State private var draftMonsterTag: String?
@@ -667,6 +680,7 @@ struct ContentView: View {
                 .padding(.horizontal, PixelTheme.space12)
                 .padding(.top, PixelTheme.space8)
                 .padding(.bottom, PixelTheme.space4)
+                .allowsHitTesting(!isDeadlinePickerPresented)
         }
         .frame(width: resolvedSize.width, height: resolvedSize.height)
 #else
@@ -692,7 +706,7 @@ struct ContentView: View {
         }
         .frame(width: containerSize.width)
         .overlay(alignment: .leading) {
-            if page == .create, creationPhase == .reviewing {
+            if page == .create, creationPhase == .reviewing, !isDeadlinePickerPresented {
                 edgeSwipeRegion(direction: .towardPrevious) {
                     returnToTaskComposer()
                 }
@@ -742,6 +756,7 @@ struct ContentView: View {
 #endif
 
     private func returnToTaskComposer() {
+        isDeadlinePickerPresented = false
         withAnimation(.smooth(duration: 0.38)) {
             creationPhase = .composing
         }
@@ -1131,17 +1146,55 @@ struct ContentView: View {
         GeometryReader { proxy in
             let horizontalInset: CGFloat = isCompactLayout ? 0 : 28
             let posterWidth = min(max(proxy.size.width - horizontalInset * 2, 1), 700)
-            let posterScale = posterWidth / 781
+            let posterScale = posterWidth / 848
 
-            ScrollView {
-                bountyPoster(now: now)
-                    .frame(width: 781, height: 1766)
-                    .scaleEffect(posterScale, anchor: .top)
-                    .frame(width: posterWidth, height: 1766 * posterScale, alignment: .top)
-                    .frame(maxWidth: .infinity)
-                    .padding(.bottom, isCompactLayout ? 8 : 28)
+            ScrollViewReader { scrollProxy in
+                ZStack(alignment: .bottom) {
+                    ScrollView {
+                        VStack(spacing: 0) {
+                            bountyPoster(now: now)
+                                .frame(width: 848, height: 1855)
+                                .scaleEffect(posterScale, anchor: .top)
+                                .frame(width: posterWidth, height: 1855 * posterScale, alignment: .top)
+                                .frame(maxWidth: .infinity)
+
+                            Color.clear
+                                .frame(height: 1)
+                                .id("bounty-poster-bottom")
+                        }
+                        .padding(.bottom, isCompactLayout ? 8 : 28)
+                    }
+                    .scrollIndicators(.hidden)
+                    .scrollDisabled(isDeadlinePickerPresented)
+                    .allowsHitTesting(!isDeadlinePickerPresented)
+
+                    if isDeadlinePickerPresented {
+                        Color.black.opacity(0.28)
+                            .ignoresSafeArea()
+                            .transition(.opacity)
+
+                        BountyDeadlinePanel(
+                            draftSelection: $draftDeadlinePickerSelection,
+                            onCancel: dismissDeadlinePicker,
+                            onSave: saveDeadlinePicker
+                        )
+                        .frame(width: posterWidth)
+                        .padding(.bottom, 12)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                        .zIndex(1)
+                    }
+                }
+                .onChange(of: isDeadlinePickerPresented) { _, isPresented in
+                    guard isPresented else { return }
+                    withAnimation(reduceMotion ? nil : .snappy(duration: 0.34)) {
+                        scrollProxy.scrollTo("bounty-poster-bottom", anchor: .bottom)
+                    }
+                }
+                .animation(
+                    reduceMotion ? nil : .snappy(duration: 0.34),
+                    value: isDeadlinePickerPresented
+                )
             }
-            .scrollIndicators(.hidden)
         }
         .task(id: draftMonsterPreviewKey) {
             await refreshDraftMonsterPreviews()
@@ -1153,44 +1206,44 @@ struct ContentView: View {
             Image("BountyContractBackground")
                 .resizable()
                 .interpolation(.high)
-                .frame(width: 781, height: 1766)
+                .frame(width: 848, height: 1855)
                 .accessibilityHidden(true)
 
             bountyTitleField
-                .frame(width: 535, height: 104)
-                .position(x: 421, y: 137)
+                .frame(width: 590, height: 116)
+                .position(x: 432, y: 184)
 
             bountyMonsterField
-                .frame(width: 420, height: 445)
-                .position(x: 390, y: 508)
+                .frame(width: 440, height: 465)
+                .position(x: 424, y: 552)
 
             bountyBadgeField
-                .frame(width: 270, height: 108)
-                .position(x: 224, y: 868)
+                .frame(width: 300, height: 294)
+                .position(x: 258, y: 995)
 
-            bountyMonsterLevelField
-                .frame(width: 270, height: 108)
-                .position(x: 557, y: 868)
+            BountyDeadlineButton(
+                selection: $draftDeadline,
+                isExpanded: isDeadlinePickerPresented,
+                action: toggleDeadlinePicker
+            )
+            .frame(width: 306, height: 126)
+            .position(x: 592, y: 911)
 
             bountyXPField
-                .frame(width: 270, height: 102)
-                .position(x: 224, y: 1035)
-
-            BountyDeadlineButton(selection: $draftDeadline)
-                .frame(width: 270, height: 102)
-                .position(x: 557, y: 1035)
+                .frame(width: 306, height: 126)
+                .position(x: 592, y: 1074)
 
             bountyDescriptionField
-                .frame(width: 620, height: 174)
-                .position(x: 390, y: 1261)
+                .frame(width: 660, height: 210)
+                .position(x: 424, y: 1305)
 
             bountyEvidenceField
-                .frame(width: 620, height: 130)
-                .position(x: 390, y: 1502)
+                .frame(width: 660, height: 160)
+                .position(x: 424, y: 1544)
 
             bountySaveButton
-                .frame(width: 470, height: 76)
-                .position(x: 390, y: 1674)
+                .frame(width: 490, height: 88)
+                .position(x: 424, y: 1715)
 
             if let errorMessage {
                 Text(errorMessage)
@@ -1201,10 +1254,10 @@ struct ContentView: View {
                     .padding(.horizontal, 14)
                     .frame(width: 610, height: 48)
                     .background(PixelTheme.danger.opacity(0.94), in: PixelCornerShape(step: 3))
-                    .position(x: 390, y: 1609)
+                    .position(x: 424, y: 1642)
             }
         }
-        .frame(width: 781, height: 1766)
+        .frame(width: 848, height: 1855)
     }
 
     private var bountyTitleField: some View {
@@ -1271,43 +1324,81 @@ struct ContentView: View {
     }
 
     private var bountyBadgeField: some View {
-        HStack(spacing: 12) {
-            MedalArtworkView(categoryName: draftBadge, rank: badgeRank(for: draftBadge))
-                .frame(width: 72, height: 72)
-                .clipped()
+        VStack(spacing: 2) {
+            Text(L10n.text("所属勋章", english: "Medal"))
+                .font(PixelTheme.font(size: 18))
+                .foregroundStyle(PixelTheme.inkMuted)
 
-            VStack(alignment: .leading, spacing: 3) {
-                Text(L10n.text("所属勋章", english: "Medal"))
-                    .font(PixelTheme.font(size: 19))
-                    .foregroundStyle(PixelTheme.inkMuted)
+            HStack(spacing: 4) {
+                badgeCycleButton(systemImage: "chevron.left", offset: -1)
 
-                Picker(L10n.text("所属勋章", english: "Medal"), selection: $draftBadge) {
-                    ForEach(Self.badgeOptions, id: \.self) { badge in
-                        Text(badgeDisplayName(badge)).tag(badge)
-                    }
+                Button {
+                    switchBadge(by: 1)
+                } label: {
+                    MedalArtworkView(categoryName: draftBadge, rank: badgeRank(for: draftBadge))
+                        .frame(width: 176, height: 176)
+                        .contentShape(Rectangle())
+                        .phaseAnimator([false, true, false], trigger: draftBadge) { content, highlighted in
+                            content
+                                .scaleEffect(highlighted ? 1.08 : 1)
+                                .rotation3DEffect(
+                                    .degrees(highlighted ? Double(badgeSwitchDirection * 10) : 0),
+                                    axis: (x: 0, y: 1, z: 0)
+                                )
+                                .brightness(highlighted ? 0.1 : 0)
+                        } animation: { highlighted in
+                            reduceMotion ? nil : .spring(response: highlighted ? 0.2 : 0.32, dampingFraction: 0.58)
+                        }
+                        .overlay(alignment: .topTrailing) {
+                            Image(systemName: "sparkle")
+                                .font(.system(size: 24, weight: .bold))
+                                .foregroundStyle(PixelTheme.goldBright)
+                                .symbolEffect(.bounce, value: draftBadge)
+                        }
                 }
-                .pickerStyle(.menu)
-                .labelsHidden()
-                .font(PixelTheme.font(size: 27))
-                .tint(PixelTheme.ink)
+                .buttonStyle(.plain)
+                .accessibilityLabel(L10n.text("切换所属勋章", english: "Change medal"))
+
+                badgeCycleButton(systemImage: "chevron.right", offset: 1)
             }
+
+            Text(badgeDisplayName(draftBadge))
+                .font(PixelTheme.displayFont(size: 26))
+                .foregroundStyle(PixelTheme.ink)
+                .lineLimit(1)
+                .minimumScaleFactor(0.7)
+                .contentTransition(.numericText())
         }
-        .padding(.horizontal, 12)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .contentShape(Rectangle())
+        .gesture(
+            DragGesture(minimumDistance: 18)
+                .onEnded { value in
+                    let horizontalTravel = value.predictedEndTranslation.width
+                    guard abs(horizontalTravel) > 45 else { return }
+                    switchBadge(by: horizontalTravel < 0 ? 1 : -1)
+                }
+        )
+        .accessibilityElement(children: .contain)
+        .accessibilityHint(L10n.text("左右滑动或点击切换勋章", english: "Swipe or tap to change medal"))
     }
 
-    private var bountyMonsterLevelField: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(L10n.text("怪物等级", english: "Monster Level"))
-                .font(PixelTheme.font(size: 19))
-                .foregroundStyle(PixelTheme.inkMuted)
-            Text("LV. \(draftMonsterLevel)")
-                .font(PixelTheme.statFont(size: 36))
-                .foregroundStyle(PixelTheme.ink)
+    private func badgeCycleButton(systemImage: String, offset: Int) -> some View {
+        Button {
+            switchBadge(by: offset)
+        } label: {
+            Image(systemName: systemImage)
+                .font(PixelTheme.font(size: 20))
+                .foregroundStyle(PixelTheme.brown.opacity(0.78))
+                .frame(width: 44, height: 72)
+                .contentShape(Rectangle())
         }
-        .padding(.horizontal, 18)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-        .accessibilityElement(children: .combine)
+        .buttonStyle(.plain)
+        .accessibilityLabel(
+            offset < 0
+                ? L10n.text("上一个勋章", english: "Previous medal")
+                : L10n.text("下一个勋章", english: "Next medal")
+        )
     }
 
     private var bountyXPField: some View {
@@ -1323,6 +1414,42 @@ struct ContentView: View {
         .padding(.horizontal, 18)
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
         .accessibilityElement(children: .combine)
+    }
+
+    private func switchBadge(by offset: Int) {
+        guard let currentIndex = Self.badgeOptions.firstIndex(of: draftBadge) else { return }
+        let count = Self.badgeOptions.count
+        let nextIndex = (currentIndex + offset + count) % count
+        badgeSwitchDirection = offset < 0 ? -1 : 1
+        withAnimation(reduceMotion ? nil : .snappy(duration: 0.32, extraBounce: 0.24)) {
+            draftBadge = Self.badgeOptions[nextIndex]
+        }
+    }
+
+    private func toggleDeadlinePicker() {
+        if isDeadlinePickerPresented {
+            dismissDeadlinePicker()
+            return
+        }
+
+        draftDeadlinePickerSelection = DeadlineDateOptions.normalized(draftDeadline, relativeTo: .now)
+        withAnimation(reduceMotion ? nil : .snappy(duration: 0.34)) {
+            isDeadlinePickerPresented = true
+        }
+    }
+
+    private func dismissDeadlinePicker() {
+        draftDeadlinePickerSelection = DeadlineDateOptions.normalized(draftDeadline, relativeTo: .now)
+        withAnimation(reduceMotion ? nil : .snappy(duration: 0.28)) {
+            isDeadlinePickerPresented = false
+        }
+    }
+
+    private func saveDeadlinePicker() {
+        draftDeadline = DeadlineDateOptions.normalized(draftDeadlinePickerSelection, relativeTo: .now)
+        withAnimation(reduceMotion ? nil : .snappy(duration: 0.28)) {
+            isDeadlinePickerPresented = false
+        }
     }
 
     @ViewBuilder
@@ -2880,6 +3007,8 @@ struct ContentView: View {
             draftMonsterMatchKind = nil
             draftMonsterPreviewStates = [:]
             draftDeadline = DeadlineDateOptions.defaultSelection()
+            draftDeadlinePickerSelection = draftDeadline
+            isDeadlinePickerPresented = false
             imageTaskNote = ""
             sourceImageError = nil
             errorMessage = nil
