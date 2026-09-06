@@ -6,6 +6,7 @@ import worker, {
   buildTaskGenerationOpenAIRequest,
   buildEvidenceVerificationOpenAIRequest,
   isTaskContract,
+  normalizeTaskTitle,
   validateGenerateTaskInput,
   validateEvidenceVerificationInput,
 } from "../src/index.ts";
@@ -377,6 +378,14 @@ test("validates task contracts without requiring a photo plan", () => {
   assert.equal(
     isTaskContract({ ...baseContract, title: "This task title contains more than eight English words total" }),
     false,
+  );
+});
+
+test("keeps mixed Chinese-English titles intact and limits whole words", () => {
+  assert.equal(normalizeTaskTitle("去Trader Joe买牛肉"), "去Trader Joe买牛肉");
+  assert.equal(
+    normalizeTaskTitle("去Trader Joe买牛肉然后做 dinner 并清理 kitchen"),
+    "去Trader Joe买牛肉然后做 dinner",
   );
 });
 

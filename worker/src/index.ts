@@ -35,7 +35,7 @@ const TASK_CHILD_SCHEMA = {
       type: "string",
       minLength: 1,
       maxLength: 80,
-      description: "A very concise action title: at most 12 characters when Chinese, or 8 words when English.",
+      description: "A very concise action title: at most 12 characters when Chinese, or 8 whole words when English or mixed Chinese-English.",
     },
     description: {
       type: "string",
@@ -83,7 +83,7 @@ const TASK_CONTRACT_SCHEMA = {
       type: "string",
       minLength: 1,
       maxLength: 80,
-      description: "A very concise task title in the user's language: at most 12 characters when Chinese, or 8 words when English.",
+      description: "A very concise task title in the user's language: at most 12 characters when Chinese, or 8 whole words when English or mixed Chinese-English.",
     },
     description: {
       type: "string",
@@ -931,7 +931,7 @@ export function buildTaskGenerationOpenAIRequest(body, model = DEFAULT_MODEL) {
       "Omit actions visibly marked complete. If all visible actions are complete or the source is purely informational, create one practical review task rather than an empty group.",
       "Use the optional user note to disambiguate the visible actions, without inventing facts that are not in the note or image.",
       "Preserve the user's intent and write the title and evidence requirement in the user's language. With image-only input, use the language implied by the locale.",
-      "Write every title as a very short action label. A Chinese title must contain at most 12 non-whitespace characters. An English title must contain at most 8 words. Apply the same limit to the task-group title and every child title.",
+      "Write every title as a very short action label. A Chinese-only title must contain at most 12 non-whitespace characters. An English or mixed Chinese-English title must contain at most 8 natural-language words. Keep every word intact; never cut off part of a Chinese or English word merely to hit the limit. Apply the same limit to the task-group title and every child title.",
       "Never pack the user's detailed content into the title. Summarize concrete details, constraints, named resources, conditions, and useful context in description. If the source has multiple actions, give the group a concise overall description and give each child its own relevant description. Use an empty description only when the user truly supplied no additional detail.",
       "Infer one concrete calendar deadline from the user's words. Preserve explicit dates exactly: for example, 'by August 30' means August 30, not the nearest preset.",
       "Interpret relative dates using the supplied current time and timezone: today is the user's current local date, tomorrow is the following local date, and this weekend is the coming Sunday (including today when today is Sunday).",
@@ -1239,9 +1239,14 @@ function normalizeTaskDescription(value) {
     : "";
 }
 
-function normalizeTaskTitle(value) {
+export function normalizeTaskTitle(value) {
   if (typeof value !== "string") return value;
   const trimmed = value.replace(/\s+/g, " ").trim();
+  if (isMixedHanAndLatin(trimmed)) {
+    const segments = taskTitleWordSegments(trimmed);
+    if (segments.length <= 8) return trimmed;
+    return trimmed.slice(0, segments[8].index).trim();
+  }
   if (containsHanCharacter(trimmed)) {
     let count = 0;
     return Array.from(trimmed).filter((character) => {
@@ -1255,6 +1260,9 @@ function normalizeTaskTitle(value) {
 
 function isValidTaskTitle(value) {
   if (typeof value !== "string" || value.trim().length === 0) return false;
+  if (isMixedHanAndLatin(value)) {
+    return taskTitleWordSegments(value).length <= 8;
+  }
   if (containsHanCharacter(value)) {
     return Array.from(value).filter((character) => !/\s/u.test(character)).length <= 12;
   }
@@ -1263,6 +1271,16 @@ function isValidTaskTitle(value) {
 
 function containsHanCharacter(value) {
   return /\p{Script=Han}/u.test(value);
+}
+
+function isMixedHanAndLatin(value) {
+  return containsHanCharacter(value) && /\p{Script=Latin}/u.test(value);
+}
+
+function taskTitleWordSegments(value) {
+  return Array.from(
+    new Intl.Segmenter("zh", { granularity: "word" }).segment(value),
+  ).filter((segment) => segment.isWordLike);
 }
 
 function isMonsterDescriptor(value) {
