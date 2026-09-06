@@ -203,7 +203,7 @@ final class MonsterDiscoveryServiceTests: XCTestCase {
             variantID: "variant-1",
             status: .ready,
             imageURL: "https://assets.example.com/monster.webp",
-            styleVersion: "pixel-v1"
+            styleVersion: MonsterArtworkFormat.currentStyleVersion
         )
         MonsterVariantSync.apply(ready, to: task, discovery: discovery)
         try context.save()
@@ -218,7 +218,7 @@ final class MonsterDiscoveryServiceTests: XCTestCase {
             variantID: "variant-1",
             status: .ready,
             imageURL: "https://assets.example.com/monster.webp",
-            styleVersion: "pixel-v1"
+            styleVersion: MonsterArtworkFormat.currentStyleVersion
         )
         MonsterVariantSync.apply(ready, to: task)
 
@@ -227,6 +227,28 @@ final class MonsterDiscoveryServiceTests: XCTestCase {
         XCTAssertTrue(presentation.revealsAssignedIdentity)
         XCTAssertFalse(presentation.isAtlasDiscovered)
         XCTAssertEqual(presentation.imageURL, ready.imageURL)
+    }
+
+    func testVariantSyncRewritesLegacyTagToServerCanonicalTag() {
+        let task = makeMonsterTask()
+        task.monsterTag = "healthcare.consultation"
+        let discovery = MonsterDiscovery(
+            canonicalTag: "healthcare.consultation",
+            level: 1,
+            badgeKindRawValue: BadgeKind.life.rawValue
+        )
+        let snapshot = MonsterVariantSnapshot(
+            variantID: "variant-health-consultation",
+            status: .ready,
+            imageURL: "https://assets.example.com/monster.png",
+            styleVersion: MonsterArtworkFormat.currentStyleVersion,
+            canonicalTag: "health.consultation"
+        )
+
+        MonsterVariantSync.apply(snapshot, to: task, discovery: discovery)
+
+        XCTAssertEqual(task.monsterTag, "health.consultation")
+        XCTAssertEqual(discovery.canonicalTag, "health.consultation")
     }
 
     private func makeMonsterTask(xpReward: Int = 25) -> TaskContract {

@@ -7,6 +7,8 @@ A user should recognize a monster's task category from its silhouette and core o
 ## 1. Taxonomy defines the species
 
 - `monster_tag` describes a reusable activity, not one user's task.
+- The taxonomy is open-ended, but generation must compare the existing catalog before creating a species. Equivalent wording reuses an existing species; only a materially different activity or visual metaphor creates a new one.
+- Classify by the durable action before incidental topics. For example, asking about a blood test is `health.consultation`, while completing the test is `health.lab_test`.
 - Explicit sports retain their sport: use `sports.basketball` or `sports.swimming`, never the generic `fitness.workout`.
 - Reserve `fitness.workout` for gym sessions, strength training, or unspecified exercise.
 - Apply the same specificity elsewhere: use `chores.take_out_trash`, not `chores.household`.

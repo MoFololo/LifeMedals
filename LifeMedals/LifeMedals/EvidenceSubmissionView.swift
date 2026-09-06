@@ -8,6 +8,25 @@ import SwiftData
 import SwiftUI
 import UniformTypeIdentifiers
 
+enum EvidenceSubmissionPresentationStyle: Equatable {
+    case card
+    case deliveryTray
+}
+
+private struct EvidenceSubmissionSurfaceModifier: ViewModifier {
+    let presentationStyle: EvidenceSubmissionPresentationStyle
+
+    @ViewBuilder
+    func body(content: Content) -> some View {
+        switch presentationStyle {
+        case .card:
+            content.pixelSurface(fill: PixelTheme.paper, border: PixelTheme.gold, step: 4, hasShadow: true)
+        case .deliveryTray:
+            content
+        }
+    }
+}
+
 struct EvidenceSubmissionView: View {
     @Environment(\.locale) private var locale
 
@@ -42,6 +61,7 @@ struct EvidenceSubmissionView: View {
     @Bindable var task: TaskContract
     let onVerificationStarted: () -> Void
     let onVerificationFinished: (EvidenceVerdict?, MonsterDiscoveryEvent?) -> Void
+    let presentationStyle: EvidenceSubmissionPresentationStyle
 
     @State private var selectedPhotos: [PhotosPickerItem] = []
     @State private var draftImages: [DraftImage] = []
@@ -64,15 +84,89 @@ struct EvidenceSubmissionView: View {
     init(
         task: TaskContract,
         onVerificationStarted: @escaping () -> Void = {},
-        onVerificationFinished: @escaping (EvidenceVerdict?, MonsterDiscoveryEvent?) -> Void = { _, _ in }
+        onVerificationFinished: @escaping (EvidenceVerdict?, MonsterDiscoveryEvent?) -> Void = { _, _ in },
+        presentationStyle: EvidenceSubmissionPresentationStyle = .card
     ) {
         self.task = task
         self.onVerificationStarted = onVerificationStarted
         self.onVerificationFinished = onVerificationFinished
+        self.presentationStyle = presentationStyle
     }
 
     var body: some View {
         let _ = locale.identifier
+        submissionContent
+            .foregroundStyle(PixelTheme.ink)
+            .onGeometryChange(for: CGSize.self) { proxy in
+                proxy.size
+            } action: { newSize in
+                cardSize = newSize
+            }
+            .focusable()
+            .focused($isDraftAreaFocused)
+            .focusEffectDisabled()
+            .onMacPasteImages { providers in
+                guard !isWorking, remainingDraftSlots > 0 else { return }
+                importItemProviders(providers, targetSlot: nil)
+            }
+            .onDrop(
+                of: [UTType.image, UTType.fileURL],
+                delegate: EvidenceDropDelegate(
+                    requiredImageCount: requiredImageCount,
+                    cardWidth: cardSize.width,
+                    isWorking: isWorking,
+                    setHighlight: { isHovering, slot in
+                        if requiredImageCount <= 2 {
+                            targetedFixedSlot = isHovering ? slot : nil
+                        } else {
+                            isBulkDropTargeted = isHovering
+                        }
+                    },
+                    performImport: { providers, slot in
+                        importItemProviders(providers, targetSlot: slot)
+                    }
+                )
+            )
+            .fileImporter(
+                isPresented: $isFileImporterPresented,
+                allowedContentTypes: [.image],
+                allowsMultipleSelection: true
+            ) { result in
+                Task { await importFileResult(result, targetSlot: fileImportTargetSlot) }
+            }
+            .platformCameraPresentation(isPresented: $isCameraPresented) {
+                EvidenceCameraView { sourceData in
+                    guard let targetSlot = cameraTargetSlot else { return }
+                    do {
+                        try addDraftImage(sourceData, targetSlot: targetSlot)
+                    } catch {
+                        showImportError(error)
+                    }
+                    cameraTargetSlot = nil
+                }
+            }
+            .onChange(of: selectedPhotos) { _, items in
+                guard !items.isEmpty else { return }
+                Task { await importPhotos(items) }
+            }
+            .onAppear {
+#if os(macOS)
+                isDraftAreaFocused = true
+#endif
+            }
+    }
+
+    @ViewBuilder
+    private var submissionContent: some View {
+        switch presentationStyle {
+        case .card:
+            cardSubmissionContent
+        case .deliveryTray:
+            deliveryTraySubmissionContent
+        }
+    }
+
+    private var cardSubmissionContent: some View {
         VStack(alignment: .leading, spacing: 18) {
             ViewThatFits(in: .horizontal) {
                 evidenceHeader
@@ -107,67 +201,219 @@ struct EvidenceSubmissionView: View {
             }
         }
         .padding(isCompactLayout ? 16 : 22)
-        .foregroundStyle(PixelTheme.ink)
-        .pixelSurface(fill: PixelTheme.paper, border: PixelTheme.gold, step: 4, hasShadow: true)
-        .onGeometryChange(for: CGSize.self) { proxy in
-            proxy.size
-        } action: { newSize in
-            cardSize = newSize
-        }
-        .focusable()
-        .focused($isDraftAreaFocused)
-        .focusEffectDisabled()
-        .onMacPasteImages { providers in
-            guard !isWorking, remainingDraftSlots > 0 else { return }
-            importItemProviders(providers, targetSlot: nil)
-        }
-        // A single card-boundary drop handler routes the drop to the right slot
-        // and keeps drag-and-drop behavior identical across macOS and iOS.
-        .onDrop(
-            of: [UTType.image, UTType.fileURL],
-            delegate: EvidenceDropDelegate(
-                requiredImageCount: requiredImageCount,
-                cardWidth: cardSize.width,
-                isWorking: isWorking,
-                setHighlight: { isHovering, slot in
-                    if requiredImageCount <= 2 {
-                        targetedFixedSlot = isHovering ? slot : nil
-                    } else {
-                        isBulkDropTargeted = isHovering
-                    }
-                },
-                performImport: { providers, slot in
-                    importItemProviders(providers, targetSlot: slot)
+        .modifier(EvidenceSubmissionSurfaceModifier(presentationStyle: presentationStyle))
+    }
+
+    private var deliveryTraySubmissionContent: some View {
+        GeometryReader { proxy in
+            let width = proxy.size.width
+            let height = proxy.size.height
+
+            ZStack {
+                deliveryTrayClueArea(width: width, height: height)
+                    .frame(width: width * 0.58, height: height * 0.52)
+                    .position(x: width * 0.5, y: height * 0.42)
+
+                if let feedbackMessage {
+                    Text(L10n.text(feedbackMessage))
+                        .font(PixelTheme.font(size: max(9, width * 0.016), weight: .semibold))
+                        .foregroundStyle(feedbackIsError ? PixelTheme.danger : PixelTheme.success)
+                        .lineLimit(2)
+                        .multilineTextAlignment(.center)
+                        .frame(width: width * 0.56, height: height * 0.055)
+                        .position(x: width * 0.5, y: height * 0.69)
                 }
-            )
-        )
-        .fileImporter(
-            isPresented: $isFileImporterPresented,
-            allowedContentTypes: [.image],
-            allowsMultipleSelection: true
-        ) { result in
-            Task { await importFileResult(result, targetSlot: fileImportTargetSlot) }
-        }
-        .platformCameraPresentation(isPresented: $isCameraPresented) {
-            EvidenceCameraView { sourceData in
-                guard let targetSlot = cameraTargetSlot else { return }
-                do {
-                    try addDraftImage(sourceData, targetSlot: targetSlot)
-                } catch {
-                    showImportError(error)
+
+                if task.status != .verified {
+                    deliveryTrayImportButtons(width: width, height: height)
+                        .frame(width: width * 0.54, height: height * 0.09)
+                        .position(x: width * 0.5, y: height * 0.765)
                 }
-                cameraTargetSlot = nil
+
+                deliveryTrayConfirmButton(width: width, height: height)
+                    .frame(width: width * 0.32, height: height * 0.07)
+                    .position(x: width * 0.5, y: height * 0.876)
             }
         }
-        .onChange(of: selectedPhotos) { _, items in
-            guard !items.isEmpty else { return }
-            Task { await importPhotos(items) }
+        .contentShape(Rectangle())
+        .animation(reduceMotion ? nil : .smooth(duration: 0.28), value: draftImages.count)
+        .animation(reduceMotion ? nil : .smooth(duration: 0.3), value: isWorking)
+    }
+
+    @ViewBuilder
+    private func deliveryTrayClueArea(width: CGFloat, height: CGFloat) -> some View {
+        if !draftImages.isEmpty {
+            ZStack {
+                ForEach(Array(draftImages.sorted { $0.slotIndex < $1.slotIndex }.enumerated()), id: \.element.id) { index, draftImage in
+                    deliveryTrayDraftPhoto(draftImage, index: index, canvasWidth: width, canvasHeight: height)
+                }
+            }
+        } else if
+            let latestEvidenceBatch,
+            latestEvidenceBatch.verdict == .pending || latestEvidenceBatch.verdict == .verified
+        {
+            ZStack {
+                ForEach(Array(latestEvidenceBatch.evidences.enumerated()), id: \.element.id) { index, evidence in
+                    deliveryTrayEvidencePhoto(evidence, index: index, canvasWidth: width, canvasHeight: height)
+                }
+            }
+        } else {
+            VStack(spacing: max(4, height * 0.012)) {
+                Image(systemName: "photo.on.rectangle.angled")
+                    .font(.system(size: max(20, width * 0.05), weight: .medium))
+                Text(L10n.text("把完成任务的线索放在这里", english: "Place your proof here"))
+                    .font(PixelTheme.font(size: max(10, width * 0.019)))
+            }
+            .foregroundStyle(PixelTheme.inkMuted.opacity(0.58))
         }
-        .onAppear {
-#if os(macOS)
-            isDraftAreaFocused = true
-#endif
+    }
+
+    private func deliveryTrayDraftPhoto(
+        _ draftImage: DraftImage,
+        index: Int,
+        canvasWidth: CGFloat,
+        canvasHeight: CGFloat
+    ) -> some View {
+        deliveryTrayPhoto(data: draftImage.data, index: index, canvasWidth: canvasWidth, canvasHeight: canvasHeight)
+            .overlay(alignment: .topTrailing) {
+                removeButton(for: draftImage)
+                    .scaleEffect(max(0.72, min(1, canvasWidth / 700)))
+                    .padding(5)
+            }
+    }
+
+    private func deliveryTrayEvidencePhoto(
+        _ evidence: Evidence,
+        index: Int,
+        canvasWidth: CGFloat,
+        canvasHeight: CGFloat
+    ) -> some View {
+        deliveryTrayPhoto(data: evidence.localImageData, index: index, canvasWidth: canvasWidth, canvasHeight: canvasHeight)
+    }
+
+    @ViewBuilder
+    private func deliveryTrayPhoto(
+        data: Data?,
+        index: Int,
+        canvasWidth: CGFloat,
+        canvasHeight: CGFloat
+    ) -> some View {
+        let rotations: [Double] = [-7, 5, -3, 7, -5]
+        let horizontalOffsets: [CGFloat] = [-0.18, -0.09, 0, 0.09, 0.18]
+        let verticalOffsets: [CGFloat] = [0.02, -0.025, 0.015, -0.015, 0.025]
+        let photoWidth = canvasWidth * 0.205
+        let photoHeight = canvasHeight * 0.255
+
+        Group {
+            if let data {
+                PlatformImageView(data: data)
+                    .scaledToFill()
+            } else {
+                Image(systemName: "photo")
+                    .font(.system(size: max(18, canvasWidth * 0.035)))
+                    .foregroundStyle(PixelTheme.inkMuted)
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .background(PixelTheme.paperRaised)
+            }
         }
+        .frame(width: photoWidth, height: photoHeight)
+        .clipped()
+        .padding(max(3, canvasWidth * 0.006))
+        .background(Color(red: 0.95, green: 0.89, blue: 0.72))
+        .overlay(Rectangle().stroke(PixelTheme.brown.opacity(0.62), lineWidth: max(1, canvasWidth * 0.002)))
+        .shadow(color: .black.opacity(0.32), radius: 3, x: 3, y: 4)
+        .rotationEffect(.degrees(rotations[index % rotations.count]))
+        .offset(
+            x: canvasWidth * horizontalOffsets[index % horizontalOffsets.count],
+            y: canvasHeight * verticalOffsets[index % verticalOffsets.count]
+        )
+        .zIndex(Double(index))
+    }
+
+    private func deliveryTrayImportButtons(width: CGFloat, height: CGFloat) -> some View {
+        HStack(spacing: width * 0.025) {
+            PhotosPicker(
+                selection: $selectedPhotos,
+                maxSelectionCount: remainingDraftSlots,
+                matching: .images
+            ) {
+                deliveryTrayImportButtonLabel(
+                    title: L10n.text("照片图库", english: "Photo Library"),
+                    systemImage: "photo.on.rectangle",
+                    width: width,
+                    height: height
+                )
+            }
+            .buttonStyle(.plain)
+            .disabled(isWorking || remainingDraftSlots == 0)
+
+            Button {
+                cameraTargetSlot = availableSlotIndices.first
+                isCameraPresented = cameraTargetSlot != nil
+            } label: {
+                deliveryTrayImportButtonLabel(
+                    title: L10n.text("拍照", english: "Camera"),
+                    systemImage: "camera",
+                    width: width,
+                    height: height
+                )
+            }
+            .buttonStyle(.plain)
+            .disabled(isWorking || remainingDraftSlots == 0)
+        }
+        .opacity(remainingDraftSlots == 0 ? 0.48 : 1)
+    }
+
+    private func deliveryTrayImportButtonLabel(
+        title: String,
+        systemImage: String,
+        width: CGFloat,
+        height: CGFloat
+    ) -> some View {
+        VStack(spacing: max(4, height * 0.012)) {
+            Image(systemName: systemImage)
+                .font(.system(size: max(18, width * 0.04), weight: .medium))
+            Text(title)
+                .font(PixelTheme.font(size: max(9, width * 0.018), weight: .semibold))
+                .lineLimit(1)
+                .minimumScaleFactor(0.72)
+        }
+        .foregroundStyle(PixelTheme.ink)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(PixelTheme.paperRaised.opacity(0.76), in: PixelCornerShape(step: 3))
+        .overlay { PixelCornerShape(step: 3).stroke(PixelTheme.gold.opacity(0.78), lineWidth: 2) }
+        .contentShape(Rectangle())
+    }
+
+    private func deliveryTrayConfirmButton(width: CGFloat, height: CGFloat) -> some View {
+        Button {
+            if !draftImages.isEmpty {
+                Task { await submitDraftEvidence() }
+            } else if hasPendingEvidence && pendingEvidenceImagesAvailable {
+                Task { await retryPendingVerification() }
+            }
+        } label: {
+            HStack(spacing: max(4, width * 0.008)) {
+                if isWorking {
+                    ProgressView()
+                        .controlSize(.small)
+                        .tint(Color(red: 0.88, green: 0.75, blue: 0.48))
+                } else {
+                    Image(systemName: "checkmark")
+                }
+                Text(isWorking
+                    ? L10n.text("核验中", english: "Verifying")
+                    : L10n.text("确认", english: "Confirm"))
+            }
+            .font(PixelTheme.displayFont(size: max(12, width * 0.025)))
+            .foregroundStyle(Color(red: 0.88, green: 0.75, blue: 0.48))
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .offset(y: -max(12, width * 0.025))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .disabled(isWorking || (!isDraftComplete && !(hasPendingEvidence && pendingEvidenceImagesAvailable)))
+        .opacity(isWorking || isDraftComplete || (hasPendingEvidence && pendingEvidenceImagesAvailable) ? 1 : 0.48)
     }
 
     private var evidenceHeader: some View {
@@ -188,7 +434,12 @@ struct EvidenceSubmissionView: View {
 
     private var evidenceHeaderTitle: some View {
         VStack(alignment: .leading, spacing: 5) {
-            Label("证据核验", systemImage: "photo.on.rectangle.angled")
+            Label(
+                presentationStyle == .deliveryTray
+                    ? L10n.text("悬赏凭证", english: "Bounty Evidence")
+                    : L10n.text("证据核验", english: "Evidence Verification"),
+                systemImage: "photo.on.rectangle.angled"
+            )
                 .font(PixelTheme.font(.headline))
         }
     }

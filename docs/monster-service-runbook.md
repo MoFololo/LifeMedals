@@ -69,10 +69,11 @@ The committed migration chain is:
 2. `0002_add_monster_concepts.sql`
 3. `0003_normalize_monster_taxonomy.sql`
 4. `0004_add_distinct_sport_species.sql`
+5. `0005_add_monster_tag_redirects.sql`
 
 It creates and evolves `monster_species`, `monster_aliases`, `monster_concepts`, and `monster_variants`. Variants are unique by species, level, and style version and use `pending`, `generating`, `ready`, or `failed` states. D1 stores only object keys, content type, byte size, content hash, model/prompt/style versions, leases, and safe error summaries—not image Base64.
 
-Aliases are lowercase English. Non-English user input is translated and normalized by task generation. Named sports stay separate, and species IDs follow `species-[medaltype]-[description]`.
+Aliases are lowercase English. Full alternate taxonomy tags are learned in `monster_tag_redirects`, allowing differently worded AI tags to resolve to one species. Task generation receives a bounded snapshot of the existing global catalog and must reuse a catalog species before creating a genuinely new reusable activity. Non-English user input is translated and normalized by task generation. Named sports stay separate, and species IDs follow `species-[medaltype]-[description]`.
 
 Apply migrations locally before remote deployment:
 

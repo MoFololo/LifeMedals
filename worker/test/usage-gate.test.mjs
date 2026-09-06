@@ -122,7 +122,7 @@ test("health identifies the deployed Worker release", async () => {
   const body = await response.json();
 
   assert.equal(response.status, 200);
-  assert.equal(body.release, "2026-09-04-transparent-monster-png-1");
+  assert.equal(body.release, "2026-09-05-open-monster-taxonomy-1");
   assert.equal(body.monsterServiceConfigured, false);
   assert.equal(response.headers.get("X-LifeMedals-Release"), body.release);
 });
@@ -144,10 +144,14 @@ test("validates image task input and requires text or an image", () => {
 });
 
 test("builds a stateless vision request for task generation", () => {
-  const request = buildTaskGenerationOpenAIRequest(validImageTaskBody, "test-model");
+  const request = buildTaskGenerationOpenAIRequest(validImageTaskBody, "test-model", [
+    { canonicalTag: "health.consultation", badgeKind: "Life" },
+    { canonicalTag: "reading.book", badgeKind: "Solver" },
+  ]);
 
   assert.equal(request.model, "test-model");
   assert.equal(request.store, false);
+  assert.equal(request.temperature, 0.2);
   assert.equal(request.input[0].content[0].type, "input_text");
   assert.match(request.input[0].content[0].text, /帮我提取最重要的下一步/);
   assert.equal(request.input[0].content[1].type, "input_image");
@@ -161,6 +165,10 @@ test("builds a stateless vision request for task generation", () => {
   assert.match(request.instructions, /names, email addresses, phone numbers/);
   assert.match(request.instructions, /never cause redaction, omission, refusal/);
   assert.match(request.instructions, /monster_tag/);
+  assert.match(request.instructions, /EXISTING_MONSTER_CATALOG/);
+  assert.match(request.instructions, /health\.consultation \[Life\]/);
+  assert.match(request.instructions, /taxonomy is intentionally open-ended/i);
+  assert.match(request.instructions, /Create a new tag only when no catalog entry/i);
   assert.match(request.instructions, /Use monster_match_kind=existing/i);
   assert.match(request.instructions, /Life includes chores, cooking, errands, sending packages, games/i);
   assert.match(request.instructions, /Exercise and sports always use Athlete/i);

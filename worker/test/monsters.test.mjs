@@ -9,10 +9,12 @@ import {
   decodeImageBase64,
   handleMonsterAsset,
   isCurrentMonsterConcept,
+  loadMonsterTaxonomyCatalog,
   normalizeGeneratedTaskMonsters,
   requestMonsterConcept,
   requestMonsterImage,
   speciesDescriptionFromCanonicalTag,
+  stableCanonicalMonsterTag,
   validateMonsterConcept,
   validateEnsureMonsterInput,
   validateQueueMessage,
@@ -153,6 +155,58 @@ test("keeps named sports as distinct reusable species", async () => {
     assert.equal(contract.monster_tag, expectedTag);
     assert.equal(contract.monster_match_kind, "existing");
   }
+});
+
+test("normalizes equivalent health wording by durable action", async () => {
+  const consultationTags = [
+    "health.medical_consultation",
+    "health.medical_inquiry",
+    "health.tb_testing",
+    "healthcare.consultation",
+    "healthcare.medical_test",
+    "healthcare.testing",
+  ];
+
+  for (const generatedTag of consultationTags) {
+    const contract = await normalizeGeneratedTaskMonsters({
+      kind: "single_task",
+      title: "问关于TB血检的事",
+      description: "向医疗机构询问 TB 血检要求。",
+      evidence_requirement: "提供咨询记录。",
+      monster_tag: generatedTag,
+      monster_match_kind: "new",
+      children: [],
+    }, {});
+    assert.equal(contract.monster_tag, "health.consultation");
+  }
+
+  assert.equal(stableCanonicalMonsterTag("health.tb_testing"), "health.lab_test");
+  assert.equal(stableCanonicalMonsterTag("healthcare.medical_test"), "health.lab_test");
+  assert.equal(
+    stableCanonicalMonsterTag("health.medical_inquiry", "Schedule a TB test appointment"),
+    "health.appointment",
+  );
+});
+
+test("loads and deduplicates an open-ended D1 taxonomy catalog", async () => {
+  const database = {
+    prepare: () => ({
+      bind: () => ({
+        all: async () => ({
+          results: [
+            { canonical_tag: "healthcare.consultation", badge_kind: "Life" },
+            { canonical_tag: "health.medical_inquiry", badge_kind: "Life" },
+            { canonical_tag: "reading.book", badge_kind: "Solver" },
+          ],
+        }),
+      }),
+    }),
+  };
+
+  assert.deepEqual(await loadMonsterTaxonomyCatalog(database), [
+    { canonicalTag: "health.consultation", badgeKind: "Life" },
+    { canonicalTag: "reading.book", badgeKind: "Solver" },
+  ]);
 });
 
 test("classifies gaming tasks as Life unless they are game-development projects", async () => {

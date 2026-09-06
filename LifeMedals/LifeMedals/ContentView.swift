@@ -2,6 +2,12 @@ import PhotosUI
 import SwiftUI
 import SwiftData
 
+private enum EvidenceVerificationPhase: Equatable {
+    case verifying
+    case completed
+    case failed(EvidenceVerdict, String)
+}
+
 private struct PixelTaskCompletionBox: View {
     let isComplete: Bool
     let borderColor: Color
@@ -229,17 +235,12 @@ struct ContentView: View {
     }
 
     private struct EvidenceVerificationPresentation: Equatable {
-        enum Phase: Equatable {
-            case verifying
-            case completed
-        }
-
         let taskID: UUID
         let taskTitle: String
         let xpReward: Int
         let isSubtask: Bool
         let completesTaskGroup: Bool
-        var phase: Phase
+        var phase: EvidenceVerificationPhase
     }
 
     private enum TaskCreationInputMode: String, CaseIterable, Identifiable {
@@ -472,6 +473,10 @@ struct ContentView: View {
     @State private var savedMessage: String?
     @State private var selectedTask: TaskContract?
     @State private var taskDetailOrigin = TaskDetailOrigin.taskList
+    @State private var isEvidenceDeliveryPresented = false
+    @State private var isTaskDetailDeadlinePickerPresented = false
+    @State private var isTaskFailureDetailPresented = false
+    @State private var taskDetailDeadlinePickerSelection = DeadlineDateOptions.defaultSelection()
     @State private var reminderAuthorization = ReminderAuthorizationState.notDetermined
     @State private var reminderFeedback: String?
     @State private var reminderFeedbackIsError = false
@@ -616,11 +621,19 @@ struct ContentView: View {
 
             if let evidenceVerificationPresentation {
                 PixelEvidenceVerificationOverlay(
-                    isCompleted: evidenceVerificationPresentation.phase == .completed,
+                    phase: evidenceVerificationPresentation.phase,
                     taskTitle: evidenceVerificationPresentation.taskTitle,
                     xpReward: evidenceVerificationPresentation.xpReward,
                     isSubtask: evidenceVerificationPresentation.isSubtask,
-                    completesTaskGroup: evidenceVerificationPresentation.completesTaskGroup
+                    completesTaskGroup: evidenceVerificationPresentation.completesTaskGroup,
+                    onDismissFailure: {
+                        withAnimation(reduceMotion ? nil : .smooth(duration: 0.22)) {
+                            self.evidenceVerificationPresentation = nil
+                            if selectedTask?.status == .needMoreProof || selectedTask?.status == .notVerified {
+                                isTaskFailureDetailPresented = true
+                            }
+                        }
+                    }
                 )
                 .transition(.opacity.combined(with: .scale(scale: 0.97)))
                 .zIndex(15)
@@ -950,8 +963,8 @@ struct ContentView: View {
                 Button {
                     selectCreationInputMode(mode)
                 } label: {
-                    Label(mode.title, systemImage: mode.icon)
-                        .font(PixelTheme.displayFont(size: 28))
+                    Image(systemName: mode.icon)
+                        .font(.system(size: 48, weight: .semibold))
                         .foregroundStyle(creationInputMode == mode ? PixelTheme.selection : PixelTheme.inkMuted)
                         .frame(maxWidth: .infinity, maxHeight: .infinity)
                         .background {
@@ -966,6 +979,7 @@ struct ContentView: View {
                 .buttonStyle(.plain)
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
                 .contentShape(Rectangle())
+                .accessibilityLabel(mode.title)
                 .accessibilityAddTraits(creationInputMode == mode ? .isSelected : [])
             }
         }
@@ -981,9 +995,9 @@ struct ContentView: View {
                 axis: .vertical
             )
             .textFieldStyle(.plain)
-            .font(PixelTheme.font(size: 30, weight: .medium))
+            .font(PixelTheme.font(size: 40, weight: .medium))
             .foregroundStyle(PixelTheme.ink)
-            .lineLimit(4...8)
+            .lineLimit(3...6)
             .focused($isTaskInputFocused)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .accessibilityLabel(L10n.text("输入你想完成的任务", english: "Enter the task you want to complete"))
@@ -1033,7 +1047,7 @@ struct ContentView: View {
                         axis: .vertical
                     )
                     .textFieldStyle(.plain)
-                    .font(PixelTheme.font(size: 27))
+                    .font(PixelTheme.font(size: 36))
                     .foregroundStyle(PixelTheme.ink)
                     .lineLimit(4...7)
                     .frame(maxWidth: .infinity, maxHeight: 220, alignment: .topLeading)
@@ -1041,20 +1055,23 @@ struct ContentView: View {
                     .onSubmit(generateTask)
                 }
             } else {
-                VStack(spacing: 18) {
+                VStack(spacing: 16) {
                     if isImportingSourceImage {
                         ProgressView()
                             .controlSize(.regular)
                         Text(L10n.text("正在压缩照片…", english: "Compressing photo…"))
-                            .font(PixelTheme.font(size: 23))
+                            .font(PixelTheme.font(size: 30))
                             .foregroundStyle(PixelTheme.inkMuted)
                     } else {
-                        Image(systemName: "doc.viewfinder")
-                            .font(PixelTheme.font(size: 42))
-                            .foregroundStyle(PixelTheme.gold)
-                        Text(L10n.text("上传邮件、syllabus 或活动海报", english: "Upload an email, syllabus, or event poster"))
-                            .font(PixelTheme.font(size: 24))
-                            .foregroundStyle(PixelTheme.inkMuted)
+                        VStack(spacing: 10) {
+                            Image(systemName: "doc.viewfinder")
+                                .font(.system(size: 54, weight: .medium))
+                                .foregroundStyle(PixelTheme.gold)
+                            Text(L10n.text("上传邮件、syllabus 或活动海报", english: "Upload an email, syllabus, or event poster"))
+                                .font(PixelTheme.font(size: 32))
+                                .foregroundStyle(PixelTheme.inkMuted)
+                                .multilineTextAlignment(.center)
+                        }
                     }
 
                     HStack(spacing: 16) {
@@ -1078,6 +1095,8 @@ struct ContentView: View {
                         .buttonStyle(.plain)
                         .disabled(isImportingSourceImage)
                     }
+                    .frame(height: 160)
+                    .padding(.horizontal, 24)
                 }
                 .frame(maxWidth: .infinity, maxHeight: .infinity)
             }
@@ -1095,13 +1114,19 @@ struct ContentView: View {
     }
 
     private func posterSourceButtonLabel(title: String, systemImage: String) -> some View {
-        Label(title, systemImage: systemImage)
-            .font(PixelTheme.font(size: 22))
-            .foregroundStyle(PixelTheme.ink)
-            .frame(maxWidth: .infinity)
-            .padding(.vertical, 12)
-            .background(PixelTheme.paperRaised.opacity(0.72), in: PixelCornerShape(step: 3))
-            .overlay { PixelCornerShape(step: 3).stroke(PixelTheme.gold.opacity(0.75), lineWidth: 2) }
+        VStack(spacing: 12) {
+            Image(systemName: systemImage)
+                .font(.system(size: 56, weight: .medium))
+            Text(title)
+                .font(PixelTheme.font(size: 29))
+                .lineLimit(1)
+                .minimumScaleFactor(0.8)
+        }
+        .foregroundStyle(PixelTheme.ink)
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .background(PixelTheme.paperRaised.opacity(0.72), in: PixelCornerShape(step: 3))
+        .overlay { PixelCornerShape(step: 3).stroke(PixelTheme.gold.opacity(0.75), lineWidth: 2) }
+        .contentShape(Rectangle())
     }
 
     private var posterGenerationButton: some View {
@@ -1112,10 +1137,11 @@ struct ContentView: View {
                         .tint(PixelTheme.goldBright)
                 } else {
                     Image(systemName: errorMessage == nil ? "wand.and.stars" : "arrow.clockwise")
+                        .font(.system(size: 30, weight: .semibold))
                 }
                 Text(buttonTitle)
+                    .font(PixelTheme.displayFont(size: 38))
             }
-            .font(PixelTheme.displayFont(size: 26))
             .foregroundStyle(Color(red: 0.88, green: 0.75, blue: 0.48))
             .frame(maxWidth: .infinity, maxHeight: .infinity)
             .contentShape(Rectangle())
@@ -1144,8 +1170,10 @@ struct ContentView: View {
 
     private func contractReview(now: Date) -> some View {
         GeometryReader { proxy in
-            let horizontalInset: CGFloat = isCompactLayout ? 0 : 28
-            let posterWidth = min(max(proxy.size.width - horizontalInset * 2, 1), 700)
+            let posterWidth = min(
+                max(proxy.size.width - bountyPosterHorizontalInset * 2, 1),
+                700
+            )
             let posterScale = posterWidth / 848
 
             ScrollViewReader { scrollProxy in
@@ -2238,134 +2266,565 @@ struct ContentView: View {
     }
 
     private func taskDetailPage(_ task: TaskContract) -> some View {
-        ScrollView {
-            VStack(alignment: .leading, spacing: 20) {
-                if isCompactLayout {
+        ZStack(alignment: .bottom) {
+            ScrollViewReader { scrollProxy in
+                ScrollView {
                     VStack(alignment: .leading, spacing: 16) {
-                        HStack {
-                            taskDetailBackButton
-                            Spacer()
-                            statusPill(for: task)
+                        taskDetailHeader(task)
+                            .id("task-detail-top")
+                            .padding(.horizontal, pageHorizontalInset)
+
+                        Group {
+                            if isEvidenceDeliveryPresented, !task.isTaskGroup {
+                                evidenceDeliveryStage(for: task)
+                                    .padding(.horizontal, bountyPosterHorizontalInset)
+                                    .transition(
+                                        reduceMotion
+                                            ? .opacity
+                                            : .move(edge: .bottom).combined(with: .opacity)
+                                    )
+                            } else {
+                                VStack(spacing: 14) {
+                                    taskBountyDetailPresentation(for: task)
+                                        .padding(.horizontal, bountyPosterHorizontalInset)
+
+                                    VStack(spacing: 14) {
+                                        taskSourceReferenceCard(for: task)
+                                        taskReminderDetail(for: task)
+                                    }
+                                    .padding(.horizontal, pageHorizontalInset)
+                                }
+                                .transition(
+                                    reduceMotion
+                                        ? .opacity
+                                        : .scale(scale: 0.96, anchor: .top).combined(with: .opacity)
+                                )
+                            }
                         }
-                        taskDetailTitle(task)
-                    }
-                } else {
-                    HStack(alignment: .top, spacing: 18) {
-                        taskDetailBackButton
-                        taskDetailTitle(task)
-                        Spacer()
-                        statusPill(for: task)
-                    }
-                }
-
-                LazyVGrid(columns: [GridItem(.adaptive(minimum: 220), spacing: 16)], spacing: 16) {
-                    DeadlinePickerField(
-                        title: "截止日期",
-                        selection: Binding(
-                            get: { task.deadline },
-                            set: { _ in }
-                        ),
-                        onCommit: { deadline in
-                            updateDeadline(deadline, for: task)
-                        }
-                    )
-                    detailCard(
-                        title: "所属勋章",
-                        value: task.badgeCategory.map { badgeDisplayName($0.name) } ?? "未分类"
-                    ) {
-                        MedalArtworkView(
-                            categoryName: task.badgeCategory?.name,
-                            rank: task.badgeCategory?.userBadge?.rank ?? .bronze
-                        )
-                        .frame(width: 48, height: 48)
-                    }
-                    detailCard(
-                        title: "完成奖励",
-                        value: task.isSubtask
-                            ? L10n.text("计入主任务奖励", english: "Included in the group reward")
-                            : "+\(task.xpReward) EXP",
-                        icon: "sparkles",
-                        tint: PixelTheme.gold
-                    )
-                }
-
-                if task.monsterTag != nil, task.monsterLevel != nil {
-                    MonsterEncounterCard(
-                        task: task,
-                        discovery: monsterDiscovery(for: task)
-                    )
-                }
-
-                if task.hadSourceImage == true || task.localSourceImageData != nil {
-                    VStack(alignment: .leading, spacing: 12) {
-                        Label("任务来源", systemImage: "photo.text.magnifyingglass")
-                            .font(PixelTheme.displayFont(size: 17))
-                            .foregroundStyle(PixelTheme.ink)
-
-                        if let sourceImageData = task.localSourceImageData {
-                            PlatformImageView(data: sourceImageData)
-                                .scaledToFit()
-                                .frame(maxWidth: .infinity, maxHeight: 440)
-                                .background(PixelTheme.background.opacity(0.08))
-                                .clipShape(PixelCornerShape(step: 3))
-                        } else {
-                            Label("来源图片仅保存在创建它的设备", systemImage: "internaldrive")
-                                .font(PixelTheme.font(.subheadline))
-                                .foregroundStyle(PixelTheme.inkMuted)
-                                .frame(maxWidth: .infinity, minHeight: 120)
-                                .background(PixelTheme.background.opacity(0.08))
-                                .clipShape(PixelCornerShape(step: 3))
-                        }
-
-                        Text("来源图片不会上传到 iCloud")
-                            .font(PixelTheme.font(.caption))
-                            .foregroundStyle(PixelTheme.inkMuted)
-                    }
-                    .padding(18)
-                    .pixelSurface(fill: PixelTheme.paperRaised, border: PixelTheme.gold, step: 4, hasShadow: true)
-                }
-
-                if let taskDescription = task.taskDescription?.trimmingCharacters(in: .whitespacesAndNewlines),
-                   !taskDescription.isEmpty {
-                    VStack(alignment: .leading, spacing: 14) {
-                        Label("任务说明", systemImage: "text.alignleft")
-                            .font(PixelTheme.displayFont(size: 17))
-                            .foregroundStyle(PixelTheme.ink)
-
-                        Text(taskDescription)
-                            .font(PixelTheme.font(.body))
-                            .foregroundStyle(PixelTheme.ink)
-                            .lineSpacing(5)
-                            .textSelection(.enabled)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    .padding(22)
-                    .pixelSurface(fill: PixelTheme.paperRaised, border: PixelTheme.gold, step: 4, hasShadow: true)
-                }
-
-                EvidenceSubmissionView(
-                    task: task,
-                    onVerificationStarted: {
-                        beginEvidenceVerification(for: task)
-                    },
-                    onVerificationFinished: { verdict, monsterEvent in
-                        finishEvidenceVerification(
-                            for: task,
-                            verdict: verdict,
-                            monsterEvent: monsterEvent
+                        .animation(
+                            reduceMotion ? nil : .snappy(duration: 0.46, extraBounce: 0.08),
+                            value: isEvidenceDeliveryPresented
                         )
                     }
-                )
-                taskReminderDetail(for: task)
+                    .padding(.top, 20)
+                    .padding(.bottom, 38)
+                    .platformScrollableContentWidth(790)
+                    .frame(maxWidth: .infinity)
+                }
+                .scrollDisabled(isTaskDetailDeadlinePickerPresented || isTaskFailureDetailPresented)
+                .allowsHitTesting(!isTaskDetailDeadlinePickerPresented && !isTaskFailureDetailPresented)
+                .onChange(of: isEvidenceDeliveryPresented) { _, _ in
+                    withAnimation(reduceMotion ? nil : .smooth(duration: 0.34)) {
+                        scrollProxy.scrollTo("task-detail-top", anchor: .top)
+                    }
+                }
             }
-            .padding(.horizontal, pageHorizontalInset)
-            .padding(.vertical, 38)
-            .platformScrollableContentWidth(790)
-            .frame(maxWidth: .infinity)
+
+            if isTaskDetailDeadlinePickerPresented {
+                Color.black.opacity(0.3)
+                    .ignoresSafeArea()
+                    .transition(.opacity)
+
+                BountyDeadlinePanel(
+                    draftSelection: $taskDetailDeadlinePickerSelection,
+                    onCancel: { dismissTaskDetailDeadlinePicker(for: task) },
+                    onSave: { saveTaskDetailDeadline(for: task) }
+                )
+                .frame(maxWidth: 700)
+                .padding(.horizontal, pageHorizontalInset)
+                .padding(.bottom, 12)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .zIndex(1)
+            }
+
+            if isTaskFailureDetailPresented {
+                Color.black.opacity(0.3)
+                    .ignoresSafeArea()
+                    .transition(.opacity)
+
+                TaskFailureDetailPanel(
+                    evidences: latestFailedEvidenceBatch(for: task),
+                    onDismiss: dismissTaskFailureDetail
+                )
+                .frame(maxWidth: 700)
+                .padding(.horizontal, pageHorizontalInset)
+                .padding(.bottom, 12)
+                .transition(.move(edge: .bottom).combined(with: .opacity))
+                .zIndex(1)
+            }
         }
+        .animation(
+            reduceMotion ? nil : .snappy(duration: 0.34),
+            value: isTaskDetailDeadlinePickerPresented
+        )
+        .animation(
+            reduceMotion ? nil : .snappy(duration: 0.34),
+            value: isTaskFailureDetailPresented
+        )
         .task(id: monsterDetailSyncKey(for: task)) {
             await ensureMonsterVariant(for: task)
         }
+        .onChange(of: task.id) { _, _ in
+            isEvidenceDeliveryPresented = false
+            isTaskDetailDeadlinePickerPresented = false
+            isTaskFailureDetailPresented = false
+        }
+    }
+
+    private func taskDetailHeader(_ task: TaskContract) -> some View {
+        HStack {
+            taskDetailNavigationButton
+            Spacer()
+            if task.status == .needMoreProof || task.status == .notVerified {
+                Button {
+                    presentTaskFailureDetail()
+                } label: {
+                    statusPill(for: task)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityHint(
+                    L10n.text("查看未通过核验的照片和原因", english: "View the rejected photos and reason")
+                )
+            } else {
+                statusPill(for: task)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var taskDetailNavigationButton: some View {
+        if isEvidenceDeliveryPresented {
+            Button {
+                closeEvidenceDelivery()
+            } label: {
+                Label(L10n.text("返回悬赏令", english: "Back to Bounty"), systemImage: "chevron.left")
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 9)
+                    .foregroundStyle(PixelTheme.ink)
+            }
+            .buttonStyle(.plain)
+            .pixelSurface(fill: PixelTheme.paperRaised, border: PixelTheme.gold, step: 3, hasShadow: true)
+        } else {
+            taskDetailBackButton
+        }
+    }
+
+    private func taskBountyDetailPresentation(for task: TaskContract) -> some View {
+        GeometryReader { proxy in
+            let scale = proxy.size.width / 848
+
+            taskBountyDetailPoster(for: task)
+                .scaleEffect(scale, anchor: .topLeading)
+        }
+        .aspectRatio(CGFloat(848) / 1855, contentMode: .fit)
+        .frame(maxWidth: 700)
+        .frame(maxWidth: .infinity)
+    }
+
+    @ViewBuilder
+    private func taskSourceReferenceCard(for task: TaskContract) -> some View {
+        if task.hadSourceImage == true || task.localSourceImageData != nil {
+            VStack(alignment: .leading, spacing: 12) {
+                Label(L10n.text("原始委托", english: "Original Brief"), systemImage: "photo.text.magnifyingglass")
+                    .font(PixelTheme.displayFont(size: 17))
+                    .foregroundStyle(PixelTheme.ink)
+
+                if let sourceImageData = task.localSourceImageData {
+                    PlatformImageView(data: sourceImageData)
+                        .scaledToFit()
+                        .frame(maxWidth: .infinity, maxHeight: 440)
+                        .background(PixelTheme.background.opacity(0.08))
+                        .clipShape(PixelCornerShape(step: 3))
+                } else {
+                    Label(
+                        L10n.text(
+                            "来源图片仅保存在创建它的设备",
+                            english: "The source image is stored only on the device that created this task"
+                        ),
+                        systemImage: "internaldrive"
+                    )
+                    .font(PixelTheme.font(.subheadline))
+                    .foregroundStyle(PixelTheme.inkMuted)
+                    .frame(maxWidth: .infinity, minHeight: 120)
+                    .background(PixelTheme.background.opacity(0.08))
+                    .clipShape(PixelCornerShape(step: 3))
+                }
+
+                Text(
+                    L10n.text(
+                        "来源图片不会上传到 iCloud",
+                        english: "The source image is not uploaded to iCloud"
+                    )
+                )
+                .font(PixelTheme.font(.caption))
+                .foregroundStyle(PixelTheme.inkMuted)
+            }
+            .padding(18)
+            .pixelSurface(fill: PixelTheme.paperRaised, border: PixelTheme.gold, step: 4, hasShadow: true)
+        }
+    }
+
+    private func taskBountyDetailPoster(for task: TaskContract) -> some View {
+        ZStack(alignment: .topLeading) {
+            Image("BountyContractBackground")
+                .resizable()
+                .interpolation(.high)
+                .frame(width: 848, height: 1855)
+                .accessibilityHidden(true)
+
+            Text(L10n.text(task.title))
+                .font(PixelTheme.displayFont(size: 42))
+                .foregroundStyle(PixelTheme.ink)
+                .multilineTextAlignment(.center)
+                .lineLimit(2)
+                .minimumScaleFactor(0.72)
+                .frame(width: 570, height: 112)
+                .position(x: 432, y: 184)
+
+            taskBountyMonsterField(for: task)
+                .frame(width: 440, height: 465)
+                .position(x: 424, y: 552)
+
+            taskBountyBadgeField(for: task)
+                .frame(width: 300, height: 294)
+                .position(x: 258, y: 995)
+
+            BountyDeadlineButton(
+                selection: Binding(
+                    get: { task.deadline },
+                    set: { _ in }
+                ),
+                isExpanded: isTaskDetailDeadlinePickerPresented,
+                action: { presentTaskDetailDeadlinePicker(for: task) }
+            )
+            .frame(width: 306, height: 126)
+            .position(x: 592, y: 911)
+
+            taskBountyMetadataField(
+                title: L10n.text("完成奖励", english: "Reward"),
+                value: task.isSubtask
+                    ? L10n.text("任务组奖励", english: "Group Reward")
+                    : "+\(task.xpReward) EXP",
+                icon: "sparkles"
+            )
+            .frame(width: 306, height: 126)
+            .position(x: 592, y: 1074)
+
+            taskBountyDescriptionField(for: task)
+                .frame(width: 660, height: 210)
+                .position(x: 424, y: 1305)
+
+            taskBountyEvidenceField(for: task)
+                .frame(width: 660, height: 160)
+                .position(x: 424, y: 1544)
+
+            taskBountyPrimaryAction(for: task)
+                .frame(width: 490, height: 88)
+                .position(x: 424, y: 1715)
+        }
+        .frame(width: 848, height: 1855)
+    }
+
+    @ViewBuilder
+    private func taskBountyMonsterField(for task: TaskContract) -> some View {
+        if task.isTaskGroup {
+            let childTasks = children(of: task)
+            VStack(spacing: 14) {
+                Image(systemName: "scroll.fill")
+                    .font(.system(size: 86, weight: .medium))
+                    .foregroundStyle(PixelTheme.gold)
+                Text(L10n.text("任务组", english: "Task Group"))
+                    .font(PixelTheme.displayFont(size: 28))
+                ForEach(childTasks.prefix(4)) { child in
+                    Label(
+                        L10n.text(child.title),
+                        systemImage: child.status == .verified ? "checkmark.square.fill" : "square"
+                    )
+                    .font(PixelTheme.font(size: 21))
+                    .foregroundStyle(PixelTheme.inkMuted)
+                    .lineLimit(1)
+                }
+            }
+        } else {
+            VStack(spacing: 4) {
+                taskMonsterThumbnail(for: task)
+                    .frame(width: 350, height: 350)
+
+                if let monsterTag = task.monsterTag {
+                    Text(MonsterTaxonomy.categoryLabel(for: monsterTag))
+                        .font(PixelTheme.displayFont(size: 25))
+                        .foregroundStyle(PixelTheme.ink)
+                        .lineLimit(1)
+                }
+            }
+            .padding(.vertical, 14)
+        }
+    }
+
+    private func taskBountyBadgeField(for task: TaskContract) -> some View {
+        VStack(spacing: 3) {
+            Text(L10n.text("所属勋章", english: "Medal"))
+                .font(PixelTheme.font(size: 18))
+                .foregroundStyle(PixelTheme.inkMuted)
+
+            MedalArtworkView(
+                categoryName: task.badgeCategory?.name,
+                rank: task.badgeCategory?.userBadge?.rank ?? .bronze
+            )
+            .frame(width: 176, height: 176)
+
+            Text(
+                task.badgeCategory.map { badgeDisplayName($0.name) }
+                    ?? L10n.text("未分类", english: "Uncategorized")
+            )
+            .font(PixelTheme.displayFont(size: 25))
+            .foregroundStyle(PixelTheme.ink)
+            .lineLimit(1)
+            .minimumScaleFactor(0.72)
+        }
+    }
+
+    private func taskBountyMetadataField(title: String, value: String, icon: String) -> some View {
+        HStack(spacing: 12) {
+            Image(systemName: icon)
+                .font(.system(size: 34, weight: .semibold))
+                .foregroundStyle(PixelTheme.gold)
+                .frame(width: 42)
+
+            VStack(alignment: .leading, spacing: 4) {
+                Text(title)
+                    .font(PixelTheme.font(size: 18))
+                    .foregroundStyle(PixelTheme.inkMuted)
+                Text(value)
+                    .font(PixelTheme.displayFont(size: 25))
+                    .foregroundStyle(PixelTheme.ink)
+                    .lineLimit(2)
+                    .minimumScaleFactor(0.68)
+            }
+
+            Spacer(minLength: 0)
+        }
+        .padding(.horizontal, 18)
+    }
+
+    private func taskBountyDescriptionField(for task: TaskContract) -> some View {
+        HStack(alignment: .top, spacing: 16) {
+            VStack(alignment: .leading, spacing: 8) {
+                Label(L10n.text("任务说明", english: "Task Description"), systemImage: "text.alignleft")
+                    .font(PixelTheme.font(size: 19))
+                    .foregroundStyle(PixelTheme.inkMuted)
+
+                Text(
+                    task.taskDescription?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
+                        ? L10n.text(task.taskDescription ?? "")
+                        : L10n.text("完成悬赏令上约定的任务。", english: "Complete the task described by this bounty.")
+                )
+                .font(PixelTheme.font(size: 24))
+                .foregroundStyle(PixelTheme.ink)
+                .lineSpacing(4)
+                .lineLimit(5)
+                .frame(maxWidth: .infinity, alignment: .topLeading)
+            }
+
+            if let sourceImageData = task.localSourceImageData {
+                PlatformImageView(data: sourceImageData)
+                    .scaledToFill()
+                    .frame(width: 120, height: 120)
+                    .clipShape(PixelCornerShape(step: 3))
+                    .overlay { PixelCornerShape(step: 3).stroke(PixelTheme.gold, lineWidth: 2) }
+                    .accessibilityLabel(L10n.text("任务来源图片", english: "Task source image"))
+            } else if task.hadSourceImage == true {
+                Image(systemName: "internaldrive")
+                    .font(.system(size: 42, weight: .medium))
+                    .foregroundStyle(PixelTheme.inkMuted)
+                    .frame(width: 120, height: 120)
+                    .accessibilityLabel(
+                        L10n.text("来源图片仅保存在创建它的设备", english: "Source image is stored only on its original device")
+                    )
+            }
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 13)
+    }
+
+    private func taskBountyEvidenceField(for task: TaskContract) -> some View {
+        VStack(alignment: .leading, spacing: 8) {
+            Label(L10n.text("悬赏凭证", english: "Bounty Evidence"), systemImage: "photo.on.rectangle.angled")
+                .font(PixelTheme.font(size: 19))
+                .foregroundStyle(PixelTheme.inkMuted)
+
+            if task.isTaskGroup {
+                Text(
+                    L10n.text(
+                        "分别完成并核验任务组中的每一项悬赏。",
+                        english: "Complete and verify each bounty in this task group."
+                    )
+                )
+                .font(PixelTheme.font(size: 23))
+                .foregroundStyle(PixelTheme.ink)
+            } else {
+                Text(L10n.text(task.evidenceRequirement))
+                    .font(PixelTheme.font(size: 23))
+                    .foregroundStyle(PixelTheme.ink)
+                    .lineSpacing(3)
+                    .lineLimit(3)
+            }
+        }
+        .padding(.horizontal, 18)
+        .padding(.vertical, 12)
+    }
+
+    @ViewBuilder
+    private func taskBountyPrimaryAction(for task: TaskContract) -> some View {
+        if task.isTaskGroup {
+            let childTasks = children(of: task)
+            let completedCount = childTasks.filter { $0.status == .verified }.count
+            Label("\(completedCount)/\(childTasks.count)", systemImage: "checklist")
+                .font(PixelTheme.displayFont(size: 31))
+                .foregroundStyle(Color(red: 0.88, green: 0.75, blue: 0.48))
+                .frame(maxWidth: .infinity, maxHeight: .infinity)
+        } else {
+            Button {
+                openEvidenceDelivery()
+            } label: {
+                Label(taskBountyActionTitle(for: task), systemImage: taskBountyActionIcon(for: task))
+                    .font(PixelTheme.displayFont(size: 31))
+                    .foregroundStyle(Color(red: 0.88, green: 0.75, blue: 0.48))
+                    .frame(maxWidth: .infinity, maxHeight: .infinity)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+        }
+    }
+
+    private func taskBountyActionTitle(for task: TaskContract) -> String {
+        switch task.status {
+        case .pending:
+            L10n.text("提交证据", english: "Submit Evidence")
+        case .awaitingVerification:
+            L10n.text("查看核验进度", english: "View Verification")
+        case .verified:
+            L10n.text("查看核验记录", english: "View Evidence")
+        case .needMoreProof, .notVerified:
+            L10n.text("补充证据", english: "Add Evidence")
+        }
+    }
+
+    private func taskBountyActionIcon(for task: TaskContract) -> String {
+        switch task.status {
+        case .pending: "photo.badge.plus"
+        case .awaitingVerification: "hourglass"
+        case .verified: "checkmark.seal.fill"
+        case .needMoreProof, .notVerified: "arrow.clockwise"
+        }
+    }
+
+    private func evidenceDeliveryStage(for task: TaskContract) -> some View {
+        EvidenceSubmissionView(
+            task: task,
+            onVerificationStarted: {
+                beginEvidenceVerification(for: task)
+            },
+            onVerificationFinished: { verdict, monsterEvent in
+                finishEvidenceVerification(
+                    for: task,
+                    verdict: verdict,
+                    monsterEvent: monsterEvent
+                )
+            },
+            presentationStyle: .deliveryTray
+        )
+        // Transparent canvas gutters are trimmed from the asset, so the
+        // parchment follows the same page-width rule as both bounty views.
+        .aspectRatio(CGFloat(850) / 1450, contentMode: .fit)
+        .frame(maxWidth: 700)
+        .background {
+            Image("EvidenceDeliveryTray")
+                .resizable()
+                .interpolation(.high)
+                .scaledToFit()
+                .accessibilityHidden(true)
+        }
+        .frame(maxWidth: .infinity)
+    }
+
+    private func openEvidenceDelivery() {
+        isTaskDetailDeadlinePickerPresented = false
+        isTaskFailureDetailPresented = false
+        withAnimation(reduceMotion ? nil : .snappy(duration: 0.46, extraBounce: 0.08)) {
+            isEvidenceDeliveryPresented = true
+        }
+    }
+
+    private func closeEvidenceDelivery() {
+        withAnimation(reduceMotion ? nil : .snappy(duration: 0.38)) {
+            isEvidenceDeliveryPresented = false
+        }
+    }
+
+    private func presentTaskDetailDeadlinePicker(for task: TaskContract) {
+        guard task.status != .verified else { return }
+        isTaskFailureDetailPresented = false
+        taskDetailDeadlinePickerSelection = DeadlineDateOptions.normalized(task.deadline, relativeTo: .now)
+        withAnimation(reduceMotion ? nil : .snappy(duration: 0.34)) {
+            isTaskDetailDeadlinePickerPresented = true
+        }
+    }
+
+    private func dismissTaskDetailDeadlinePicker(for task: TaskContract) {
+        taskDetailDeadlinePickerSelection = DeadlineDateOptions.normalized(task.deadline, relativeTo: .now)
+        withAnimation(reduceMotion ? nil : .snappy(duration: 0.28)) {
+            isTaskDetailDeadlinePickerPresented = false
+        }
+    }
+
+    private func saveTaskDetailDeadline(for task: TaskContract) {
+        let normalizedDeadline = DeadlineDateOptions.normalized(
+            taskDetailDeadlinePickerSelection,
+            relativeTo: .now
+        )
+        updateDeadline(normalizedDeadline, for: task)
+        withAnimation(reduceMotion ? nil : .snappy(duration: 0.28)) {
+            isTaskDetailDeadlinePickerPresented = false
+        }
+    }
+
+    private func presentTaskFailureDetail() {
+        isTaskDetailDeadlinePickerPresented = false
+        withAnimation(reduceMotion ? nil : .snappy(duration: 0.34)) {
+            isTaskFailureDetailPresented = true
+        }
+    }
+
+    private func dismissTaskFailureDetail() {
+        withAnimation(reduceMotion ? nil : .snappy(duration: 0.28)) {
+            isTaskFailureDetailPresented = false
+        }
+    }
+
+    private func latestFailedEvidenceBatch(for task: TaskContract) -> [Evidence] {
+        let failedEvidences = (task.evidences ?? []).filter {
+            $0.verdict == .needMoreProof || $0.verdict == .notVerified
+        }
+        guard let latest = failedEvidences.max(by: { $0.submittedAt < $1.submittedAt }) else {
+            return []
+        }
+
+        if let batchID = latest.submissionBatchID {
+            return failedEvidences
+                .filter { $0.submissionBatchID == batchID }
+                .sorted { ($0.submissionIndex ?? 0) < ($1.submissionIndex ?? 0) }
+        }
+
+        return failedEvidences
+            .filter {
+                $0.submissionBatchID == nil &&
+                    abs($0.submittedAt.timeIntervalSince(latest.submittedAt)) <= 1 &&
+                    $0.verdict == latest.verdict &&
+                    $0.explanation == latest.explanation
+            }
+            .sorted { $0.submittedAt < $1.submittedAt }
     }
 
     private var taskDetailBackButton: some View {
@@ -2379,18 +2838,6 @@ struct ContentView: View {
         }
         .buttonStyle(.plain)
         .pixelSurface(fill: PixelTheme.paperRaised, border: PixelTheme.gold, step: 3, hasShadow: true)
-    }
-
-    private func taskDetailTitle(_ task: TaskContract) -> some View {
-        VStack(alignment: .leading, spacing: 7) {
-            Text(L10n.text(task.title))
-                .font(PixelTheme.displayFont(size: isCompactLayout ? 28 : 34))
-                .foregroundStyle(PixelTheme.paperRaised)
-                .fixedSize(horizontal: false, vertical: true)
-            Text("任务契约")
-                .font(PixelTheme.font(.subheadline))
-                .foregroundStyle(PixelTheme.paper.opacity(0.72))
-        }
     }
 
     // MARK: - Medals
@@ -2801,6 +3248,8 @@ struct ContentView: View {
                 withAnimation(.smooth(duration: 0.38)) {
                     selectedTask = nil
                     taskDetailOrigin = .taskList
+                    isEvidenceDeliveryPresented = false
+                    isTaskDetailDeadlinePickerPresented = false
                 }
             }
             return
@@ -2812,6 +3261,8 @@ struct ContentView: View {
             withTransaction(transaction) {
                 selectedTask = nil
                 taskDetailOrigin = .taskList
+                isEvidenceDeliveryPresented = false
+                isTaskDetailDeadlinePickerPresented = false
             }
         }
 
@@ -3125,8 +3576,27 @@ struct ContentView: View {
         guard evidenceVerificationPresentation?.taskID == task.id else { return }
 
         guard verdict == .verified else {
-            withAnimation(reduceMotion ? nil : .smooth(duration: 0.2)) {
-                evidenceVerificationPresentation = nil
+            if let verdict {
+                let explanation = (task.evidences ?? [])
+                    .filter { $0.verdict == verdict }
+                    .max(by: { $0.submittedAt < $1.submittedAt })?
+                    .explanation ?? L10n.text(
+                        "这次提交未能通过核验，请查看提交记录后补充证据。",
+                        english: "This submission did not pass verification. Review the submission and add more evidence."
+                    )
+                withAnimation(reduceMotion ? nil : .snappy(duration: 0.28)) {
+                    evidenceVerificationPresentation?.phase = .failed(verdict, explanation)
+                }
+            } else {
+                withAnimation(reduceMotion ? nil : .snappy(duration: 0.28)) {
+                    evidenceVerificationPresentation?.phase = .failed(
+                        .pending,
+                        L10n.text(
+                            "核验请求没有完成，照片仍保存在本机，请稍后重试。",
+                            english: "Verification did not complete. Your photos remain on this device; please try again later."
+                        )
+                    )
+                }
             }
             return
         }
@@ -3184,6 +3654,9 @@ struct ContentView: View {
             selectedTask = nil
             taskDetailOrigin = .taskList
             evidenceVerificationPresentation = nil
+            isEvidenceDeliveryPresented = false
+            isTaskDetailDeadlinePickerPresented = false
+            isTaskFailureDetailPresented = false
         }
 
         presentDeferredMedalAnimationIfNeeded()
@@ -3203,6 +3676,9 @@ struct ContentView: View {
     private func closeTaskDetail() {
         withAnimation(reduceMotion ? nil : .smooth(duration: 0.4)) {
             selectedTask = nil
+            isEvidenceDeliveryPresented = false
+            isTaskDetailDeadlinePickerPresented = false
+            isTaskFailureDetailPresented = false
 
             switch taskDetailOrigin {
             case .taskList:
@@ -3518,6 +3994,13 @@ struct ContentView: View {
         isCompactLayout ? 16 : 36
     }
 
+    /// Keep the review and detail posters on the same width calculation.
+    /// Compact screens intentionally let the parchment use the full page;
+    /// regular layouts retain a small gutter before applying the 700pt cap.
+    private var bountyPosterHorizontalInset: CGFloat {
+        isCompactLayout ? 0 : 28
+    }
+
     private var compactPageInset: CGFloat {
         isCompactLayout ? 20 : 40
     }
@@ -3605,11 +4088,13 @@ struct ContentView: View {
 #endif
 
     private var buttonTitle: String {
-        if isGenerating { return "正在整理契约" }
-        if creationInputMode == .image {
-            return errorMessage == nil ? "识别并生成" : "保留图片并重试"
+        if isGenerating {
+            return L10n.text("生成中", english: "Generating")
         }
-        return errorMessage == nil ? "生成任务" : "保留输入并重试"
+        if errorMessage != nil {
+            return L10n.text("重试", english: "Retry")
+        }
+        return L10n.text("生成", english: "Generate")
     }
 
     private var canGenerateTask: Bool {
@@ -4036,14 +4521,125 @@ struct ContentView: View {
     }
 }
 
+private struct TaskFailureDetailPanel: View {
+    let evidences: [Evidence]
+    let onDismiss: () -> Void
+
+    private var verdict: EvidenceVerdict {
+        evidences.first?.verdict ?? .notVerified
+    }
+
+    private var explanation: String {
+        evidences.lazy.compactMap(\.explanation).first { !$0.isEmpty }
+            ?? L10n.text(
+                "这次提交未能通过核验，请补充更清晰或更相关的照片。",
+                english: "This submission did not pass verification. Add clearer or more relevant photos."
+            )
+    }
+
+    var body: some View {
+        VStack(spacing: 16) {
+            HStack {
+                Label(
+                    verdict == .needMoreProof
+                        ? L10n.text("需补充证据", english: "More Evidence Needed")
+                        : L10n.text("未通过核验", english: "Not Verified"),
+                    systemImage: verdict == .needMoreProof ? "photo.badge.plus" : "xmark.circle.fill"
+                )
+                .font(PixelTheme.displayFont(size: 21))
+                .foregroundStyle(verdict == .needMoreProof ? PixelTheme.gold : PixelTheme.danger)
+
+                Spacer()
+
+                Button(action: onDismiss) {
+                    Image(systemName: "xmark")
+                        .font(PixelTheme.font(.subheadline, weight: .bold))
+                        .foregroundStyle(PixelTheme.inkMuted)
+                        .frame(width: 32, height: 32)
+                        .contentShape(Rectangle())
+                }
+                .buttonStyle(.plain)
+                .accessibilityLabel(L10n.text("关闭", english: "Close"))
+            }
+
+            HStack(alignment: .center, spacing: 22) {
+                evidenceStack
+                    .frame(width: 168, height: 126)
+
+                VStack(alignment: .leading, spacing: 7) {
+                    Text(L10n.text("核验说明", english: "Verification Details"))
+                        .font(PixelTheme.font(.caption, weight: .semibold))
+                        .foregroundStyle(PixelTheme.inkMuted)
+                    Text(L10n.text(explanation))
+                        .font(PixelTheme.font(.subheadline))
+                        .foregroundStyle(PixelTheme.ink)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+                .frame(maxWidth: .infinity, alignment: .leading)
+            }
+        }
+        .padding(20)
+        .pixelSurface(
+            fill: PixelTheme.paperRaised,
+            border: verdict == .needMoreProof ? PixelTheme.gold : PixelTheme.danger,
+            step: 5,
+            hasShadow: true
+        )
+        .accessibilityElement(children: .contain)
+    }
+
+    private var evidenceStack: some View {
+        ZStack {
+            if evidences.isEmpty {
+                Image(systemName: "photo")
+                    .font(PixelTheme.font(size: 34))
+                    .foregroundStyle(PixelTheme.inkMuted)
+                    .frame(width: 128, height: 96)
+                    .background(PixelTheme.paper)
+            } else {
+                ForEach(Array(evidences.prefix(5).enumerated()), id: \.element.id) { index, evidence in
+                    Group {
+                        if let imageData = evidence.localImageData {
+                            PlatformImageView(data: imageData)
+                                .scaledToFill()
+                        } else {
+                            Image(systemName: "photo")
+                                .font(PixelTheme.font(size: 28))
+                                .foregroundStyle(PixelTheme.inkMuted)
+                                .frame(maxWidth: .infinity, maxHeight: .infinity)
+                                .background(PixelTheme.paper)
+                        }
+                    }
+                    .frame(width: 128, height: 96)
+                    .clipped()
+                    .padding(4)
+                    .background(Color(red: 0.95, green: 0.89, blue: 0.72))
+                    .overlay(Rectangle().stroke(PixelTheme.brown.opacity(0.62), lineWidth: 1))
+                    .shadow(color: .black.opacity(0.24), radius: 2, x: 2, y: 3)
+                    .rotationEffect(.degrees([-6, 5, -3, 7, -5][index % 5]))
+                    .offset(x: CGFloat(index) * 5 - CGFloat(min(evidences.count, 5) - 1) * 2.5)
+                    .zIndex(Double(index))
+                }
+            }
+        }
+        .accessibilityLabel(
+            L10n.text(
+                "本次提交的 \(evidences.count) 张照片",
+                english: "\(evidences.count) photos in this submission"
+            )
+        )
+    }
+}
+
 private struct PixelEvidenceVerificationOverlay: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
-    let isCompleted: Bool
+    let phase: EvidenceVerificationPhase
     let taskTitle: String
     let xpReward: Int
     let isSubtask: Bool
     let completesTaskGroup: Bool
+    let onDismissFailure: () -> Void
 
     private let pixelOffsets: [CGSize] = [
         CGSize(width: 0, height: -42),
@@ -4065,13 +4661,9 @@ private struct PixelEvidenceVerificationOverlay: View {
                 verificationGlyph
 
                 VStack(spacing: PixelTheme.space8) {
-                    Text(
-                        isCompleted
-                            ? completionTitle
-                            : L10n.text("证据鉴定中", english: "Verifying Evidence")
-                    )
+                    Text(title)
                         .font(PixelTheme.displayFont(size: 26))
-                        .foregroundStyle(isCompleted ? PixelTheme.success : PixelTheme.ink)
+                        .foregroundStyle(titleColor)
 
                     Text(taskTitle)
                         .font(PixelTheme.font(.headline))
@@ -4079,28 +4671,27 @@ private struct PixelEvidenceVerificationOverlay: View {
                         .multilineTextAlignment(.center)
                         .lineLimit(2)
 
-                    Text(
-                        isCompleted
-                            ? completionMessage
-                            : L10n.text(
-                                "公会鉴定师正在核验任务证据…",
-                                english: "The guild appraiser is checking the task evidence…"
-                            )
-                    )
+                    Text(message)
                         .font(PixelTheme.font(.subheadline))
                         .foregroundStyle(PixelTheme.inkMuted)
                         .multilineTextAlignment(.center)
                         .fixedSize(horizontal: false, vertical: true)
                 }
 
-                verificationPips
+                if isFailed {
+                    Button(failureActionTitle, action: onDismissFailure)
+                        .buttonStyle(PixelButtonStyle(tone: PixelTheme.danger))
+                        .frame(maxWidth: .infinity)
+                } else {
+                    verificationPips
+                }
             }
             .padding(.horizontal, 28)
             .padding(.vertical, 32)
             .frame(maxWidth: 360)
             .pixelSurface(
                 fill: PixelTheme.paperRaised,
-                border: isCompleted ? PixelTheme.success : PixelTheme.goldBright,
+                border: isCompleted ? PixelTheme.success : (isFailed ? PixelTheme.danger : PixelTheme.goldBright),
                 step: 6,
                 hasShadow: true
             )
@@ -4110,8 +4701,66 @@ private struct PixelEvidenceVerificationOverlay: View {
         .accessibilityLabel(
             isCompleted
                 ? L10n.text("任务完成，正在返回已完成任务", english: "Quest complete, returning to completed tasks")
-                : L10n.text("正在核验证据", english: "Verifying evidence")
+                : isFailed
+                    ? title
+                    : L10n.text("正在核验证据", english: "Verifying evidence")
         )
+    }
+
+    private var isCompleted: Bool {
+        phase == .completed
+    }
+
+    private var isFailed: Bool {
+        if case .failed = phase { return true }
+        return false
+    }
+
+    private var title: String {
+        switch phase {
+        case .verifying:
+            L10n.text("证据鉴定中", english: "Verifying Evidence")
+        case .completed:
+            completionTitle
+        case let .failed(verdict, _):
+            switch verdict {
+            case .needMoreProof:
+                L10n.text("需补充证据", english: "More Evidence Needed")
+            case .notVerified:
+                L10n.text("未通过核验", english: "Not Verified")
+            case .pending, .verified:
+                L10n.text("核验请求失败", english: "Verification Failed")
+            }
+        }
+    }
+
+    private var failureActionTitle: String {
+        if case let .failed(verdict, _) = phase, verdict == .pending {
+            return L10n.text("返回重试", english: "Return to Retry")
+        }
+        return L10n.text("查看提交记录", english: "View Submission")
+    }
+
+    private var titleColor: Color {
+        switch phase {
+        case .completed: PixelTheme.success
+        case .failed: PixelTheme.danger
+        case .verifying: PixelTheme.ink
+        }
+    }
+
+    private var message: String {
+        switch phase {
+        case .verifying:
+            L10n.text(
+                "公会鉴定师正在核验任务证据…",
+                english: "The guild appraiser is checking the task evidence…"
+            )
+        case .completed:
+            completionMessage
+        case let .failed(_, explanation):
+            L10n.text(explanation)
+        }
     }
 
     private var completionTitle: String {
@@ -4157,6 +4806,18 @@ private struct PixelEvidenceVerificationOverlay: View {
                     .foregroundStyle(.white)
             }
             .transition(.scale(scale: 0.72).combined(with: .opacity))
+        } else if isFailed {
+            ZStack {
+                PixelCornerShape(step: 5)
+                    .fill(PixelTheme.danger)
+                    .frame(width: 104, height: 104)
+                    .shadow(color: PixelTheme.background.opacity(0.8), radius: 0, x: 5, y: 5)
+
+                Image(systemName: "xmark")
+                    .font(PixelTheme.font(size: 44, weight: .bold))
+                    .foregroundStyle(.white)
+            }
+            .transition(.scale(scale: 0.72).combined(with: .opacity))
         } else {
             TimelineView(.animation(minimumInterval: 0.12, paused: reduceMotion)) { context in
                 let activePixel = reduceMotion
@@ -4187,7 +4848,7 @@ private struct PixelEvidenceVerificationOverlay: View {
     }
 
     private var verificationPips: some View {
-        TimelineView(.animation(minimumInterval: 0.16, paused: reduceMotion || isCompleted)) { context in
+        TimelineView(.animation(minimumInterval: 0.16, paused: reduceMotion || isCompleted || isFailed)) { context in
             let litPips = isCompleted
                 ? 8
                 : reduceMotion
