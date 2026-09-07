@@ -76,8 +76,6 @@ struct SettingsView: View {
                 Text("设置")
                     .font(PixelTheme.displayFont(size: 28))
                     .foregroundStyle(PixelTheme.paperRaised)
-                Text("管理语言与 iCloud 同步状态。")
-                    .foregroundStyle(PixelTheme.paper.opacity(0.72))
             }
 
             Spacer()

@@ -1,6 +1,9 @@
 import PhotosUI
 import SwiftUI
 import SwiftData
+#if os(iOS)
+import UIKit
+#endif
 
 private enum EvidenceVerificationPhase: Equatable {
     case verifying
@@ -900,6 +903,11 @@ struct ContentView: View {
             .zIndex(0)
         }
 #if os(iOS)
+        .onTapGesture {
+            isTaskInputFocused = false
+        }
+#endif
+#if os(iOS)
         .ignoresSafeArea(.keyboard, edges: .bottom)
 #endif
         .platformCameraPresentation(isPresented: $isSourceCameraPresented) {
@@ -1001,16 +1009,6 @@ struct ContentView: View {
             .focused($isTaskInputFocused)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
             .accessibilityLabel(L10n.text("输入你想完成的任务", english: "Enter the task you want to complete"))
-#if os(iOS)
-            .toolbar {
-                ToolbarItemGroup(placement: .keyboard) {
-                    Spacer()
-                    Button(L10n.text("完成", english: "Done")) {
-                        isTaskInputFocused = false
-                    }
-                }
-            }
-#endif
             .onSubmit(generateTask)
 
             generationError
@@ -1222,12 +1220,28 @@ struct ContentView: View {
                     reduceMotion ? nil : .snappy(duration: 0.34),
                     value: isDeadlinePickerPresented
                 )
+#if os(iOS)
+                .onTapGesture {
+                    dismissKeyboard()
+                }
+#endif
             }
         }
         .task(id: draftMonsterPreviewKey) {
             await refreshDraftMonsterPreviews()
         }
     }
+
+#if os(iOS)
+    private func dismissKeyboard() {
+        UIApplication.shared.sendAction(
+            #selector(UIResponder.resignFirstResponder),
+            to: nil,
+            from: nil,
+            for: nil
+        )
+    }
+#endif
 
     private func bountyPoster(now _: Date) -> some View {
         ZStack(alignment: .topLeading) {
@@ -1430,17 +1444,11 @@ struct ContentView: View {
     }
 
     private var bountyXPField: some View {
-        VStack(alignment: .leading, spacing: 3) {
-            Text(L10n.text("完成奖励", english: "Reward"))
-                .font(PixelTheme.font(size: 19))
-                .foregroundStyle(PixelTheme.inkMuted)
-            Text("+\(draftXP) EXP")
-                .font(PixelTheme.statFont(size: 35))
-                .foregroundStyle(PixelTheme.brown)
-                .lineLimit(1)
-        }
-        .padding(.horizontal, 18)
-        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
+        bountyMetadataField(
+            title: L10n.text("完成奖励", english: "Reward"),
+            value: "+\(draftXP) EXP",
+            icon: "sparkles"
+        )
         .accessibilityElement(children: .combine)
     }
 
@@ -1483,10 +1491,13 @@ struct ContentView: View {
     @ViewBuilder
     private var bountyDescriptionField: some View {
         HStack(alignment: .top, spacing: 14) {
-            VStack(alignment: .leading, spacing: 6) {
-                Text(L10n.text("任务说明", english: "Task Description"))
-                    .font(PixelTheme.font(size: 20))
-                    .foregroundStyle(PixelTheme.inkMuted)
+            VStack(alignment: .leading, spacing: 8) {
+                bountySectionLabel(
+                    "任务说明",
+                    english: "Task Description",
+                    systemImage: "text.alignleft",
+                    avoidsFold: true
+                )
 
                 if isDraftTaskGroup {
                     ScrollView {
@@ -1534,7 +1545,7 @@ struct ContentView: View {
                 }
             }
             .textFieldStyle(.plain)
-            .font(PixelTheme.font(size: 25))
+            .font(PixelTheme.font(size: 24))
             .foregroundStyle(PixelTheme.ink)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
 
@@ -1547,18 +1558,20 @@ struct ContentView: View {
             }
         }
         .padding(.horizontal, 18)
-        .padding(.vertical, 12)
+        .padding(.vertical, 13)
     }
 
     private var bountyEvidenceField: some View {
-        VStack(alignment: .leading, spacing: 5) {
+        VStack(alignment: .leading, spacing: 8) {
             HStack {
-                Text(L10n.text("提交照片", english: "Evidence Photos"))
-                    .font(PixelTheme.font(size: 20))
-                    .foregroundStyle(PixelTheme.inkMuted)
+                bountySectionLabel(
+                    "悬赏凭证",
+                    english: "Bounty Evidence",
+                    systemImage: "photo.on.rectangle.angled"
+                )
                 Spacer()
                 Text(L10n.text("\(posterEvidencePhotoCount) 张", english: "\(posterEvidencePhotoCount) photo(s)"))
-                    .font(PixelTheme.font(size: 20))
+                    .font(PixelTheme.font(size: 19))
                     .foregroundStyle(PixelTheme.brown)
             }
 
@@ -1589,7 +1602,7 @@ struct ContentView: View {
         .font(PixelTheme.font(size: 23))
         .foregroundStyle(PixelTheme.ink)
         .padding(.horizontal, 18)
-        .padding(.vertical, 10)
+        .padding(.vertical, 12)
     }
 
     private var bountySaveButton: some View {
@@ -2501,7 +2514,7 @@ struct ContentView: View {
             .frame(width: 306, height: 126)
             .position(x: 592, y: 911)
 
-            taskBountyMetadataField(
+            bountyMetadataField(
                 title: L10n.text("完成奖励", english: "Reward"),
                 value: task.isSubtask
                     ? L10n.text("任务组奖励", english: "Group Reward")
@@ -2585,7 +2598,7 @@ struct ContentView: View {
         }
     }
 
-    private func taskBountyMetadataField(title: String, value: String, icon: String) -> some View {
+    private func bountyMetadataField(title: String, value: String, icon: String) -> some View {
         HStack(spacing: 12) {
             Image(systemName: icon)
                 .font(.system(size: 34, weight: .semibold))
@@ -2609,11 +2622,14 @@ struct ContentView: View {
     }
 
     private func taskBountyDescriptionField(for task: TaskContract) -> some View {
-        HStack(alignment: .top, spacing: 16) {
+        HStack(alignment: .top, spacing: 14) {
             VStack(alignment: .leading, spacing: 8) {
-                Label(L10n.text("任务说明", english: "Task Description"), systemImage: "text.alignleft")
-                    .font(PixelTheme.font(size: 19))
-                    .foregroundStyle(PixelTheme.inkMuted)
+                bountySectionLabel(
+                    "任务说明",
+                    english: "Task Description",
+                    systemImage: "text.alignleft",
+                    avoidsFold: true
+                )
 
                 Text(
                     task.taskDescription?.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty == false
@@ -2626,6 +2642,7 @@ struct ContentView: View {
                 .lineLimit(5)
                 .frame(maxWidth: .infinity, alignment: .topLeading)
             }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
 
             if let sourceImageData = task.localSourceImageData {
                 PlatformImageView(data: sourceImageData)
@@ -2650,9 +2667,11 @@ struct ContentView: View {
 
     private func taskBountyEvidenceField(for task: TaskContract) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            Label(L10n.text("悬赏凭证", english: "Bounty Evidence"), systemImage: "photo.on.rectangle.angled")
-                .font(PixelTheme.font(size: 19))
-                .foregroundStyle(PixelTheme.inkMuted)
+            bountySectionLabel(
+                "悬赏凭证",
+                english: "Bounty Evidence",
+                systemImage: "photo.on.rectangle.angled"
+            )
 
             if task.isTaskGroup {
                 Text(
@@ -2673,6 +2692,18 @@ struct ContentView: View {
         }
         .padding(.horizontal, 18)
         .padding(.vertical, 12)
+    }
+
+    private func bountySectionLabel(
+        _ title: String,
+        english: String,
+        systemImage: String,
+        avoidsFold: Bool = false
+    ) -> some View {
+        Label(L10n.text(title, english: english), systemImage: systemImage)
+            .font(PixelTheme.font(size: 19))
+            .foregroundStyle(PixelTheme.inkMuted)
+            .padding(.leading, avoidsFold ? 28 : 0)
     }
 
     @ViewBuilder
@@ -3664,9 +3695,19 @@ struct ContentView: View {
 
     private func presentDeferredMedalAnimationIfNeeded() {
         guard let deferredEvent = deferredMedalAnimationPresentation else { return }
-        deferredMedalAnimationPresentation = nil
+
         Task { @MainActor in
-            try? await Task.sleep(for: .milliseconds(180))
+            // Let the reveal overlay and task-page transition finish before the
+            // WebView-backed medal animation starts doing its rendering work.
+            try? await Task.sleep(for: .milliseconds(reduceMotion ? 180 : 650))
+            guard deferredMedalAnimationPresentation?.id == deferredEvent.id else { return }
+            guard
+                evidenceVerificationPresentation == nil,
+                monsterRevealPresentation == nil,
+                medalAnimationPresentation == nil
+            else { return }
+
+            deferredMedalAnimationPresentation = nil
             withAnimation(reduceMotion ? nil : .smooth(duration: 0.3)) {
                 medalAnimationPresentation = deferredEvent
             }
