@@ -238,31 +238,6 @@ struct PixelButtonStyle: ButtonStyle {
     }
 }
 
-struct PixelButton: View {
-    @Environment(\.locale) private var locale
-
-    let title: String
-    var systemImage: String?
-    var tone: Color = PixelTheme.selection
-    var isLoading = false
-    let action: () -> Void
-
-    var body: some View {
-        let _ = locale.identifier
-        Button(action: action) {
-            HStack(spacing: PixelTheme.space8) {
-                if isLoading {
-                    ProgressView().controlSize(.small).tint(.white)
-                } else if let systemImage {
-                    Image(systemName: systemImage)
-                }
-                Text(L10n.text(title))
-            }
-        }
-        .buttonStyle(PixelButtonStyle(tone: tone))
-    }
-}
-
 struct PixelIconButton: View {
     let systemImage: String
     let accessibilityLabel: String
@@ -334,48 +309,6 @@ struct PixelTabBar: View {
     }
 }
 
-struct PixelInput<Content: View>: View {
-    var isFocused = false
-    @ViewBuilder var content: Content
-
-    var body: some View {
-        content
-            .padding(.horizontal, PixelTheme.space16)
-            .padding(.vertical, PixelTheme.space12)
-            .background {
-                ZStack {
-                    PixelCornerShape()
-                        .fill(PixelTheme.brown.opacity(0.32))
-                        .offset(x: 3, y: 3)
-                    PixelCornerShape().fill(PixelTheme.paperRaised)
-                }
-            }
-            .overlay {
-                PixelCornerShape()
-                    .stroke(isFocused ? PixelTheme.selectionBright : PixelTheme.gold, lineWidth: 2)
-            }
-    }
-}
-
-struct PixelProgressBar: View {
-    let value: Double
-    var tint: Color = PixelTheme.success
-
-    var body: some View {
-        GeometryReader { proxy in
-            ZStack(alignment: .leading) {
-                Rectangle().fill(PixelTheme.background.opacity(0.16))
-                Rectangle()
-                    .fill(tint)
-                    .frame(width: proxy.size.width * min(max(value, 0), 1))
-            }
-            .overlay { Rectangle().stroke(PixelTheme.ink, lineWidth: 2) }
-        }
-        .frame(height: 12)
-        .accessibilityValue("\(Int(min(max(value, 0), 1) * 100))%")
-    }
-}
-
 struct PixelStatusBadge: View {
     @Environment(\.locale) private var locale
 
@@ -391,20 +324,6 @@ struct PixelStatusBadge: View {
             .padding(.vertical, PixelTheme.space4)
             .background(color, in: PixelCornerShape(step: 2))
             .overlay { PixelCornerShape(step: 2).stroke(PixelTheme.gold.opacity(0.72), lineWidth: 1) }
-    }
-}
-
-struct PixelDialog<Content: View>: View {
-    let title: String
-    @ViewBuilder var content: Content
-
-    var body: some View {
-        PixelPanel(fill: PixelTheme.paperRaised, padding: PixelTheme.space24) {
-            VStack(alignment: .leading, spacing: PixelTheme.space16) {
-                PixelSectionHeader(title: title)
-                content
-            }
-        }
     }
 }
 

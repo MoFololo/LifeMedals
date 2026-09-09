@@ -1630,92 +1630,6 @@ struct ContentView: View {
         return snapshot.imageURL
     }
 
-    private var taskTitleContractField: some View {
-        let fieldTitle = isDraftTaskGroup
-            ? L10n.text("主任务标题", english: "Main task title")
-            : L10n.text("任务标题", english: "Task title")
-        return contractField(fieldTitle) {
-            TextField(fieldTitle, text: $draftTitle)
-                .textFieldStyle(.plain)
-                .font(PixelTheme.font(.title3, weight: .medium))
-                .frame(maxWidth: .infinity)
-                .padding(14)
-                .background(PixelTheme.paperRaised, in: PixelCornerShape())
-                .overlay { PixelCornerShape().stroke(PixelTheme.gold.opacity(0.62), lineWidth: 1) }
-                .onChange(of: draftTitle) { _, newValue in
-                    if !newValue.isEmpty, !TaskTitleRules.isValid(newValue) {
-                        draftTitle = TaskTitleRules.limited(newValue)
-                    }
-                }
-
-            Text(TaskTitleRules.limitDescription(for: draftTitle))
-                .font(PixelTheme.font(.caption2))
-                .foregroundStyle(PixelTheme.inkMuted)
-        }
-    }
-
-    private var taskDescriptionContractField: some View {
-        contractField(L10n.text("任务说明", english: "Task description")) {
-            TextField(
-                L10n.text("补充任务的具体内容（可选）", english: "Add task details (optional)"),
-                text: $draftTaskDescription,
-                axis: .vertical
-            )
-            .textFieldStyle(.plain)
-            .font(PixelTheme.font(.body))
-            .lineLimit(3...7)
-            .frame(maxWidth: .infinity)
-            .padding(14)
-            .background(PixelTheme.paperRaised, in: PixelCornerShape())
-            .overlay { PixelCornerShape().stroke(PixelTheme.gold.opacity(0.62), lineWidth: 1) }
-        }
-    }
-
-    private var xpContractField: some View {
-        contractField("完成奖励") {
-            Label("+\(draftXP) EXP", systemImage: "sparkles")
-                .font(PixelTheme.font(.title3, weight: .bold))
-                .foregroundStyle(PixelTheme.brown)
-                .padding(14)
-                .frame(maxWidth: .infinity, alignment: .leading)
-                .background(PixelTheme.paperRaised, in: PixelCornerShape())
-                .overlay { PixelCornerShape().stroke(PixelTheme.gold.opacity(0.62), lineWidth: 1) }
-        }
-    }
-
-    private var badgeContractField: some View {
-        contractField("所属勋章") {
-            VStack(spacing: PixelTheme.space8) {
-                MedalArtworkView(categoryName: draftBadge, rank: badgeRank(for: draftBadge))
-                    .frame(width: 108, height: 108)
-                    .clipped()
-
-                Picker(L10n.text("所属勋章", english: "Medal"), selection: $draftBadge) {
-                    ForEach(Self.badgeOptions, id: \.self) { badge in
-                        Text(badgeDisplayName(badge)).tag(badge)
-                    }
-                }
-                .pickerStyle(.menu)
-                .labelsHidden()
-                .accessibilityLabel(L10n.text("选择所属勋章", english: "Choose medal category"))
-            }
-            .padding(8)
-            .frame(maxWidth: .infinity, minHeight: 144)
-            .background(PixelTheme.paperRaised, in: PixelCornerShape())
-            .overlay { PixelCornerShape().stroke(PixelTheme.gold.opacity(0.62), lineWidth: 1) }
-        }
-    }
-
-    private var draftMonsterContractField: some View {
-        contractField(L10n.text("任务怪物", english: "Task Monster")) {
-            MonsterDraftPreviewCard(
-                descriptor: singleDraftMonsterDescriptor,
-                level: draftMonsterLevel,
-                state: draftMonsterPreviewStates["single"] ?? .loading
-            )
-        }
-    }
-
     private var draftMonsterLevel: Int {
         badgeRank(for: draftBadge).rawValue
     }
@@ -1815,12 +1729,6 @@ struct ContentView: View {
     private func draftMonsterSnapshot(for key: String) -> MonsterVariantSnapshot? {
         guard case let .variant(snapshot) = draftMonsterPreviewStates[key] else { return nil }
         return snapshot
-    }
-
-    private var deadlineContractField: some View {
-        contractField("截止日期") {
-            DeadlinePickerField(selection: $draftDeadline)
-        }
     }
 
     // MARK: - Task list
@@ -4476,19 +4384,6 @@ struct ContentView: View {
 
     private func badgeRank(for badge: String) -> BadgeRank {
         badgeCategories.first { $0.name == badge }?.userBadge?.rank ?? .bronze
-    }
-
-    private func contractField<Content: View>(
-        _ title: String,
-        @ViewBuilder content: () -> Content
-    ) -> some View {
-        VStack(alignment: .leading, spacing: 8) {
-            Text(LocalizedStringKey(title))
-                .font(PixelTheme.font(.caption, weight: .semibold))
-                .foregroundStyle(PixelTheme.inkMuted)
-            content()
-        }
-        .frame(maxWidth: .infinity, alignment: .leading)
     }
 
     private func pageHeader(title: String, subtitle: String? = nil) -> some View {
