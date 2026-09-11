@@ -1170,15 +1170,28 @@ struct EvidenceSubmissionView: View {
             var awardEvent: XPAwardEvent?
             switch result.verdict {
             case .verified:
-                await refreshMonsterArtworkBeforeDiscovery()
                 task.status = .verified
-                monsterDiscoveryEvent = try? MonsterDiscoveryService.recordEncounter(
-                    for: task,
-                    in: modelContext
-                )
                 if task.isSubtask {
                     awardEvent = try TaskGroupService.reconcileParent(for: task, in: modelContext)
+                    if
+                        awardEvent != nil,
+                        let parentTaskID = task.parentTaskID,
+                        let parent = try modelContext.fetch(
+                            FetchDescriptor<TaskContract>(predicate: #Predicate { $0.id == parentTaskID })
+                        ).first
+                    {
+                        await refreshMonsterArtworkBeforeDiscovery(for: parent)
+                        monsterDiscoveryEvent = try? MonsterDiscoveryService.recordEncounter(
+                            for: parent,
+                            in: modelContext
+                        )
+                    }
                 } else {
+                    await refreshMonsterArtworkBeforeDiscovery(for: task)
+                    monsterDiscoveryEvent = try? MonsterDiscoveryService.recordEncounter(
+                        for: task,
+                        in: modelContext
+                    )
                     awardEvent = XPService.awardXP(for: task, in: modelContext)
                 }
             case .needMoreProof:
@@ -1210,7 +1223,7 @@ struct EvidenceSubmissionView: View {
     }
 
     @MainActor
-    private func refreshMonsterArtworkBeforeDiscovery() async {
+    private func refreshMonsterArtworkBeforeDiscovery(for task: TaskContract) async {
         guard
             let canonicalTag = task.monsterTag,
             let level = task.monsterLevel,

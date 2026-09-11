@@ -79,6 +79,47 @@ private struct PixelCheckmark: Shape {
     }
 }
 
+private struct NewBountyInsertionModifier: ViewModifier {
+    let isActive: Bool
+    let reduceMotion: Bool
+
+    @State private var hasEntered = false
+
+    private var isWaitingToEnter: Bool {
+        isActive && !hasEntered
+    }
+
+    func body(content: Content) -> some View {
+        content
+            .visualEffect { effect, geometry in
+                effect.offset(
+                    x: isWaitingToEnter && !reduceMotion ? geometry.size.width + 32 : 0
+                )
+            }
+            .opacity(isWaitingToEnter ? 0 : 1)
+            .allowsHitTesting(!isWaitingToEnter)
+            .accessibilityHidden(isWaitingToEnter)
+            .task(id: isActive) {
+                guard isActive, !hasEntered else { return }
+                do {
+                    // Reserve the row's space while navigation and scrolling settle,
+                    // then slide the whole card into its final position once.
+                    try await Task.sleep(for: .milliseconds(500))
+                    withAnimation(
+                        reduceMotion
+                            ? .easeOut(duration: 0.2)
+                            : .spring(response: 0.5, dampingFraction: 0.86)
+                    ) {
+                        hasEntered = true
+                    }
+                } catch {
+                    // Leaving the list cancels the pending entrance.
+                    return
+                }
+            }
+    }
+}
+
 private struct BountyDeadlineButton: View {
     @Binding var selection: Date
     let isExpanded: Bool
@@ -182,8 +223,8 @@ struct ContentView: View {
     }
 
     private enum AchievementTab: String, CaseIterable, Identifiable {
-        case medals
         case monsters
+        case medals
 
         var id: Self { self }
 
@@ -487,10 +528,10 @@ struct ContentView: View {
     @GestureState private var reminderBannerTranslation: CGFloat = 0
     @State private var selectedTaskTab = TaskListTab.unfinished
     @State private var taskTabTransitionDirection = EdgeSwipeDirection.towardNext
-    /// Absence means expanded, so newly created and synced groups default open.
-    @State private var collapsedTaskGroupIDs: Set<UUID> = []
+    /// Absence means collapsed, so newly created and synced groups stay compact until tapped.
+    @State private var expandedTaskGroupIDs: Set<UUID> = []
     @State private var selectedLibraryBadge: String?
-    @State private var selectedAchievementTab = AchievementTab.medals
+    @State private var selectedAchievementTab = AchievementTab.monsters
     @State private var achievementTabTransitionDirection = EdgeSwipeDirection.towardNext
     @State private var medalAnimationPresentation: XPAwardEvent?
     @State private var deferredMedalAnimationPresentation: XPAwardEvent?
@@ -521,6 +562,7 @@ struct ContentView: View {
     @State private var draftMonsterMatchKind: MonsterMatchKind?
     @State private var draftMonsterPreviewStates: [String: MonsterDraftPreviewState] = [:]
     @State private var monsterArtworkSyncActivation = 0
+    @State private var recentlyAddedTaskID: UUID?
 
     private let generationService = TaskGenerationService()
     private let monsterVariantService = MonsterVariantService()
@@ -539,6 +581,7 @@ struct ContentView: View {
             .onAppear {
                 notificationService.configureForegroundPresentation()
                 migrateLegacySolverCategoriesIfNeeded()
+                migrateLegacyTaskGroupMonstersIfNeeded()
 #if DEBUG
                 applyDebugLaunchScenario()
 #endif
@@ -564,6 +607,9 @@ struct ContentView: View {
                     monsterArtworkSyncActivation += 1
                 }
             }
+            .onChange(of: syncMonitor.lastSuccessfulSync) { _, _ in
+                migrateLegacyTaskGroupMonstersIfNeeded()
+            }
             .task {
                 await restoreTaskReminders()
             }
@@ -586,6 +632,28 @@ struct ContentView: View {
             .sheet(isPresented: $isShowingSettings) {
                 SettingsView()
                     .environment(syncMonitor)
+            }
+            .alert(
+                L10n.text("发现 iCloud 存档冲突", english: "iCloud Save Conflict"),
+                isPresented: Binding(
+                    get: { syncMonitor.hasCloudConflict },
+                    set: { if !$0 { syncMonitor.resolveCloudConflict() } }
+                )
+            ) {
+                Button(L10n.text("使用云存档", english: "Use Cloud Save")) {
+                    modelContext.rollback()
+                    syncMonitor.resolveCloudConflict()
+                }
+                Button(L10n.text("保留本地", english: "Keep Local"), role: .cancel) {
+                    syncMonitor.resolveCloudConflict()
+                }
+            } message: {
+                Text(
+                    L10n.text(
+                        "云端与本机保存了不同版本。是否用云存档覆盖本机尚未提交的更改？",
+                        english: "The cloud and this device contain different versions. Use the cloud save and discard uncommitted local changes?"
+                    )
+                )
             }
             .iOSFullScreenCover(item: $medalAnimationPresentation) { event in
                 MedalAwardAnimationOverlay(event: event) {
@@ -1327,27 +1395,19 @@ struct ContentView: View {
     @ViewBuilder
     private var bountyMonsterField: some View {
         if isDraftTaskGroup {
-            let columns = [GridItem(.flexible(), spacing: 12), GridItem(.flexible(), spacing: 12)]
-            ScrollView {
-                LazyVGrid(columns: columns, spacing: 12) {
-                    ForEach(draftChildren) { child in
-                        VStack(spacing: 4) {
-                            MonsterArtworkView(
-                                imageURL: draftMonsterReadyImageURL(for: child.id.uuidString),
-                                isDiscovered: true
-                            )
-                            .frame(height: 156)
+            VStack(spacing: 2) {
+                MonsterArtworkView(
+                    imageURL: draftMonsterReadyImageURL(for: "group"),
+                    isDiscovered: true
+                )
+                .padding(.horizontal, 24)
 
-                            Text(child.title)
-                                .font(PixelTheme.font(size: 20))
-                                .foregroundStyle(PixelTheme.ink)
-                                .lineLimit(1)
-                        }
-                    }
-                }
+                Text(MonsterTaxonomy.categoryLabel(for: taskGroupDraftMonsterDescriptor.canonicalTag))
+                    .font(PixelTheme.displayFont(size: 25))
+                    .foregroundStyle(PixelTheme.ink)
+                    .lineLimit(1)
             }
-            .scrollIndicators(.hidden)
-            .padding(16)
+            .padding(.vertical, 14)
         } else {
             VStack(spacing: 2) {
                 MonsterArtworkView(
@@ -1643,25 +1703,25 @@ struct ContentView: View {
         )
     }
 
-    private func monsterDescriptor(for child: TaskChildDraft) -> MonsterDescriptor {
+    private var taskGroupDraftMonsterDescriptor: MonsterDescriptor {
         MonsterTaxonomy.descriptor(
-            canonicalTag: child.monsterTag,
-            matchKind: child.monsterMatchKind,
-            fallbackText: "\(child.title) \(child.evidenceRequirement)",
+            canonicalTag: draftMonsterTag ?? draftChildren.first?.monsterTag,
+            matchKind: draftMonsterMatchKind ?? draftChildren.first?.monsterMatchKind,
+            fallbackText: ([draftTitle] + draftChildren.map(\.title)).joined(separator: " "),
             badgeKind: draftBadge
         )
     }
 
     private var draftMonsterPreviewRequests: [DraftMonsterPreviewRequest] {
         if isDraftTaskGroup {
-            return draftChildren.map { child in
+            return [
                 DraftMonsterPreviewRequest(
-                    key: child.id.uuidString,
-                    descriptor: monsterDescriptor(for: child),
+                    key: "group",
+                    descriptor: taskGroupDraftMonsterDescriptor,
                     badgeKind: draftBadge,
                     level: draftMonsterLevel
                 )
-            }
+            ]
         }
         return [
             DraftMonsterPreviewRequest(
@@ -1785,66 +1845,88 @@ struct ContentView: View {
     }
 
     private func taskListContent(tasks selectedTasks: [TaskContract], now: Date) -> some View {
-        List {
-            if selectedTasks.isEmpty {
-                taskListEmptyState(for: selectedTaskTab)
-                    .listRowBackground(Color.clear)
-                    .listRowSeparator(.hidden)
-                    .listRowInsets(EdgeInsets(top: 8, leading: pageHorizontalInset, bottom: 28, trailing: pageHorizontalInset))
-            } else {
-                ForEach(selectedTasks) { task in
-                    let actions = taskRowActions(for: task)
-                    if task.isTaskGroup {
-                        adaptiveTaskGroupRow(
-                            task: task,
-                            now: now,
-                            actions: actions,
-                            onSelect: { toggleTaskGroup(task) }
-                        )
-                        .clipShape(PixelCornerShape())
+        ScrollViewReader { scrollProxy in
+            List {
+                if selectedTasks.isEmpty {
+                    taskListEmptyState(for: selectedTaskTab)
                         .listRowBackground(Color.clear)
                         .listRowSeparator(.hidden)
-                        .listRowInsets(EdgeInsets(top: 7, leading: pageHorizontalInset, bottom: 7, trailing: pageHorizontalInset))
-
-                        if !collapsedTaskGroupIDs.contains(task.id) {
-                            ForEach(children(of: task)) { child in
-                                adaptiveTaskRow(
-                                    task: child,
-                                    now: now,
-                                    actions: taskRowActions(for: child),
-                                    onSelect: { openTask(child) }
-                                )
-                                .clipShape(PixelCornerShape())
-                                .listRowBackground(Color.clear)
-                                .listRowSeparator(.hidden)
-                                .listRowInsets(
-                                    EdgeInsets(
-                                        top: 5,
-                                        leading: pageHorizontalInset + (isCompactLayout ? 24 : 38),
-                                        bottom: 5,
-                                        trailing: pageHorizontalInset
-                                    )
-                                )
-                                .transition(.opacity.combined(with: .move(edge: .top)))
-                            }
-                        }
-                    } else {
-                        adaptiveTaskRow(
-                            task: task,
-                            now: now,
-                            actions: actions,
-                            onSelect: { openTask(task) }
-                        )
+                        .listRowInsets(EdgeInsets(top: 8, leading: pageHorizontalInset, bottom: 28, trailing: pageHorizontalInset))
+                } else {
+                    ForEach(selectedTasks) { task in
+                        let actions = taskRowActions(for: task)
+                        if task.isTaskGroup {
+                            adaptiveTaskGroupRow(
+                                task: task,
+                                now: now,
+                                actions: actions,
+                                onSelect: { toggleTaskGroup(task) }
+                            )
                             .clipShape(PixelCornerShape())
+                            .modifier(
+                                NewBountyInsertionModifier(
+                                    isActive: recentlyAddedTaskID == task.id,
+                                    reduceMotion: reduceMotion
+                                )
+                            )
+                            .id(task.id)
                             .listRowBackground(Color.clear)
                             .listRowSeparator(.hidden)
                             .listRowInsets(EdgeInsets(top: 7, leading: pageHorizontalInset, bottom: 7, trailing: pageHorizontalInset))
+
+                            if expandedTaskGroupIDs.contains(task.id) {
+                                ForEach(children(of: task)) { child in
+                                    adaptiveTaskRow(
+                                        task: child,
+                                        now: now,
+                                        actions: taskRowActions(for: child),
+                                        onSelect: { openTask(child) }
+                                    )
+                                    .clipShape(PixelCornerShape())
+                                    .listRowBackground(Color.clear)
+                                    .listRowSeparator(.hidden)
+                                    .listRowInsets(
+                                        EdgeInsets(
+                                            top: 5,
+                                            leading: pageHorizontalInset + (isCompactLayout ? 24 : 38),
+                                            bottom: 5,
+                                            trailing: pageHorizontalInset
+                                        )
+                                    )
+                                    .transition(.opacity.combined(with: .move(edge: .top)))
+                                }
+                            }
+                        } else {
+                            adaptiveTaskRow(
+                                task: task,
+                                now: now,
+                                actions: actions,
+                                onSelect: { openTask(task) }
+                            )
+                                .clipShape(PixelCornerShape())
+                                .modifier(
+                                    NewBountyInsertionModifier(
+                                        isActive: recentlyAddedTaskID == task.id,
+                                        reduceMotion: reduceMotion
+                                    )
+                                )
+                                .id(task.id)
+                                .listRowBackground(Color.clear)
+                                .listRowSeparator(.hidden)
+                                .listRowInsets(EdgeInsets(top: 7, leading: pageHorizontalInset, bottom: 7, trailing: pageHorizontalInset))
+                        }
                     }
                 }
             }
+            .listStyle(.plain)
+            .scrollContentBackground(.hidden)
+            .onChange(of: recentlyAddedTaskID, initial: true) { _, taskID in
+                guard let taskID, selectedTasks.contains(where: { $0.id == taskID }) else { return }
+                withAnimation(reduceMotion ? nil : .easeInOut(duration: 0.35)) {
+                    scrollProxy.scrollTo(taskID, anchor: .center)
+                }
+            }
         }
-        .listStyle(.plain)
-        .scrollContentBackground(.hidden)
     }
 
     private func taskListHeader(
@@ -1959,8 +2041,10 @@ struct ContentView: View {
 
     private func taskRow(_ task: TaskContract, now: Date) -> some View {
         HStack(spacing: isCompactLayout ? 12 : 16) {
-            taskMonsterThumbnail(for: task)
-            .frame(width: isCompactLayout ? 44 : 52, height: isCompactLayout ? 44 : 52)
+            if !task.isSubtask {
+                taskMonsterThumbnail(for: task)
+                    .frame(width: isCompactLayout ? 44 : 52, height: isCompactLayout ? 44 : 52)
+            }
 
             VStack(alignment: .leading, spacing: 6) {
                 Text(L10n.text(task.title))
@@ -2018,7 +2102,7 @@ struct ContentView: View {
     private func taskGroupRow(_ task: TaskContract, now: Date) -> some View {
         let childTasks = children(of: task)
         let completedCount = childTasks.filter { $0.status == .verified }.count
-        let isExpanded = !collapsedTaskGroupIDs.contains(task.id)
+        let isExpanded = expandedTaskGroupIDs.contains(task.id)
         let middleLayerOffset: CGFloat = isExpanded ? 0 : 5
         let backLayerOffset: CGFloat = isExpanded ? 0 : 10
 
@@ -2450,23 +2534,18 @@ struct ContentView: View {
     @ViewBuilder
     private func taskBountyMonsterField(for task: TaskContract) -> some View {
         if task.isTaskGroup {
-            let childTasks = children(of: task)
-            VStack(spacing: 14) {
-                Image(systemName: "scroll.fill")
-                    .font(.system(size: 86, weight: .medium))
-                    .foregroundStyle(PixelTheme.gold)
-                Text(L10n.text("任务组", english: "Task Group"))
-                    .font(PixelTheme.displayFont(size: 28))
-                ForEach(childTasks.prefix(4)) { child in
-                    Label(
-                        L10n.text(child.title),
-                        systemImage: child.status == .verified ? "checkmark.square.fill" : "square"
-                    )
-                    .font(PixelTheme.font(size: 21))
-                    .foregroundStyle(PixelTheme.inkMuted)
-                    .lineLimit(1)
+            VStack(spacing: 4) {
+                taskMonsterThumbnail(for: task)
+                    .frame(width: 350, height: 350)
+
+                if let monsterTag = task.monsterTag {
+                    Text(MonsterTaxonomy.categoryLabel(for: monsterTag))
+                        .font(PixelTheme.displayFont(size: 25))
+                        .foregroundStyle(PixelTheme.ink)
+                        .lineLimit(1)
                 }
             }
+            .padding(.vertical, 14)
         } else {
             VStack(spacing: 4) {
                 taskMonsterThumbnail(for: task)
@@ -2616,7 +2695,16 @@ struct ContentView: View {
 
     @ViewBuilder
     private func taskBountyPrimaryAction(for task: TaskContract) -> some View {
-        if task.isTaskGroup {
+        if task.status != .verified, task.deadline <= .now {
+            Label(
+                L10n.text("悬赏已过期 · 无法提交", english: "Expired · Submission Closed"),
+                systemImage: "lock.fill"
+            )
+            .font(PixelTheme.displayFont(size: 27))
+            .foregroundStyle(Color(red: 0.55, green: 0.43, blue: 0.28))
+            .frame(maxWidth: .infinity, maxHeight: .infinity)
+            .accessibilityLabel(L10n.text("任务已过期，无法提交证据", english: "Task expired; evidence can no longer be submitted"))
+        } else if task.isTaskGroup {
             let childTasks = children(of: task)
             let completedCount = childTasks.filter { $0.status == .verified }.count
             Label("\(completedCount)/\(childTasks.count)", systemImage: "checklist")
@@ -3182,6 +3270,11 @@ struct ContentView: View {
     }
 
     private func selectPage(_ page: AppPage) {
+        if page == .medals {
+            selectedLibraryBadge = nil
+            selectAchievementTab(.monsters)
+        }
+
         if page == selectedPage {
             if page == .tasks {
                 withAnimation(.smooth(duration: 0.38)) {
@@ -3295,8 +3388,12 @@ struct ContentView: View {
             }
             let lockedMonsterLevel = MonsterEncounterRules.lockedLevel(for: category)
 
-            let savedTasks: [TaskContract]
+            let savedRootTask: TaskContract
+            let reminderTasks: [TaskContract]
+            let monsterTasks: [TaskContract]
             if wasTaskGroup {
+                let monster = taskGroupDraftMonsterDescriptor
+                let snapshot = draftMonsterSnapshot(for: "group")
                 let parentID = UUID()
                 if let sourceImageData = draftContractSourceImageData {
                     try LocalImageStore.shared.save(sourceImageData, kind: .taskSource, id: parentID)
@@ -3313,18 +3410,16 @@ struct ContentView: View {
                     xpReward: draftXP,
                     hierarchyRole: .group,
                     hadSourceImage: draftContractSourceImageData != nil,
+                    monsterTag: monster.canonicalTag,
+                    monsterLevel: lockedMonsterLevel,
+                    monsterVariantID: snapshot?.variantID,
+                    monsterImageURL: snapshot?.status == .ready ? snapshot?.imageURL : nil,
+                    monsterStyleVersion: snapshot?.styleVersion,
                     badgeCategory: category
                 )
                 modelContext.insert(parent)
 
                 let children = draftChildren.enumerated().map { index, draft in
-                    let monster = MonsterTaxonomy.descriptor(
-                        canonicalTag: draft.monsterTag,
-                        matchKind: draft.monsterMatchKind,
-                        fallbackText: "\(draft.title) \(draft.evidenceRequirement)",
-                        badgeKind: draftBadge
-                    )
-                    let snapshot = draftMonsterSnapshot(for: draft.id.uuidString)
                     return TaskContract(
                         title: draft.title.trimmingCharacters(in: .whitespacesAndNewlines),
                         taskDescription: draft.taskDescription.trimmingCharacters(in: .whitespacesAndNewlines),
@@ -3336,16 +3431,13 @@ struct ContentView: View {
                         hierarchyRole: .child,
                         parentTaskID: parent.id,
                         childOrder: index,
-                        monsterTag: monster.canonicalTag,
-                        monsterLevel: lockedMonsterLevel,
-                        monsterVariantID: snapshot?.variantID,
-                        monsterImageURL: snapshot?.status == .ready ? snapshot?.imageURL : nil,
-                        monsterStyleVersion: snapshot?.styleVersion,
                         badgeCategory: category
                     )
                 }
                 children.forEach(modelContext.insert)
-                savedTasks = children
+                savedRootTask = parent
+                reminderTasks = children
+                monsterTasks = [parent]
             } else {
                 let monster = MonsterTaxonomy.descriptor(
                     canonicalTag: draftMonsterTag,
@@ -3377,15 +3469,17 @@ struct ContentView: View {
                     badgeCategory: category
                 )
                 modelContext.insert(task)
-                savedTasks = [task]
+                savedRootTask = task
+                reminderTasks = [task]
+                monsterTasks = [task]
             }
             try modelContext.save()
-            for task in savedTasks {
+            for task in reminderTasks {
                 scheduleReminderAfterSave(
                     LocalTaskReminder(taskID: task.id, title: task.title, deadline: task.deadline)
                 )
             }
-            Task { await ensureMonsterVariants(for: savedTasks) }
+            Task { await ensureMonsterVariants(for: monsterTasks) }
 
             taskInput = ""
             selectedSourcePhoto = nil
@@ -3405,6 +3499,10 @@ struct ContentView: View {
             withAnimation(.smooth(duration: 0.44)) {
                 creationPhase = .composing
                 creationInputMode = .text
+                selectedTask = nil
+                selectedTaskTab = .unfinished
+                selectedPage = .tasks
+                recentlyAddedTaskID = savedRootTask.id
                 savedMessage = syncMonitor.isAvailable
                     ? L10n.text(
                         wasTaskGroup
@@ -3421,11 +3519,15 @@ struct ContentView: View {
                             : "“\(title)” was saved on this device"
                     )
             }
-            focusTaskInput()
 
+            let messageForSavedTask = savedMessage
             Task {
-                try? await Task.sleep(for: .seconds(2.5))
-                withAnimation(.smooth(duration: 0.3)) {
+                try? await Task.sleep(for: .seconds(3.3))
+                guard recentlyAddedTaskID == savedRootTask.id else { return }
+                recentlyAddedTaskID = nil
+                try? await Task.sleep(for: .seconds(0.7))
+                guard recentlyAddedTaskID == nil, savedMessage == messageForSavedTask else { return }
+                withAnimation(reduceMotion ? nil : .smooth(duration: 0.3)) {
                     savedMessage = nil
                 }
             }
@@ -3736,7 +3838,7 @@ struct ContentView: View {
             if task.isTaskGroup {
                 let childTasks = children(of: task)
                 deletedTasks.append(contentsOf: childTasks)
-                collapsedTaskGroupIDs.remove(task.id)
+                expandedTaskGroupIDs.remove(task.id)
             }
             let deletedTaskIDs = deletedTasks.map(\.id)
             let deletedEvidenceIDs = deletedTasks.flatMap { ($0.evidences ?? []).map(\.id) }
@@ -3785,8 +3887,7 @@ struct ContentView: View {
 
     private var tasksAwaitingMonsterArtwork: [TaskContract] {
         taskContracts.filter {
-            !$0.isTaskGroup &&
-                $0.monsterTag != nil &&
+            $0.monsterTag != nil &&
                 $0.monsterLevel != nil &&
                 (($0.monsterImageURL?.isEmpty != false) ||
                     !MonsterArtworkFormat.isCurrent($0.monsterStyleVersion))
@@ -3902,6 +4003,30 @@ struct ContentView: View {
         }
 
         try? modelContext.save()
+    }
+
+    private func migrateLegacyTaskGroupMonstersIfNeeded() {
+        var didChange = false
+        for parent in taskContracts where parent.isTaskGroup {
+            let childTasks = children(of: parent)
+            if parent.monsterTag == nil, let source = childTasks.first(where: { $0.monsterTag != nil }) {
+                parent.monsterTag = source.monsterTag
+                parent.monsterLevel = source.monsterLevel
+                parent.monsterVariantID = source.monsterVariantID
+                parent.monsterImageURL = source.monsterImageURL
+                parent.monsterStyleVersion = source.monsterStyleVersion
+                didChange = true
+            }
+            for child in childTasks where child.monsterTag != nil || child.monsterLevel != nil {
+                child.monsterTag = nil
+                child.monsterLevel = nil
+                child.monsterVariantID = nil
+                child.monsterImageURL = nil
+                child.monsterStyleVersion = nil
+                didChange = true
+            }
+        }
+        if didChange { try? modelContext.save() }
     }
 
     private func topLevelPage<Content: View>(
@@ -4100,10 +4225,10 @@ struct ContentView: View {
 
     private func toggleTaskGroup(_ task: TaskContract) {
         withAnimation(reduceMotion ? nil : .snappy(duration: 0.24)) {
-            if collapsedTaskGroupIDs.contains(task.id) {
-                collapsedTaskGroupIDs.remove(task.id)
+            if expandedTaskGroupIDs.contains(task.id) {
+                expandedTaskGroupIDs.remove(task.id)
             } else {
-                collapsedTaskGroupIDs.insert(task.id)
+                expandedTaskGroupIDs.insert(task.id)
             }
         }
     }

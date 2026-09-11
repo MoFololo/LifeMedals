@@ -17,6 +17,7 @@ enum LifeMedalsCloud {
 private struct CloudKitEventSnapshot: Sendable {
     enum Failure: Sendable {
         case quotaExceeded
+        case conflict
         case other(String)
     }
 
@@ -34,9 +35,13 @@ private struct CloudKitEventSnapshot: Sendable {
         succeeded = event.succeeded
         if let error = event.error {
             diagnosticDescription = Self.describe(error)
-            failure = Self.containsQuotaExceeded(error)
-                ? .quotaExceeded
-                : .other(diagnosticDescription ?? error.localizedDescription)
+            if Self.contains(error, code: .quotaExceeded) {
+                failure = .quotaExceeded
+            } else if Self.contains(error, code: .serverRecordChanged) {
+                failure = .conflict
+            } else {
+                failure = .other(diagnosticDescription ?? error.localizedDescription)
+            }
         } else {
             diagnosticDescription = nil
             failure = nil
@@ -45,11 +50,11 @@ private struct CloudKitEventSnapshot: Sendable {
         isImport = event.type == .import
     }
 
-    private static func containsQuotaExceeded(_ error: Error) -> Bool {
+    private static func contains(_ error: Error, code: CKError.Code) -> Bool {
         guard let cloudError = error as? CKError else { return false }
-        if cloudError.code == .quotaExceeded { return true }
+        if cloudError.code == code { return true }
         return cloudError.partialErrorsByItemID?.values.contains { partialError in
-            containsQuotaExceeded(partialError)
+            contains(partialError, code: code)
         } ?? false
     }
 
@@ -121,6 +126,7 @@ final class CloudSyncMonitor {
     private(set) var lastSuccessfulSync: Date?
     private(set) var lastSuccessfulExport: Date?
     private(set) var lastSuccessfulImport: Date?
+    private(set) var hasCloudConflict = false
     private var accountErrorMessage: String?
     private var syncErrorMessage: String?
 
@@ -236,6 +242,11 @@ final class CloudSyncMonitor {
         }
     }
 
+    func resolveCloudConflict() {
+        hasCloudConflict = false
+        syncErrorMessage = nil
+    }
+
     private func applyCloudKitEvent(_ event: CloudKitEventSnapshot) {
         if event.endDate == nil {
             activeEventIdentifiers.insert(event.identifier)
@@ -265,6 +276,12 @@ final class CloudSyncMonitor {
                 syncErrorMessage = L10n.text(
                     "iCloud 储存空间不足，无法同步。请在系统设置中释放或升级 iCloud 空间后等待自动重试。",
                     english: "There is not enough iCloud storage to sync. Free up or upgrade iCloud storage in Settings, then wait for an automatic retry."
+                )
+            case .conflict:
+                hasCloudConflict = true
+                syncErrorMessage = L10n.text(
+                    "iCloud 与本机存档发生冲突，请选择要保留的版本。",
+                    english: "The iCloud and local saves conflict. Choose which version to keep."
                 )
             case .other(let errorDescription):
                 syncErrorMessage = L10n.text(

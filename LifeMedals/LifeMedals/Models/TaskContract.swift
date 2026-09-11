@@ -65,9 +65,8 @@ final class TaskContract {
     }
 
     // Optional monster encounter fields keep legacy stores and CloudKit
-    // lightweight migration compatible. A task group parent intentionally
-    // leaves every field nil; only independently verifiable tasks encounter a
-    // monster.
+    // lightweight migration compatible. A task group owns one encounter on
+    // its parent; subtasks only carry evidence and completion state.
     var monsterTag: String?
     var monsterLevel: Int?
     var monsterVariantID: String?
