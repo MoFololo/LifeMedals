@@ -3,11 +3,12 @@ const OPENAI_IMAGE_EDITS_URL = "https://api.openai.com/v1/images/edits";
 const OPENAI_RESPONSES_URL = "https://api.openai.com/v1/responses";
 
 const DEFAULT_IMAGE_MODEL = "gpt-image-2";
-const DEFAULT_STYLE_VERSION = "grotesque-pixel-v2";
-const DEFAULT_PROMPT_VERSION = "monster-image-v4";
+const DEFAULT_STYLE_VERSION = "grotesque-pixel-v3-transparent";
+const DEFAULT_PROMPT_VERSION = "monster-image-v5";
 const DEFAULT_CONCEPT_PROMPT_VERSION = "monster-concept-v3";
 const DEFAULT_MONTHLY_IMAGE_BUDGET = 100;
 const DEFAULT_IMAGES_PER_MINUTE = 2;
+const DEFAULT_TAXONOMY_CATALOG_LIMIT = 200;
 
 const MAX_ENSURE_REQUEST_BYTES = 4 * 1024;
 const MAX_GENERATED_IMAGE_BYTES = 10 * 1024 * 1024;
@@ -69,6 +70,20 @@ const GENERIC_ACTION_WORDS = new Set([
   "turn",
   "update",
   "write",
+]);
+
+const HEALTH_CONSULTATION_TAGS = new Set([
+  "health.consultation",
+  "health.medical_consultation",
+  "health.medical_inquiry",
+  "healthcare.consultation",
+]);
+const HEALTH_TEST_TAGS = new Set([
+  "health.lab_test",
+  "health.tb_testing",
+  "health.medical_test",
+  "healthcare.medical_test",
+  "healthcare.testing",
 ]);
 
 const MONSTER_CONCEPT_SCHEMA = {
@@ -219,7 +234,7 @@ export async function handleEnsureMonsterVariant(request, env, requestId) {
 
     const refreshed = await findVariantById(env.MONSTER_DB, targetVariant.id);
     return monsterJsonResponse(
-      { variant: variantSnapshot(refreshed || targetVariant, env) },
+      { variant: variantSnapshot(refreshed || targetVariant, env, species.canonical_tag) },
       refreshed?.status === "ready" ? 200 : 202,
       requestId,
     );
@@ -256,7 +271,7 @@ export async function handleGetMonsterVariant(
 
   let canonicalTag;
   try {
-    canonicalTag = normalizeCanonicalTag(decodeURIComponent(encodedCanonicalTag));
+    canonicalTag = stableCanonicalMonsterTag(decodeURIComponent(encodedCanonicalTag));
   } catch {
     canonicalTag = "";
   }
@@ -271,6 +286,9 @@ export async function handleGetMonsterVariant(
     );
   }
 
+  const resolvedSpecies = await findSpeciesByCanonicalTag(env.MONSTER_DB, canonicalTag);
+  if (resolvedSpecies) canonicalTag = resolvedSpecies.canonical_tag;
+
   const styleVersion = readNonEmptyString(env.MONSTER_STYLE_VERSION, DEFAULT_STYLE_VERSION);
   const variant = await env.MONSTER_DB.prepare(
     `SELECT
@@ -278,7 +296,8 @@ export async function handleGetMonsterVariant(
        v.level,
        v.status,
        v.image_object_key,
-       v.style_version
+       v.style_version,
+       s.canonical_tag
      FROM monster_variants v
      JOIN monster_species s ON s.id = v.species_id
      WHERE s.canonical_tag = ? COLLATE NOCASE
@@ -324,7 +343,7 @@ export async function handleMonsterAsset(pathname, env, requestId) {
 
   const headers = new Headers();
   object.writeHttpMetadata(headers);
-  headers.set("Content-Type", "image/webp");
+  headers.set("Content-Type", "image/png");
   headers.set("Cache-Control", "public, max-age=31536000, immutable");
   headers.set("ETag", object.httpEtag);
   headers.set("X-Content-Type-Options", "nosniff");
@@ -497,12 +516,12 @@ export async function processMonsterGeneration(rawMessage, env) {
       "monsters",
       message.styleVersion,
       species.canonical_tag,
-      `level-${current.level}-${contentHash}.webp`,
+      `level-${current.level}-${contentHash}.png`,
     ].join("/");
 
     await env.MONSTER_ASSETS.put(objectKey, imageBytes, {
       httpMetadata: {
-        contentType: "image/webp",
+        contentType: "image/png",
         cacheControl: "public, max-age=31536000, immutable",
       },
       customMetadata: {
@@ -520,7 +539,7 @@ export async function processMonsterGeneration(rawMessage, env) {
        SET
          status = 'ready',
          image_object_key = ?,
-         image_content_type = 'image/webp',
+         image_content_type = 'image/png',
          image_byte_size = ?,
          image_content_hash = ?,
          model = ?,
@@ -568,7 +587,7 @@ export function validateEnsureMonsterInput(body) {
     return { ok: false, error: "Request body contains unsupported fields." };
   }
 
-  const canonicalTag = normalizeCanonicalTag(body.canonical_tag);
+  const canonicalTag = stableCanonicalMonsterTag(body.canonical_tag);
   if (!isValidCanonicalTag(canonicalTag)) {
     return { ok: false, error: "canonical_tag is invalid." };
   }
@@ -654,7 +673,10 @@ export async function normalizeGeneratedTaskMonsters(contract, env) {
   }
 
   for (const descriptor of descriptors) {
-    descriptor.monster_tag = refinedAthleteTag(descriptor);
+    descriptor.monster_tag = stableCanonicalMonsterTag(
+      refinedAthleteTag(descriptor),
+      monsterDescriptorSemanticText(descriptor),
+    );
   }
 
   const validTags = [...new Set(
@@ -663,18 +685,28 @@ export async function normalizeGeneratedTaskMonsters(contract, env) {
       .filter((tag) => isValidCanonicalTag(tag)),
   )];
   const storedSpecies = await findSpeciesByCanonicalTags(env?.MONSTER_DB, validTags);
+  const learnedRedirects = [];
 
   for (const descriptor of descriptors) {
+    const proposedTag = descriptor.monster_tag;
     const species = storedSpecies.get(descriptor.monster_tag);
     if (species) {
       descriptor.monster_tag = species.canonical_tag;
       descriptor.monster_match_kind = "existing";
+      if (proposedTag !== species.canonical_tag) {
+        learnedRedirects.push(rememberMonsterTagRedirect(
+          env?.MONSTER_DB,
+          proposedTag,
+          species.id,
+        ));
+      }
     } else if (isValidCanonicalTag(descriptor.monster_tag)) {
       descriptor.monster_match_kind = SEED_MONSTER_TAGS.has(descriptor.monster_tag)
         ? "existing"
         : "new";
     }
   }
+  await Promise.all(learnedRedirects);
 
   // Badge assignment is product taxonomy, not a creative model decision.
   // Playing or configuring a game belongs to Life; actual game-development
@@ -689,6 +721,34 @@ export async function normalizeGeneratedTaskMonsters(contract, env) {
   }
 
   return normalized;
+}
+
+export async function loadMonsterTaxonomyCatalog(database, limit = DEFAULT_TAXONOMY_CATALOG_LIMIT) {
+  if (!database) return [];
+  const boundedLimit = Math.min(Math.max(Number(limit) || 1, 1), 500);
+  try {
+    const result = await database.prepare(
+      `SELECT canonical_tag, badge_kind
+       FROM monster_species
+       ORDER BY updated_at DESC, canonical_tag ASC
+       LIMIT ?`,
+    ).bind(boundedLimit).all();
+    const catalog = new Map();
+    for (const row of result.results || []) {
+      const canonicalTag = stableCanonicalMonsterTag(row.canonical_tag);
+      if (!isValidCanonicalTag(canonicalTag) || !BADGE_KINDS.has(row.badge_kind)) continue;
+      if (!catalog.has(canonicalTag)) {
+        catalog.set(canonicalTag, {
+          canonicalTag,
+          badgeKind: row.badge_kind,
+        });
+      }
+    }
+    return [...catalog.values()];
+  } catch {
+    // The task endpoint remains usable while an optional taxonomy lookup is unavailable.
+    return [];
+  }
 }
 
 export function buildMonsterConceptOpenAIRequest(species, env = {}) {
@@ -990,8 +1050,9 @@ export function buildMonsterPrompt(species, level, styleVersion, env = {}) {
     "PIXEL CONSTRUCTION IS MANDATORY: design on a logical 48 by 48 pixel canvas, then nearest-neighbor upscale it. Every edge must snap to a visible square-pixel grid with chunky staircase contours.",
     "Use crisp hard-edged pixel clusters, one- to three-pixel-thick dark outlines, no anti-aliasing, no subpixel detail, no smooth vector curves, no blur, no gradients, and no paper or paint texture.",
     "Make it extremely simple: one squat lopsided blob-like silhouette, oversized blank or worried eyes, a tiny mouth, tiny limbs if needed, and at most two category-specific details. It should be easy to redraw as a tiny game sprite.",
-    "Use only three or four dirty muted colors plus a dark outline, flat fills, and at most one blocky shadow tone. Place it on a plain warm off-white solid background.",
-    "Keep exactly one centered front-facing or slight three-quarter full-body sprite with generous empty space. No sprite sheet, alternate pose, animation frame, decorative scene, border, or ground shadow.",
+    "Use only three or four dirty muted colors plus a dark outline, flat fills, and at most one blocky shadow tone.",
+    "TRANSPARENT CUTOUT IS MANDATORY: the entire area outside the monster must have zero alpha. Do not draw any colored or opaque background, backdrop rectangle, paper texture, scenery, border, halo, glow, floor, cast shadow, or ground shadow. Keep hard pixel edges at the transparency boundary with no pale matte or fringe.",
+    "Keep exactly one centered front-facing or slight three-quarter full-body sprite with generous transparent space. No sprite sheet, alternate pose, animation frame, decorative scene, or border.",
     "No polished concept art, smooth illustration, glossy 3D, anime styling, realistic anatomy, intricate armor, high-resolution pixel detail, or painterly rendering.",
     "No text, letters, numbers, logo, watermark, trademark, recognizable interface, gore, exposed organs, or imitation of any copyrighted character or franchise.",
     `Style version: ${styleVersion}.`,
@@ -1015,9 +1076,8 @@ export async function requestMonsterImage({ prompt, previousObject, level, env }
         prompt,
         size: "1024x1024",
         quality: "low",
-        output_format: "webp",
-        output_compression: 80,
-        background: "opaque",
+        output_format: "png",
+        background: "transparent",
         n: 1,
       }),
       signal: AbortSignal.timeout(180_000),
@@ -1028,10 +1088,9 @@ export async function requestMonsterImage({ prompt, previousObject, level, env }
     form.set("prompt", prompt);
     form.set("size", "1024x1024");
     form.set("quality", "low");
-    form.set("output_format", "webp");
-    form.set("output_compression", "80");
-    form.set("background", "opaque");
-    form.append("image[]", await previousObject.blob(), `level-${level - 1}.webp`);
+    form.set("output_format", "png");
+    form.set("background", "transparent");
+    form.append("image[]", await previousObject.blob(), `level-${level - 1}.png`);
 
     response = await fetch(OPENAI_IMAGE_EDITS_URL, {
       method: "POST",
@@ -1112,7 +1171,32 @@ export function decodeImageBase64(value) {
   for (let index = 0; index < binary.length; index += 1) {
     bytes[index] = binary.charCodeAt(index);
   }
+  validateTransparentPng(bytes);
   return bytes;
+}
+
+function validateTransparentPng(bytes) {
+  const pngSignature = [137, 80, 78, 71, 13, 10, 26, 10];
+  const hasSignature = bytes.length >= 33 && pngSignature.every((byte, index) => bytes[index] === byte);
+  const hasIHDR = hasSignature &&
+    bytes[8] === 0 && bytes[9] === 0 && bytes[10] === 0 && bytes[11] === 13 &&
+    bytes[12] === 73 && bytes[13] === 72 && bytes[14] === 68 && bytes[15] === 82;
+  const width = hasIHDR
+    ? (((bytes[16] << 24) >>> 0) + (bytes[17] << 16) + (bytes[18] << 8) + bytes[19])
+    : 0;
+  const height = hasIHDR
+    ? (((bytes[20] << 24) >>> 0) + (bytes[21] << 16) + (bytes[22] << 8) + bytes[23])
+    : 0;
+  const colorType = hasIHDR ? bytes[25] : -1;
+
+  if (!hasIHDR || width === 0 || height === 0 || width > 2048 || height > 2048 || ![4, 6].includes(colorType)) {
+    throw new MonsterServiceError(
+      502,
+      "invalid_openai_transparent_png",
+      "OpenAI did not return a bounded PNG with an alpha channel.",
+      true,
+    );
+  }
 }
 
 async function findOrCreateSpecies(env, input) {
@@ -1166,12 +1250,25 @@ async function findOrCreateSpecies(env, input) {
 }
 
 async function findSpeciesByCanonicalTag(database, canonicalTag) {
-  return database.prepare(
+  const exact = await database.prepare(
     `SELECT id, canonical_tag, badge_kind, visual_dna_json, style_version
      FROM monster_species
      WHERE canonical_tag = ? COLLATE NOCASE
      LIMIT 1`,
   ).bind(canonicalTag).first();
+  if (exact) return exact;
+
+  try {
+    return await database.prepare(
+      `SELECT s.id, s.canonical_tag, s.badge_kind, s.visual_dna_json, s.style_version
+       FROM monster_tag_redirects r
+       JOIN monster_species s ON s.id = r.species_id
+       WHERE r.alias_tag = ? COLLATE NOCASE
+       LIMIT 1`,
+    ).bind(canonicalTag).first();
+  } catch {
+    return null;
+  }
 }
 
 async function findSpeciesByCanonicalTags(database, canonicalTags) {
@@ -1181,7 +1278,7 @@ async function findSpeciesByCanonicalTags(database, canonicalTags) {
   const placeholders = canonicalTags.map(() => "?").join(", ");
   try {
     const result = await database.prepare(
-      `SELECT canonical_tag
+      `SELECT id, canonical_tag
        FROM monster_species
        WHERE canonical_tag IN (${placeholders})`,
     ).bind(...canonicalTags).all();
@@ -1189,7 +1286,24 @@ async function findSpeciesByCanonicalTags(database, canonicalTags) {
       species.set(row.canonical_tag, row);
     }
 
-    const unresolvedTags = canonicalTags.filter((tag) => !species.has(tag));
+    let unresolvedTags = canonicalTags.filter((tag) => !species.has(tag));
+    if (unresolvedTags.length > 0) {
+      const redirectPlaceholders = unresolvedTags.map(() => "?").join(", ");
+      try {
+        const redirectResult = await database.prepare(
+          `SELECT r.alias_tag, s.id, s.canonical_tag
+           FROM monster_tag_redirects r
+           JOIN monster_species s ON s.id = r.species_id
+           WHERE r.alias_tag IN (${redirectPlaceholders})`,
+        ).bind(...unresolvedTags).all();
+        for (const row of redirectResult.results || []) {
+          species.set(row.alias_tag, row);
+        }
+        unresolvedTags = unresolvedTags.filter((tag) => !species.has(tag));
+      } catch {
+        // Older databases may not have the redirects migration yet.
+      }
+    }
     const aliasToTags = new Map();
     for (const tag of unresolvedTags) {
       const alias = englishAliasFromCanonicalTag(tag);
@@ -1202,7 +1316,7 @@ async function findSpeciesByCanonicalTags(database, canonicalTags) {
     if (aliases.length > 0) {
       const aliasPlaceholders = aliases.map(() => "?").join(", ");
       const aliasResult = await database.prepare(
-        `SELECT a.alias, s.canonical_tag
+        `SELECT a.alias, s.id, s.canonical_tag
          FROM monster_aliases a
          JOIN monster_species s ON s.id = a.species_id
          WHERE a.alias IN (${aliasPlaceholders})`,
@@ -1217,6 +1331,20 @@ async function findSpeciesByCanonicalTags(database, canonicalTags) {
     // Task generation remains available if the optional catalog lookup fails.
   }
   return species;
+}
+
+async function rememberMonsterTagRedirect(database, aliasTag, speciesId) {
+  if (!database || !isValidCanonicalTag(aliasTag) || !SPECIES_ID_PATTERN.test(speciesId || "")) {
+    return;
+  }
+  try {
+    await database.prepare(
+      `INSERT OR IGNORE INTO monster_tag_redirects (alias_tag, species_id, created_at)
+       VALUES (?, ?, ?)`,
+    ).bind(aliasTag, speciesId, new Date().toISOString()).run();
+  } catch {
+    // Redirect learning is best effort and must not block task generation.
+  }
 }
 
 async function ensureVariantRows(env, speciesId, targetLevel) {
@@ -1396,6 +1524,51 @@ function normalizeGeneratedMonsterDescriptor(value) {
   return descriptor;
 }
 
+function monsterDescriptorSemanticText(descriptor) {
+  return [
+    descriptor.title,
+    descriptor.description,
+    descriptor.evidence_requirement,
+  ]
+    .filter((value) => typeof value === "string")
+    .join(" ")
+    .toLocaleLowerCase("en-US");
+}
+
+export function stableCanonicalMonsterTag(value, semanticText = "") {
+  const tag = normalizeCanonicalTag(value);
+  if (!tag) return tag;
+
+  const components = tag.split(".");
+  const domain = components[0];
+  const isHealthTag = domain === "health" || domain === "healthcare" || domain === "medical";
+  if (!isHealthTag) return tag;
+
+  const text = String(semanticText || "").toLocaleLowerCase("en-US");
+  if (/(?:\bask(?:ing)?\b|\bconsult(?:ation|ing)?\b|\binquir(?:e|y|ing)\b|\bquestion\b|问|询问|咨询|了解)/iu.test(text)) {
+    return "health.consultation";
+  }
+  if (/(?:\bappointment\b|\bschedul(?:e|ing)\b|\bbook(?:ing)?\b|预约|挂号|改期)/iu.test(text)) {
+    return "health.appointment";
+  }
+  if (/(?:\bmedication\b|\bmedicine\b|\bprescription\b|\brefill\b|服药|吃药|药物|处方|续药)/iu.test(text)) {
+    return "health.medication";
+  }
+  if (/(?:\bblood\s*(?:work|test)\b|\blab(?:oratory)?\s*test\b|\btest(?:ing)?\b|血检|验血|抽血|化验|检测)/iu.test(text)) {
+    return "health.lab_test";
+  }
+
+  if (HEALTH_CONSULTATION_TAGS.has(tag)) return "health.consultation";
+  if (HEALTH_TEST_TAGS.has(tag)) return "health.lab_test";
+  if (tag === "healthcare.appointment" || tag === "medical.appointment") {
+    return "health.appointment";
+  }
+  if (tag === "healthcare.medication" || tag === "medical.medication") {
+    return "health.medication";
+  }
+  return `health.${components.slice(1).join(".")}`;
+}
+
 function refinedAthleteTag(descriptor) {
   if (
     descriptor.monster_tag !== "fitness.workout" &&
@@ -1457,10 +1630,11 @@ function deriveVisualDNA(canonicalTag, badgeKind) {
   };
 }
 
-function variantSnapshot(variant, env) {
+function variantSnapshot(variant, env, canonicalTag = variant.canonical_tag) {
   const ready = variant.status === "ready" && typeof variant.image_object_key === "string";
   return {
     variant_id: variant.id,
+    canonical_tag: isValidCanonicalTag(canonicalTag) ? canonicalTag : null,
     status: VARIANT_STATUSES.has(variant.status) ? variant.status : "pending",
     image_url: ready ? publicMonsterAssetURL(env, variant.image_object_key) : null,
     style_version: variant.style_version || DEFAULT_STYLE_VERSION,
@@ -1474,7 +1648,7 @@ function publicMonsterAssetURL(env, objectKey) {
 }
 
 function isValidMonsterObjectKey(value) {
-  return /^monsters\/[a-z0-9][a-z0-9._-]{0,39}\/[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)+\/level-[1-9]-[a-f0-9]{64}\.webp$/.test(value);
+  return /^monsters\/[a-z0-9][a-z0-9._-]{0,39}\/[a-z][a-z0-9_]*(?:\.[a-z][a-z0-9_]*)+\/level-[1-9]-[a-f0-9]{64}\.png$/.test(value);
 }
 
 function normalizeCanonicalTag(value) {

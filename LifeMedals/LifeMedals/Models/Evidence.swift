@@ -16,10 +16,11 @@ enum EvidenceVerdict: String, Codable {
     case notVerified
 }
 
-/// 用户提交的证据：本地保存的图片（外部存储）、提交时间、AI 核验结果和解释。
+/// 用户提交的证据元数据。图片由 `LocalImageStore` 仅保存在当前设备。
 @Model
 final class Evidence {
     var id: UUID = UUID()
+    /// Deprecated CloudKit-backed payload kept only to migrate existing data.
     @Attribute(.externalStorage) var imageData: Data?
     var submittedAt: Date = Date.now
     /// Images created by one tap of “Submit” share this identifier.
@@ -31,6 +32,10 @@ final class Evidence {
 
     var taskContract: TaskContract?
 
+    var localImageData: Data? {
+        LocalImageStore.shared.data(kind: .evidence, id: id) ?? imageData
+    }
+
     var verdict: EvidenceVerdict {
         get { EvidenceVerdict(rawValue: verdictRawValue) ?? .pending }
         set { verdictRawValue = newValue.rawValue }
@@ -38,7 +43,6 @@ final class Evidence {
 
     init(
         id: UUID = UUID(),
-        imageData: Data? = nil,
         submittedAt: Date = .now,
         submissionBatchID: UUID? = nil,
         submissionIndex: Int? = nil,
@@ -47,7 +51,7 @@ final class Evidence {
         taskContract: TaskContract? = nil
     ) {
         self.id = id
-        self.imageData = imageData
+        self.imageData = nil
         self.submittedAt = submittedAt
         self.submissionBatchID = submissionBatchID
         self.submissionIndex = submissionIndex

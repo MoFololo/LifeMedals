@@ -111,146 +111,6 @@ struct MonsterArtworkView: View {
     }
 }
 
-struct MonsterDraftPreviewCard: View {
-    let descriptor: MonsterDescriptor
-    let level: Int
-    let state: MonsterDraftPreviewState
-
-    private var snapshot: MonsterVariantSnapshot? {
-        guard case let .variant(snapshot) = state else { return nil }
-        return snapshot
-    }
-
-    private var readyImageURL: String? {
-        guard snapshot?.status == .ready else { return nil }
-        return snapshot?.imageURL
-    }
-
-    var body: some View {
-        HStack(spacing: PixelTheme.space16) {
-            MonsterArtworkView(imageURL: readyImageURL, isDiscovered: true)
-                .frame(width: 104, height: 104)
-                .padding(PixelTheme.space8)
-                .background(PixelTheme.background.opacity(0.08), in: PixelCornerShape(step: 4))
-                .overlay { PixelCornerShape(step: 4).stroke(PixelTheme.gold.opacity(0.72), lineWidth: 2) }
-
-            VStack(alignment: .leading, spacing: PixelTheme.space8) {
-                Text(MonsterTaxonomy.categoryLabel(for: descriptor.canonicalTag))
-                    .font(PixelTheme.displayFont(size: 18))
-                    .foregroundStyle(PixelTheme.ink)
-                    .lineLimit(2)
-
-                PixelStatusBadge(
-                    title: L10n.text("等级 \(level)", english: "Level \(level)"),
-                    color: readyImageURL == nil ? PixelTheme.gold : PixelTheme.success
-                )
-
-                Label(statusText, systemImage: statusIcon)
-                    .font(PixelTheme.font(.caption))
-                    .foregroundStyle(PixelTheme.inkMuted)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            Spacer(minLength: 0)
-        }
-        .padding(PixelTheme.space12)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(PixelTheme.paperRaised, in: PixelCornerShape(step: 3))
-        .overlay { PixelCornerShape(step: 3).stroke(PixelTheme.gold.opacity(0.62), lineWidth: 1) }
-        .accessibilityElement(children: .combine)
-    }
-
-    private var statusText: String {
-        switch state {
-        case .loading:
-            L10n.text("正在查找全球怪物素材…", english: "Looking for global monster artwork…")
-        case let .variant(snapshot):
-            switch snapshot.status {
-            case .ready where readyImageURL != nil:
-                L10n.text("已找到对应怪物；完成任务后收入图鉴。", english: "Monster found. Complete the task to add it to your atlas.")
-            case .pending, .generating:
-                L10n.text("暂无素材，已在后台生成；完成前会再次检查。", english: "Artwork is being generated in the background and will be checked again at completion.")
-            case .failed, .ready:
-                L10n.text("暂时使用未知怪物，保存后会继续重试。", english: "Using an unknown monster for now. Generation will be retried after saving.")
-            }
-        case .unavailable:
-            L10n.text("素材服务暂不可用，保存任务后会继续重试。", english: "The artwork service is unavailable. The app will retry after saving.")
-        }
-    }
-
-    private var statusIcon: String {
-        readyImageURL == nil ? "hourglass" : "checkmark.seal.fill"
-    }
-}
-
-struct MonsterEncounterCard: View {
-    let task: TaskContract
-    let discovery: MonsterDiscovery?
-
-    private var presentation: MonsterEncounterPresentation {
-        MonsterEncounterPresentation(task: task, discovery: discovery)
-    }
-
-    var body: some View {
-        HStack(spacing: PixelTheme.space16) {
-            MonsterArtworkView(
-                imageURL: presentation.imageURL,
-                isDiscovered: presentation.revealsAssignedIdentity
-            )
-            .frame(width: 112, height: 112)
-            .padding(PixelTheme.space8)
-            .background(PixelTheme.background.opacity(0.08), in: PixelCornerShape(step: 4))
-            .overlay { PixelCornerShape(step: 4).stroke(PixelTheme.gold.opacity(0.7), lineWidth: 2) }
-
-            VStack(alignment: .leading, spacing: PixelTheme.space8) {
-                Text(taskMonsterCategory)
-                    .font(PixelTheme.displayFont(size: 19))
-                    .foregroundStyle(PixelTheme.ink)
-
-                PixelStatusBadge(
-                    title: L10n.text("等级 \(task.monsterLevel ?? 1)", english: "Level \(task.monsterLevel ?? 1)"),
-                    color: presentation.isAtlasDiscovered ? PixelTheme.success : PixelTheme.gold
-                )
-
-                Text(statusText)
-                    .font(PixelTheme.font(.caption))
-                    .foregroundStyle(PixelTheme.inkMuted)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            Spacer(minLength: 0)
-        }
-        .padding(PixelTheme.space16)
-        .pixelSurface(fill: PixelTheme.paperRaised, border: PixelTheme.gold, step: 4, hasShadow: true)
-    }
-
-    private var statusText: String {
-        if presentation.imageURL == nil {
-            return L10n.text(
-                "怪物正在显形，生成完成后会自动更新。",
-                english: "The monster is materializing and will update automatically."
-            )
-        }
-        if !presentation.isAtlasDiscovered {
-            return L10n.text(
-                "这是本任务对应的怪物；通过证据核验后收入图鉴。",
-                english: "This monster belongs to the task. Pass evidence verification to add it to your atlas."
-            )
-        }
-        return L10n.text(
-            "已击败 \(discovery?.discoveryCount ?? 1) 次",
-            english: "Defeated \(discovery?.discoveryCount ?? 1) time(s)"
-        )
-    }
-
-    private var taskMonsterCategory: String {
-        let tag = task.monsterTag ?? discovery?.canonicalTag ?? ""
-        return tag.isEmpty
-            ? L10n.text("怪物", english: "Monster")
-            : MonsterTaxonomy.categoryLabel(for: tag)
-    }
-}
-
 struct MonsterRevealOverlay: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -374,7 +234,9 @@ struct MonsterAtlasView: View {
 
     private var pendingRefreshKey: String {
         discoveries
-            .filter { $0.imageURL == nil }
+            .filter {
+                $0.imageURL == nil || !MonsterArtworkFormat.isCurrent($0.styleVersion)
+            }
             .map { "\($0.canonicalTag):\($0.level)" }
             .sorted()
             .joined(separator: "|")
@@ -401,7 +263,7 @@ struct MonsterAtlasView: View {
     private func speciesCard(_ species: Species) -> some View {
         let highest = species.discoveries.max { $0.level < $1.level }
         return VStack(alignment: .leading, spacing: PixelTheme.space12) {
-            MonsterArtworkView(imageURL: highest?.imageURL, isDiscovered: true)
+            MonsterArtworkView(imageURL: currentArtworkURL(for: highest), isDiscovered: true)
                 .frame(maxWidth: .infinity)
                 .aspectRatio(1, contentMode: .fit)
                 .padding(PixelTheme.space8)
@@ -460,7 +322,10 @@ struct MonsterAtlasView: View {
 
     private func evolutionCard(level: Int, discovery: MonsterDiscovery?) -> some View {
         VStack(spacing: PixelTheme.space8) {
-            MonsterArtworkView(imageURL: discovery?.imageURL, isDiscovered: discovery != nil)
+            MonsterArtworkView(
+                imageURL: currentArtworkURL(for: discovery),
+                isDiscovered: discovery != nil
+            )
                 .frame(height: horizontalSizeClass == .compact ? 78 : 100)
 
             Text(L10n.text("等级 \(level)", english: "Level \(level)"))
@@ -523,7 +388,9 @@ struct MonsterAtlasView: View {
 
     @MainActor
     private func ensurePendingArtwork() async -> Bool {
-        let pending = discoveries.filter { $0.imageURL == nil }
+        let pending = discoveries.filter {
+            $0.imageURL == nil || !MonsterArtworkFormat.isCurrent($0.styleVersion)
+        }
         guard !pending.isEmpty else { return false }
 
         var changed = false
@@ -547,7 +414,9 @@ struct MonsterAtlasView: View {
 
     @MainActor
     private func refreshPendingArtwork() async -> Bool {
-        let pending = discoveries.filter { $0.imageURL == nil }
+        let pending = discoveries.filter {
+            $0.imageURL == nil || !MonsterArtworkFormat.isCurrent($0.styleVersion)
+        }
         guard !pending.isEmpty else { return false }
 
         var changed = false
@@ -566,5 +435,10 @@ struct MonsterAtlasView: View {
         }
         if changed { try? modelContext.save() }
         return hasInProgressArtwork
+    }
+
+    private func currentArtworkURL(for discovery: MonsterDiscovery?) -> String? {
+        guard MonsterArtworkFormat.isCurrent(discovery?.styleVersion) else { return nil }
+        return discovery?.imageURL
     }
 }

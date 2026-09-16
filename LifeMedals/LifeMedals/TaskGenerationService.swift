@@ -250,6 +250,9 @@ enum TaskTitleRules {
     static func isValid(_ value: String) -> Bool {
         let trimmed = value.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return false }
+        if isMixedHanAndAlphabetic(trimmed) {
+            return wordRanges(in: trimmed).count <= englishWordLimit
+        }
         if containsHan(in: trimmed) {
             return trimmed.filter { !$0.isWhitespace }.count <= chineseCharacterLimit
         }
@@ -260,6 +263,16 @@ enum TaskTitleRules {
         let trimmed = value
             .split(whereSeparator: \Character.isWhitespace)
             .joined(separator: " ")
+        if isMixedHanAndAlphabetic(trimmed) {
+            let ranges = wordRanges(in: trimmed)
+            guard ranges.count > englishWordLimit else { return trimmed }
+
+            // Cut before the next complete word instead of in the middle of a
+            // Chinese or English word. Foundation's word tokenizer treats a
+            // mixed title such as "去Trader Joe买牛肉" as five words.
+            return String(trimmed[..<ranges[englishWordLimit].lowerBound])
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+        }
         guard containsHan(in: trimmed) else {
             return words(in: trimmed).prefix(englishWordLimit).joined(separator: " ")
         }
@@ -274,7 +287,10 @@ enum TaskTitleRules {
     }
 
     static func limitDescription(for value: String) -> String {
-        containsHan(in: value)
+        if isMixedHanAndAlphabetic(value) {
+            return L10n.text("中英混排最多 8 个词", english: "Up to 8 words for mixed Chinese and English")
+        }
+        return containsHan(in: value)
             ? L10n.text("最多 12 个字", english: "Up to 12 characters")
             : L10n.text("最多 8 个单词", english: "Up to 8 words")
     }
@@ -283,12 +299,31 @@ enum TaskTitleRules {
         value.split(whereSeparator: \Character.isWhitespace)
     }
 
-    private static func containsHan(in value: String) -> Bool {
-        value.unicodeScalars.contains { scalar in
-            (0x3400...0x4DBF).contains(scalar.value) ||
-                (0x4E00...0x9FFF).contains(scalar.value) ||
-                (0xF900...0xFAFF).contains(scalar.value)
+    private static func wordRanges(in value: String) -> [Range<String.Index>] {
+        var ranges: [Range<String.Index>] = []
+        value.enumerateSubstrings(
+            in: value.startIndex..<value.endIndex,
+            options: [.byWords, .substringNotRequired]
+        ) { _, range, _, _ in
+            ranges.append(range)
         }
+        return ranges
+    }
+
+    private static func isMixedHanAndAlphabetic(_ value: String) -> Bool {
+        containsHan(in: value) && value.unicodeScalars.contains { scalar in
+            !isHan(scalar) && scalar.properties.isAlphabetic
+        }
+    }
+
+    private static func containsHan(in value: String) -> Bool {
+        value.unicodeScalars.contains(where: isHan)
+    }
+
+    nonisolated private static func isHan(_ scalar: Unicode.Scalar) -> Bool {
+        (0x3400...0x4DBF).contains(scalar.value) ||
+            (0x4E00...0x9FFF).contains(scalar.value) ||
+            (0xF900...0xFAFF).contains(scalar.value)
     }
 }
 

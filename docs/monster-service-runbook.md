@@ -7,7 +7,7 @@ This runbook covers the Cloudflare/OpenAI service that supplies generic monster 
 | Environment | API Worker | OpenAI and usage gate | D1/R2/Queue monster bindings | Status |
 | --- | --- | --- | --- | --- |
 | Staging | `lifemedals-api-staging` | Configured | Configured | Deployed; health returned 200 on 2026-09-03 |
-| Production | `lifemedals-api` | Configured by the base Worker setup | Not present in committed top-level config | Monster promotion pending |
+| Production | `lifemedals-api` | Configured | Configured | Production resources created and promoted on 2026-09-04 |
 
 The staging configuration currently names:
 
@@ -15,10 +15,18 @@ The staging configuration currently names:
 - R2: `lifemedals-monster-assets-staging`
 - Queue: `lifemedals-monster-generation-staging`
 - Dead-letter queue: `lifemedals-monster-generation-dlq-staging`
-- Style: `grotesque-pixel-v2`
-- Image prompt: `monster-image-v4`
+- Style: `grotesque-pixel-v3-transparent`
+- Image prompt: `monster-image-v5`
 - Concept prompt: `monster-concept-v3`
 - Image model: `gpt-image-2`
+
+The production configuration names:
+
+- D1: `lifemedals-monsters`
+- R2: `lifemedals-monster-assets`
+- Queue: `lifemedals-monster-generation`
+- Dead-letter queue: `lifemedals-monster-generation-dlq`
+- Public asset path: `https://lifemedals-api.david-lian0809.workers.dev/monster-assets`
 
 Resource identifiers already committed in `wrangler.jsonc` are configuration, not secrets. Never commit the OpenAI key or Cloudflare API credentials.
 
@@ -61,10 +69,11 @@ The committed migration chain is:
 2. `0002_add_monster_concepts.sql`
 3. `0003_normalize_monster_taxonomy.sql`
 4. `0004_add_distinct_sport_species.sql`
+5. `0005_add_monster_tag_redirects.sql`
 
 It creates and evolves `monster_species`, `monster_aliases`, `monster_concepts`, and `monster_variants`. Variants are unique by species, level, and style version and use `pending`, `generating`, `ready`, or `failed` states. D1 stores only object keys, content type, byte size, content hash, model/prompt/style versions, leases, and safe error summaries—not image Base64.
 
-Aliases are lowercase English. Non-English user input is translated and normalized by task generation. Named sports stay separate, and species IDs follow `species-[medaltype]-[description]`.
+Aliases are lowercase English. Full alternate taxonomy tags are learned in `monster_tag_redirects`, allowing differently worded AI tags to resolve to one species. Task generation receives a bounded snapshot of the existing global catalog and must reuse a catalog species before creating a genuinely new reusable activity. Non-English user input is translated and normalized by task generation. Named sports stay separate, and species IDs follow `species-[medaltype]-[description]`.
 
 Apply migrations locally before remote deployment:
 
@@ -109,8 +118,8 @@ The response uses a stable envelope:
   "variant": {
     "variant_id": "...",
     "status": "ready",
-    "image_url": "https://.../monster-assets/monsters/...webp",
-    "style_version": "grotesque-pixel-v2"
+    "image_url": "https://.../monster-assets/monsters/...png",
+    "style_version": "grotesque-pixel-v3-transparent"
   }
 }
 ```
@@ -126,8 +135,8 @@ Only valid immutable monster object paths are accepted. The handler reads R2 and
 1. The consumer reloads variant state from D1 and claims a time-bounded generation lease.
 2. Level 1 derives stable visual DNA and one or two required signature objects using the server concept prompt.
 3. Level N waits until Level N-1 is ready and then uses that immutable R2 image as the edit input.
-4. The server fixes the model, square size, low quality, WebP output, compression, safety rules, and prompt versions. Clients cannot override them.
-5. The result is decoded, validated, hashed, and written to `monsters/{styleVersion}/{canonicalTag}/level-{level}-{hash}.webp`.
+4. The server fixes the model, square size, low quality, transparent PNG output, safety rules, and prompt versions. Clients cannot override them.
+5. The result is decoded, validated as a bounded PNG with an alpha channel, hashed, and written to `monsters/{styleVersion}/{canonicalTag}/level-{level}-{hash}.png`.
 6. Only after R2 succeeds does D1 atomically mark the variant ready.
 7. Safe failures update D1 and throw when Queue retry is appropriate. Logs exclude secrets, full Base64 images, and private task content.
 
@@ -183,15 +192,15 @@ Then verify:
 
 ## 9. Production promotion
 
-Production promotion is still pending. Use separate production resources rather than renaming or reusing staging:
+Production promotion completed on 2026-09-04 using separate production resources rather than renaming or reusing staging. The completed rollout was:
 
-1. Create production D1, R2, generation Queue, and dead-letter Queue resources.
-2. Add their exact bindings to the top-level `wrangler.jsonc` configuration.
-3. Configure production style/model/budget variables and the encrypted OpenAI secret.
-4. Apply all migrations to the production D1 database.
-5. Run the same smoke tests against production with a small budget.
-6. Confirm Release uses the production Worker base URL.
-7. Monitor errors, dead letters, OpenAI spend, R2 object growth, and D1 variant state during rollout.
+1. Created production D1, R2, generation Queue, and dead-letter Queue resources.
+2. Added their exact bindings to the top-level `wrangler.jsonc` configuration.
+3. Configured production style/model/budget variables and confirmed the encrypted OpenAI secret.
+4. Applied all migrations to the production D1 database.
+5. Ran a production smoke test from ensure through Queue, OpenAI, R2, and immutable asset delivery.
+6. Confirmed Release uses the production Worker base URL and builds successfully.
+7. Continue monitoring errors, dead letters, OpenAI spend, R2 object growth, and D1 variant state during rollout.
 
 Do not promote solely because `/health` is green. Validate actual ensure, sequential generation, asset delivery, and client refresh behavior.
 

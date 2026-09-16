@@ -20,7 +20,7 @@ final class TaskGroupServiceTests: XCTestCase {
         ])
         container = try ModelContainer(
             for: schema,
-            configurations: [ModelConfiguration(isStoredInMemoryOnly: true)]
+            configurations: [ModelConfiguration(isStoredInMemoryOnly: true, cloudKitDatabase: .none)]
         )
         context = container.mainContext
         category = BadgeCategory(name: BadgeKind.solver.rawValue)

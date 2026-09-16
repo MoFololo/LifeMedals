@@ -7,6 +7,14 @@ enum MonsterMatchKind: String, Codable, Sendable {
     case new
 }
 
+enum MonsterArtworkFormat {
+    static let currentStyleVersion = "grotesque-pixel-v3-transparent"
+
+    static func isCurrent(_ styleVersion: String?) -> Bool {
+        styleVersion == currentStyleVersion
+    }
+}
+
 struct MonsterDescriptor: Equatable, Sendable {
     let canonicalTag: String
     let matchKind: MonsterMatchKind
@@ -51,6 +59,10 @@ enum MonsterTaxonomy {
         case "communication.career": L10n.text("职业沟通", english: "Career Communication")
         case "chores.take_out_trash": L10n.text("倒垃圾", english: "Trash")
         case "chores.household": L10n.text("家务", english: "Household")
+        case "health.consultation": L10n.text("医疗咨询", english: "Medical Consultation")
+        case "health.lab_test": L10n.text("医疗检测", english: "Medical Test")
+        case "health.appointment": L10n.text("就医预约", english: "Medical Appointment")
+        case "health.medication": L10n.text("用药", english: "Medication")
         default: prettifiedCategory(for: canonicalTag)
         }
     }
@@ -248,6 +260,7 @@ enum MonsterVariantStatus: String, Decodable, Sendable {
 
 struct MonsterVariantSnapshot: Decodable, Equatable, Sendable {
     let variantID: String?
+    let canonicalTag: String?
     let status: MonsterVariantStatus
     let imageURL: String?
     let styleVersion: String?
@@ -255,6 +268,7 @@ struct MonsterVariantSnapshot: Decodable, Equatable, Sendable {
     private enum CodingKeys: String, CodingKey {
         case id
         case variantID = "variant_id"
+        case canonicalTag = "canonical_tag"
         case status
         case imageURL = "image_url"
         case styleVersion = "style_version"
@@ -264,9 +278,11 @@ struct MonsterVariantSnapshot: Decodable, Equatable, Sendable {
         variantID: String?,
         status: MonsterVariantStatus,
         imageURL: String?,
-        styleVersion: String?
+        styleVersion: String?,
+        canonicalTag: String? = nil
     ) {
         self.variantID = variantID
+        self.canonicalTag = canonicalTag
         self.status = status
         self.imageURL = imageURL
         self.styleVersion = styleVersion
@@ -276,6 +292,7 @@ struct MonsterVariantSnapshot: Decodable, Equatable, Sendable {
         let container = try decoder.container(keyedBy: CodingKeys.self)
         variantID = (try? container.decode(String.self, forKey: .variantID))
             ?? (try? container.decode(String.self, forKey: .id))
+        canonicalTag = try? container.decode(String.self, forKey: .canonicalTag)
         status = (try? container.decode(MonsterVariantStatus.self, forKey: .status)) ?? .pending
         imageURL = try? container.decode(String.self, forKey: .imageURL)
         styleVersion = try? container.decode(String.self, forKey: .styleVersion)
@@ -405,6 +422,10 @@ enum MonsterVariantSync {
         to task: TaskContract,
         discovery: MonsterDiscovery? = nil
     ) {
+        if let canonicalTag = snapshot.canonicalTag,
+           MonsterTaxonomy.isValidCanonicalTag(canonicalTag) {
+            task.monsterTag = canonicalTag
+        }
         task.monsterVariantID = snapshot.variantID ?? task.monsterVariantID
         task.monsterStyleVersion = snapshot.styleVersion ?? task.monsterStyleVersion
         if snapshot.status == .ready, let imageURL = snapshot.imageURL, !imageURL.isEmpty {
@@ -416,6 +437,10 @@ enum MonsterVariantSync {
     }
 
     static func apply(_ snapshot: MonsterVariantSnapshot, to discovery: MonsterDiscovery) {
+        if let canonicalTag = snapshot.canonicalTag,
+           MonsterTaxonomy.isValidCanonicalTag(canonicalTag) {
+            discovery.canonicalTag = canonicalTag
+        }
         discovery.variantID = snapshot.variantID ?? discovery.variantID
         discovery.styleVersion = snapshot.styleVersion ?? discovery.styleVersion
         if snapshot.status == .ready, let imageURL = snapshot.imageURL, !imageURL.isEmpty {
@@ -430,7 +455,13 @@ struct MonsterEncounterPresentation: Equatable {
     let isAtlasDiscovered: Bool
 
     init(task: TaskContract, discovery: MonsterDiscovery?) {
-        let resolvedImageURL = discovery?.imageURL ?? task.monsterImageURL
+        let currentDiscoveryURL = MonsterArtworkFormat.isCurrent(discovery?.styleVersion)
+            ? discovery?.imageURL
+            : nil
+        let currentTaskURL = MonsterArtworkFormat.isCurrent(task.monsterStyleVersion)
+            ? task.monsterImageURL
+            : nil
+        let resolvedImageURL = currentDiscoveryURL ?? currentTaskURL
         imageURL = resolvedImageURL?.isEmpty == false ? resolvedImageURL : nil
         revealsAssignedIdentity = task.monsterTag != nil && task.monsterLevel != nil
         isAtlasDiscovered = discovery != nil
@@ -521,17 +552,29 @@ actor MonsterImageCache {
     init() {
         let baseDirectory = FileManager.default.urls(for: .cachesDirectory, in: .userDomainMask).first
             ?? FileManager.default.temporaryDirectory
-        cacheDirectory = baseDirectory.appending(path: "LifeMedalsMonsterImages", directoryHint: .isDirectory)
+        let legacyCacheDirectory = baseDirectory.appending(
+            path: "LifeMedalsMonsterImages",
+            directoryHint: .isDirectory
+        )
+        if fileManager.fileExists(atPath: legacyCacheDirectory.path) {
+            try? fileManager.removeItem(at: legacyCacheDirectory)
+        }
+        cacheDirectory = baseDirectory.appending(
+            path: "LifeMedalsMonsterImages-v3-transparent",
+            directoryHint: .isDirectory
+        )
     }
 
     func data(for url: URL) async throws -> Data {
         let fileURL = cacheDirectory.appending(path: cacheKey(for: url))
-        if let cached = try? Data(contentsOf: fileURL), !cached.isEmpty {
+        if fileManager.fileExists(atPath: fileURL.path),
+           let cached = try? Data(contentsOf: fileURL),
+           !cached.isEmpty {
             return cached
         }
 
         var request = URLRequest(url: url, cachePolicy: .returnCacheDataElseLoad, timeoutInterval: 20)
-        request.setValue("image/avif,image/webp,image/*", forHTTPHeaderField: "Accept")
+        request.setValue("image/png,image/*", forHTTPHeaderField: "Accept")
         let (data, response) = try await URLSession.shared.data(for: request)
         guard
             let httpResponse = response as? HTTPURLResponse,
