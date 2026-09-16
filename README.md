@@ -17,7 +17,7 @@ Describe or photograph an obligation
   -> keep the result in the achievement library and Monster Atlas
 ```
 
-A task contract contains a short title, description, deadline, locked evidence requirement, suggested medal, and estimated effort. Image-based creation accepts material such as an email, syllabus, or event poster and retains a compressed source image with the saved task. Inputs with multiple independent actions become a task group whose children can be completed and verified separately.
+A task contract contains a short title, description, deadline, locked evidence requirement, suggested medal, and estimated effort. Image-based creation accepts material such as an email, syllabus, or event poster and retains a compressed source image only on the device that created the task. Inputs with multiple independent actions become a task group whose children can be completed and verified separately.
 
 ## Architecture
 
@@ -26,12 +26,12 @@ A task contract contains a short title, description, deadline, locked evidence r
 | Client | One SwiftUI target for macOS, iOS, and iPadOS | Implemented |
 | Local data | SwiftData for tasks, evidence, medals, EXP, and discoveries | Implemented |
 | Device sync | SwiftData with a private CloudKit container | Implemented; signed-device validation pending |
-| App session | Sign in with Apple plus Keychain persistence; offline entry remains available | Implemented |
+| App access | No app account; direct entry with private sync owned by the device iCloud account | Implemented |
 | AI gateway | Cloudflare Worker using OpenAI Responses API and Structured Outputs | Deployed to staging |
 | Monster assets | D1 metadata, R2 WebP assets, and Queue-based GPT Image generation | Deployed to staging; production pending |
 | Subscriptions | StoreKit 2 plus server-side entitlement and usage records | Planned, not part of the MVP |
 
-Supabase is not used. Sign in with Apple identifies an app session, while the device's iCloud account owns private CloudKit synchronization; neither implies a paid entitlement.
+Supabase and Sign in with Apple are not used. The device's iCloud account owns private CloudKit synchronization. Without an available iCloud account, the local SwiftData replica remains usable.
 
 ## Repository layout
 
@@ -62,7 +62,7 @@ LifeMedals/
 - Keep unfinished, completed, and overdue task views with directional tab transitions and iOS edge-swipe navigation.
 - Schedule local deadline notifications without making task saves depend on notification permission.
 - Submit any 1-5 images from the camera, photo library, or files; macOS also supports drag-and-drop and paste.
-- Compress evidence to a maximum 1,800-pixel edge and approximately 1 MB before SwiftData storage.
+- Compress evidence to a maximum 1,800-pixel edge and approximately 1 MB before device-local file storage.
 - Treat the task title and locked evidence requirement as independent verification paths. Reasonable proof for either may pass.
 - Persist Verified, Need More Proof, or Not Verified results; failed network requests remain retryable.
 - Award EXP at a fixed rate of 100 XP per estimated hour, independently for each medal family.
@@ -79,14 +79,16 @@ Private business data is local-first and belongs in SwiftData/CloudKit:
 
 - `BadgeCategory`: built-in or custom medal category.
 - `UserBadge`: EXP and rank for one category.
-- `TaskContract`: task or group data, source image, optional compatibility fields, monster assignment, and status.
-- `Evidence`: compressed image, batch/order metadata, timestamp, verdict, and explanation.
+- `TaskContract`: task or group data, local-source-image presence metadata, optional compatibility fields, monster assignment, and status.
+- `Evidence`: batch/order metadata, timestamp, verdict, and explanation.
 - `XPLog`: auditable EXP change linked to a task and medal.
 - `MonsterDiscovery`: a user's discovered tag/level/style, first source task, artwork URL, and defeat count.
 
 Global monster resources contain only reusable catalog data. D1 stores species, aliases, concepts, and variant state; R2 stores immutable generated WebP files; Queue messages coordinate generation. They must never contain user identity, task text, evidence, EXP, or personal discoveries.
 
 Evidence images are held only for the active verification request by the Worker and are forwarded with `store: false`. They are not written to Durable Objects, D1, KV, R2, or Worker logs. `store: false` does not by itself mean that upstream abuse-monitoring retention is disabled; Zero Data Retention requires separate OpenAI approval and configuration.
+
+Task source images and evidence images are stored under the app's Application Support directory, excluded from device backups, and keyed by the corresponding model UUID. They are never written to new CloudKit-backed records. Legacy binary fields remain temporarily in the schema only so existing records can be migrated to local files and cleared safely. Public monster artwork remains a re-downloadable disk cache.
 
 ## Monster rules
 
@@ -113,7 +115,7 @@ npm test
 npm run check
 ```
 
-Select the `LifeMedals` scheme and run on My Mac or an iPhone Simulator. Debug builds define `LIFEMEDALS_LOCAL_DEVELOPMENT`, use local SwiftData, omit cloud entitlements, and disable Apple sign-in and CloudKit UI so a free Personal Team can build. Release retains Sign in with Apple, push notifications, and the `iCloud.noorg.LifeMedals` container.
+Select the `LifeMedals` scheme and run on an iPhone or iPhone Simulator. Debug uses the Development environment and Release uses Production for the `iCloud.mofololo.LifeMedals` private container. Both configurations require the `mofololo.LifeMedals` App ID and a provisioning profile with iCloud/CloudKit and remote-notification entitlements.
 
 The client uses build-specific defaults in `LifeMedalsAPIConfiguration`: Debug targets the staging Worker and Release targets production. Override a single Xcode run with `LIFEMEDALS_API_BASE_URL` in the scheme environment.
 
@@ -138,7 +140,7 @@ The configured staging health endpoint returned HTTP 200 on 2026-09-03 and repor
 
 - Complete daily self-testing and a small external beta.
 - Validate camera orientation, permissions, notifications, Dynamic Type, VoiceOver, Reduce Motion, and offline artwork caching on physical iPhones.
-- Activate and validate the CloudKit container with a paid Apple Developer Team, including conflict and evidence-image sync tests between Mac and iPhone.
+- Activate and validate the CloudKit container with a paid Apple Developer Team, including conflict tests and confirmation that private images never appear on a second device.
 - Promote monster D1/R2/Queue bindings and migrations to production, then verify production generation and caching.
 - Prepare icons, screenshots, privacy disclosures, TestFlight, and App Review materials.
 - Build StoreKit subscriptions, server accounts, entitlements, per-user quotas, and account deletion only in the later commercial phase.

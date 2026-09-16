@@ -145,6 +145,17 @@ final class TaskGenerationServiceTests: XCTestCase {
         XCTAssertEqual(TaskTitleRules.limited("完成今天课程要求的全部十二道练习题"), "完成今天课程要求的全部十")
     }
 
+    func testMixedLanguageTitlesUseWholeWordLimit() {
+        let groceryTitle = "去Trader Joe买牛肉"
+
+        XCTAssertTrue(TaskTitleRules.isValid(groceryTitle))
+        XCTAssertEqual(TaskTitleRules.limited(groceryTitle), groceryTitle)
+        XCTAssertEqual(
+            TaskTitleRules.limited("去Trader Joe买牛肉然后做 dinner 并清理 kitchen"),
+            "去Trader Joe买牛肉然后做 dinner"
+        )
+    }
+
     private func decode(_ json: String) throws -> GeneratedTaskContract {
         try JSONDecoder().decode(GeneratedTaskContract.self, from: Data(json.utf8))
     }

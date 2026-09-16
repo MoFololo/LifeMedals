@@ -122,72 +122,78 @@ struct DeadlineWheelPicker: View {
                 .overlay { PixelCornerShape(step: 3).stroke(PixelTheme.selection, lineWidth: 2) }
                 .allowsHitTesting(false)
 
-            ScrollView(.vertical) {
-                LazyVStack(spacing: 0) {
-                    ForEach(dates, id: \.self) { date in
-                        let isSelected = calendar.isDate(date, inSameDayAs: selection)
+            ScrollViewReader { scrollProxy in
+                ScrollView(.vertical) {
+                    LazyVStack(spacing: 0) {
+                        ForEach(dates, id: \.self) { date in
+                            let isSelected = calendar.isDate(date, inSameDayAs: selection)
 
-                        HStack(spacing: 8) {
-                            Spacer()
-                            Image(systemName: "checkmark")
-                                .font(PixelTheme.font(.caption, weight: .bold))
-                                .opacity(0)
-                            Text(
-                                DeadlineDateOptions.displayText(
-                                    for: date,
-                                    relativeTo: referenceDate,
-                                    calendar: calendar
+                            HStack(spacing: 8) {
+                                Spacer()
+                                Image(systemName: "checkmark")
+                                    .font(PixelTheme.font(.caption, weight: .bold))
+                                    .opacity(0)
+                                Text(
+                                    DeadlineDateOptions.displayText(
+                                        for: date,
+                                        relativeTo: referenceDate,
+                                        calendar: calendar
+                                    )
                                 )
-                            )
-                            Image(systemName: "checkmark")
-                                .font(PixelTheme.font(.caption, weight: .bold))
-                                .opacity(isSelected ? 1 : 0)
-                            Spacer()
+                                Image(systemName: "checkmark")
+                                    .font(PixelTheme.font(.caption, weight: .bold))
+                                    .opacity(isSelected ? 1 : 0)
+                                Spacer()
+                            }
+                            .font(PixelTheme.font(.body, weight: isSelected ? .semibold : .regular))
+                            .foregroundStyle(isSelected ? PixelTheme.ink : PixelTheme.inkMuted)
+                            .frame(maxWidth: .infinity)
+                            .frame(height: 44)
+                            .contentShape(Rectangle())
+                            .onTapGesture {
+                                commitSelection(date)
+                            }
+                            .id(date)
                         }
-                        .font(PixelTheme.font(.body, weight: isSelected ? .semibold : .regular))
-                        .foregroundStyle(isSelected ? PixelTheme.ink : PixelTheme.inkMuted)
-                        .frame(maxWidth: .infinity)
-                        .frame(height: 44)
-                        .contentShape(Rectangle())
-                        .onTapGesture {
-                            commitSelection(date)
-                        }
-                        .id(date)
                     }
+                    .scrollTargetLayout()
                 }
-                .scrollTargetLayout()
-            }
-            .scrollPosition(id: $scrollPosition, anchor: .center)
-            .scrollTargetBehavior(.viewAligned(limitBehavior: .always))
-            .scrollIndicators(.hidden)
-            .contentMargins(.vertical, 50, for: .scrollContent)
-            .mask {
-                LinearGradient(
-                    stops: [
-                        .init(color: .clear, location: 0),
-                        .init(color: .black, location: 0.24),
-                        .init(color: .black, location: 0.76),
-                        .init(color: .clear, location: 1)
-                    ],
-                    startPoint: .top,
-                    endPoint: .bottom
-                )
-            }
-            .onChange(of: scrollPosition) { _, date in
-                guard let date, !calendar.isDate(date, inSameDayAs: selection) else { return }
-                selection = DeadlineDateOptions.deadline(on: date, calendar: calendar)
-            }
-            .onChange(of: selection) { _, date in
-                let normalizedDay = calendar.startOfDay(
-                    for: DeadlineDateOptions.normalized(
-                        date,
-                        relativeTo: referenceDate,
-                        calendar: calendar
+                .scrollPosition(id: $scrollPosition, anchor: .center)
+                .scrollTargetBehavior(.viewAligned(limitBehavior: .always))
+                .scrollIndicators(.hidden)
+                .contentMargins(.vertical, 50, for: .scrollContent)
+                .mask {
+                    LinearGradient(
+                        stops: [
+                            .init(color: .clear, location: 0),
+                            .init(color: .black, location: 0.24),
+                            .init(color: .black, location: 0.76),
+                            .init(color: .clear, location: 1)
+                        ],
+                        startPoint: .top,
+                        endPoint: .bottom
                     )
-                )
-                guard normalizedDay != scrollPosition else { return }
-                withAnimation(.snappy(duration: 0.2)) {
-                    scrollPosition = normalizedDay
+                }
+                .onAppear {
+                    positionCurrentSelection(using: scrollProxy)
+                }
+                .onChange(of: scrollPosition) { _, date in
+                    guard let date, !calendar.isDate(date, inSameDayAs: selection) else { return }
+                    selection = DeadlineDateOptions.deadline(on: date, calendar: calendar)
+                }
+                .onChange(of: selection) { _, date in
+                    let normalizedDay = calendar.startOfDay(
+                        for: DeadlineDateOptions.normalized(
+                            date,
+                            relativeTo: referenceDate,
+                            calendar: calendar
+                        )
+                    )
+                    guard normalizedDay != scrollPosition else { return }
+                    withAnimation(.snappy(duration: 0.2)) {
+                        scrollPosition = normalizedDay
+                        scrollProxy.scrollTo(normalizedDay, anchor: .center)
+                    }
                 }
             }
         }
@@ -209,6 +215,22 @@ struct DeadlineWheelPicker: View {
         selection = DeadlineDateOptions.deadline(on: date, calendar: calendar)
         withAnimation(.snappy(duration: 0.2)) {
             scrollPosition = calendar.startOfDay(for: date)
+        }
+    }
+
+    private func positionCurrentSelection(using scrollProxy: ScrollViewProxy) {
+        let selectedDay = calendar.startOfDay(
+            for: DeadlineDateOptions.normalized(
+                selection,
+                relativeTo: referenceDate,
+                calendar: calendar
+            )
+        )
+
+        Task { @MainActor in
+            await Task.yield()
+            scrollPosition = selectedDay
+            scrollProxy.scrollTo(selectedDay, anchor: .center)
         }
     }
 }

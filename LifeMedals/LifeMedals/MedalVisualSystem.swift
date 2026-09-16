@@ -201,9 +201,9 @@ struct MedalFragmentStatusLabel: View {
             }
         }
 
-        var suffix: String {
+        var suffix: String? {
             switch self {
-            case .earned: L10n.text("白银碎片", english: "Silver Fragments")
+            case .earned: nil
             case .collected: L10n.text("碎片", english: "Fragments")
             }
         }
@@ -222,10 +222,16 @@ struct MedalFragmentStatusLabel: View {
         MedalFragmentRules.collected(for: currentXP, categoryName: categoryName)
     }
 
+    private var statusText: String {
+        let countText = "\(wording.prefix) \(fragmentCount)/\(total)"
+        guard let suffix = wording.suffix else { return countText }
+        return "\(countText) \(suffix)"
+    }
+
     var body: some View {
         let _ = locale.identifier
         HStack(spacing: 7) {
-            Text("\(wording.prefix) \(fragmentCount)/\(total) \(wording.suffix)")
+            Text(statusText)
                 .font(PixelTheme.statFont(size: 13))
                 .foregroundStyle(PixelTheme.inkMuted)
                 .lineLimit(1)
@@ -236,7 +242,7 @@ struct MedalFragmentStatusLabel: View {
         }
         .frame(maxWidth: .infinity)
         .accessibilityElement(children: .ignore)
-        .accessibilityLabel("\(wording.prefix) \(fragmentCount) / \(total) \(wording.suffix)")
+        .accessibilityLabel(statusText)
     }
 }
 

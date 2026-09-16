@@ -21,7 +21,7 @@
 	<key>NSCameraUsageDescription</key>
 	<string>用于拍摄任务来源或完成证据；照片会先压缩，并在生成或核验请求期间临时处理。</string>
 	<key>NSPhotoLibraryUsageDescription</key>
-	<string>用于选择任务来源或完成证据；所选照片会压缩后保存到你的私有数据库。</string>
+	<string>用于选择任务来源或完成证据；所选照片会压缩后仅保存在当前设备。</string>
 	<key>UIAppFonts</key>
 	<array>
 		<string>fusion-pixel-10px-proportional-zh_hans.ttf</string>
@@ -35,6 +35,10 @@
 	</dict>
 	<key>UIApplicationSupportsIndirectInputEvents</key>
 	<true/>
+	<key>UIBackgroundModes</key>
+	<array>
+		<string>remote-notification</string>
+	</array>
 	<key>UILaunchScreen</key>
 	<dict/>
 	<key>UISupportedInterfaceOrientations</key>

@@ -1,195 +1,177 @@
-import AuthenticationServices
 import CloudKit
-import Combine
 import CoreData
 import Foundation
-import Security
+import Observation
+import OSLog
 
 enum LifeMedalsCloud {
-    static let containerIdentifier = "iCloud.noorg.LifeMedals"
+    static let containerIdentifier = "iCloud.mofololo.LifeMedals"
 
-#if LIFEMEDALS_LOCAL_DEVELOPMENT
-    static let isEnabledForCurrentBuild = false
-#else
-    static let isEnabledForCurrentBuild = true
-#endif
+    private static var isRunningTests: Bool {
+        ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil
+    }
+
+    static var isEnabledForCurrentBuild: Bool { !isRunningTests }
 }
 
-@MainActor
-final class AppleAccountManager: NSObject, ObservableObject {
-    enum SessionState: Equatable {
-        case checking
-        case signedOut
-        case signedIn
+private struct CloudKitEventSnapshot: Sendable {
+    enum Failure: Sendable {
+        case quotaExceeded
+        case conflict
+        case other(String)
     }
 
-    @Published private(set) var state: SessionState
-    @Published private(set) var displayName: String?
-    @Published private(set) var errorMessage: String?
-    @Published private(set) var requiresReauthentication = false
+    let identifier: UUID
+    let endDate: Date?
+    let succeeded: Bool
+    let failure: Failure?
+    let diagnosticDescription: String?
+    let isExport: Bool
+    let isImport: Bool
 
-    private let provider = ASAuthorizationAppleIDProvider()
-    private let keychain = AppleUserIdentifierStore()
-    private let displayNameKey = "appleAccountDisplayName"
-
-    override init() {
-        let hasStoredUser = LifeMedalsCloud.isEnabledForCurrentBuild && keychain.userIdentifier != nil
-        state = hasStoredUser ? .checking : .signedOut
-        displayName = LifeMedalsCloud.isEnabledForCurrentBuild
-            ? UserDefaults.standard.string(forKey: displayNameKey)
-            : nil
-        super.init()
-
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(credentialWasRevoked),
-            name: ASAuthorizationAppleIDProvider.credentialRevokedNotification,
-            object: nil
-        )
-    }
-
-    var isSignedIn: Bool { state == .signedIn }
-
-    func prepare(_ request: ASAuthorizationAppleIDRequest) {
-        errorMessage = nil
-        request.requestedScopes = [.fullName]
-    }
-
-    @discardableResult
-    func complete(_ result: Result<ASAuthorization, Error>) -> Bool {
-        switch result {
-        case .success(let authorization):
-            guard let credential = authorization.credential as? ASAuthorizationAppleIDCredential else {
-                errorMessage = "Apple 登录没有返回可用凭证，请重试。"
-                state = .signedOut
-                return false
+    init(event: NSPersistentCloudKitContainer.Event) {
+        identifier = event.identifier
+        endDate = event.endDate
+        succeeded = event.succeeded
+        if let error = event.error {
+            diagnosticDescription = Self.describe(error)
+            if Self.contains(error, code: .quotaExceeded) {
+                failure = .quotaExceeded
+            } else if Self.contains(error, code: .serverRecordChanged) {
+                failure = .conflict
+            } else {
+                failure = .other(diagnosticDescription ?? error.localizedDescription)
             }
-
-            do {
-                try keychain.save(userIdentifier: credential.user)
-            } catch {
-                errorMessage = "无法安全保存登录状态，请检查钥匙串权限后重试。"
-                state = .signedOut
-                return false
-            }
-
-            if let fullName = credential.fullName {
-                let formattedName = PersonNameComponentsFormatter().string(from: fullName)
-                    .trimmingCharacters(in: .whitespacesAndNewlines)
-                if !formattedName.isEmpty {
-                    displayName = formattedName
-                    UserDefaults.standard.set(formattedName, forKey: displayNameKey)
-                }
-            }
-
-            errorMessage = nil
-            requiresReauthentication = false
-            state = .signedIn
-            return true
-
-        case .failure(let error):
-            let authorizationError = error as? ASAuthorizationError
-            if authorizationError?.code != .canceled {
-                errorMessage = L10n.text(
-                    "Apple 登录未完成：\(error.localizedDescription)",
-                    english: "Apple sign-in did not complete: \(error.localizedDescription)"
-                )
-            }
-            state = .signedOut
-            return false
+        } else {
+            diagnosticDescription = nil
+            failure = nil
         }
+        isExport = event.type == .export
+        isImport = event.type == .import
     }
 
-    func validateStoredCredential() async {
-        guard LifeMedalsCloud.isEnabledForCurrentBuild else {
-            state = .signedOut
-            return
+    private static func contains(_ error: Error, code: CKError.Code) -> Bool {
+        guard let cloudError = error as? CKError else { return false }
+        if cloudError.code == code { return true }
+        return cloudError.partialErrorsByItemID?.values.contains { partialError in
+            contains(partialError, code: code)
+        } ?? false
+    }
+
+    private static func describe(_ error: Error, depth: Int = 0) -> String {
+        let indentation = String(repeating: "  ", count: depth)
+        guard let cloudError = error as? CKError else {
+            let nsError = error as NSError
+            return "\(indentation)\(nsError.domain) code=\(nsError.code): \(nsError.localizedDescription)"
         }
 
-        guard let userIdentifier = keychain.userIdentifier else {
-            state = .signedOut
-            return
+        var line = "\(indentation)CKError.\(codeName(cloudError.code)) (\(cloudError.code.rawValue))"
+        if let retryAfter = cloudError.retryAfterSeconds {
+            line += ", retryAfter=\(Int(retryAfter.rounded(.up)))s"
+        }
+        line += ": \(cloudError.localizedDescription)"
+
+        guard let partialErrors = cloudError.partialErrorsByItemID, !partialErrors.isEmpty else {
+            return line
         }
 
-        state = .checking
-        do {
-            let credentialState = try await provider.credentialState(forUserID: userIdentifier)
-            switch credentialState {
-            case .authorized:
-                errorMessage = nil
-                requiresReauthentication = false
-                state = .signedIn
-            case .revoked, .notFound:
-                signOut(keepingError: false, requiringReauthentication: true)
-            case .transferred:
-                errorMessage = "Apple 登录凭证需要迁移，请重新登录。"
-                signOut(keepingError: true, requiringReauthentication: true)
-            @unknown default:
-                errorMessage = "暂时无法确认 Apple 登录状态。"
-                state = .signedOut
-            }
-        } catch {
-            // A temporary network failure must not erase an otherwise valid local session.
-            errorMessage = "暂时无法验证 Apple 登录状态，已保留本机会话。"
-            state = .signedIn
+        let children = partialErrors.values
+            .prefix(12)
+            .map { describe($0, depth: depth + 1) }
+            .joined(separator: "\n")
+        let omittedCount = max(0, partialErrors.count - 12)
+        let omitted = omittedCount > 0
+            ? "\n\(indentation)  … \(omittedCount) more item error(s)"
+            : ""
+        return "\(line)\n\(children)\(omitted)"
+    }
+
+    private static func codeName(_ code: CKError.Code) -> String {
+        switch code {
+        case .partialFailure: "partialFailure"
+        case .quotaExceeded: "quotaExceeded"
+        case .notAuthenticated: "notAuthenticated"
+        case .networkUnavailable: "networkUnavailable"
+        case .networkFailure: "networkFailure"
+        case .serviceUnavailable: "serviceUnavailable"
+        case .requestRateLimited: "requestRateLimited"
+        case .permissionFailure: "permissionFailure"
+        case .missingEntitlement: "missingEntitlement"
+        case .badContainer: "badContainer"
+        case .badDatabase: "badDatabase"
+        case .zoneNotFound: "zoneNotFound"
+        case .userDeletedZone: "userDeletedZone"
+        case .serverRejectedRequest: "serverRejectedRequest"
+        case .constraintViolation: "constraintViolation"
+        case .invalidArguments: "invalidArguments"
+        case .batchRequestFailed: "batchRequestFailed"
+        case .serverRecordChanged: "serverRecordChanged"
+        case .accountTemporarilyUnavailable: "accountTemporarilyUnavailable"
+        default: "code\(code.rawValue)"
         }
-    }
-
-    func signOut() {
-        signOut(keepingError: false, requiringReauthentication: false)
-    }
-
-    @objc private func credentialWasRevoked() {
-        errorMessage = "Apple 登录授权已撤销，请重新登录。"
-        signOut(keepingError: true, requiringReauthentication: true)
-    }
-
-    private func signOut(keepingError: Bool, requiringReauthentication: Bool) {
-        keychain.deleteUserIdentifier()
-        displayName = nil
-        UserDefaults.standard.removeObject(forKey: displayNameKey)
-        if !keepingError {
-            errorMessage = nil
-        }
-        requiresReauthentication = requiringReauthentication
-        state = .signedOut
     }
 }
 
+@Observable
 @MainActor
-final class CloudSyncMonitor: NSObject, ObservableObject {
-    @Published private(set) var accountStatus: CKAccountStatus?
-    @Published private(set) var isCheckingAccount = true
-    @Published private(set) var isSyncing = false
-    @Published private(set) var lastSuccessfulSync: Date?
-    @Published private var accountErrorMessage: String?
-    @Published private var syncErrorMessage: String?
+final class CloudSyncMonitor {
+    @ObservationIgnored private static let logger = Logger(
+        subsystem: "mofololo.LifeMedals",
+        category: "CloudKitSync"
+    )
 
-    private let container: CKContainer?
+    private(set) var accountStatus: CKAccountStatus?
+    private(set) var isCheckingAccount = true
+    private(set) var isSyncing = false
+    private(set) var lastSuccessfulSync: Date?
+    private(set) var lastSuccessfulExport: Date?
+    private(set) var lastSuccessfulImport: Date?
+    private(set) var hasCloudConflict = false
+    private var accountErrorMessage: String?
+    private var syncErrorMessage: String?
 
-    override init() {
+    @ObservationIgnored private let container: CKContainer?
+    @ObservationIgnored private var notificationObservers: [NSObjectProtocol] = []
+    @ObservationIgnored private var activeEventIdentifiers: Set<UUID> = []
+
+    init() {
         container = LifeMedalsCloud.isEnabledForCurrentBuild
             ? CKContainer(identifier: LifeMedalsCloud.containerIdentifier)
             : nil
-        super.init()
 
         guard LifeMedalsCloud.isEnabledForCurrentBuild else {
             isCheckingAccount = false
             return
         }
 
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(cloudAccountChanged),
-            name: .CKAccountChanged,
-            object: nil
+        notificationObservers.append(
+            NotificationCenter.default.addObserver(
+                forName: .CKAccountChanged,
+                object: nil,
+                queue: nil
+            ) { [weak self] _ in
+                Task { @MainActor [weak self] in
+                    await self?.refreshAccountStatus()
+                }
+            }
         )
 
-        NotificationCenter.default.addObserver(
-            self,
-            selector: #selector(cloudKitEventChanged(_:)),
-            name: NSPersistentCloudKitContainer.eventChangedNotification,
-            object: nil
+        notificationObservers.append(
+            NotificationCenter.default.addObserver(
+                forName: NSPersistentCloudKitContainer.eventChangedNotification,
+                object: nil,
+                queue: nil
+            ) { [weak self] notification in
+                guard
+                    let event = notification.userInfo?[NSPersistentCloudKitContainer.eventNotificationUserInfoKey]
+                        as? NSPersistentCloudKitContainer.Event
+                else { return }
+
+                let snapshot = CloudKitEventSnapshot(event: event)
+                Task { @MainActor [weak self] in
+                    self?.applyCloudKitEvent(snapshot)
+                }
+            }
         )
     }
 
@@ -201,7 +183,10 @@ final class CloudSyncMonitor: NSObject, ObservableObject {
         if isCheckingAccount { return L10n.text("检查 iCloud") }
         if isSyncing { return L10n.text("正在同步") }
         if errorMessage != nil { return L10n.text("同步需处理") }
-        if isAvailable { return L10n.text("iCloud 已连接") }
+        if isAvailable, lastSuccessfulSync != nil {
+            return L10n.text("iCloud 已同步", english: "iCloud Synced")
+        }
+        if isAvailable { return L10n.text("等待首次同步") }
         return L10n.text("仅本机")
     }
 
@@ -257,79 +242,53 @@ final class CloudSyncMonitor: NSObject, ObservableObject {
         }
     }
 
-    @objc private func cloudAccountChanged() {
-        Task { await refreshAccountStatus() }
+    func resolveCloudConflict() {
+        hasCloudConflict = false
+        syncErrorMessage = nil
     }
 
-    @objc private func cloudKitEventChanged(_ notification: Notification) {
-        guard
-            let event = notification.userInfo?[NSPersistentCloudKitContainer.eventNotificationUserInfoKey]
-                as? NSPersistentCloudKitContainer.Event
-        else { return }
-
+    private func applyCloudKitEvent(_ event: CloudKitEventSnapshot) {
         if event.endDate == nil {
-            isSyncing = true
+            activeEventIdentifiers.insert(event.identifier)
+            isSyncing = !activeEventIdentifiers.isEmpty
             return
         }
 
-        isSyncing = false
+        activeEventIdentifiers.remove(event.identifier)
+        isSyncing = !activeEventIdentifiers.isEmpty
         if event.succeeded {
             lastSuccessfulSync = event.endDate
+            if event.isExport {
+                lastSuccessfulExport = event.endDate
+            }
+            if event.isImport {
+                lastSuccessfulImport = event.endDate
+            }
             syncErrorMessage = nil
-        } else if let error = event.error {
-            syncErrorMessage = L10n.text(
-                "iCloud 同步失败：\(error.localizedDescription)",
-                english: "iCloud sync failed: \(error.localizedDescription)"
-            )
+        } else if let failure = event.failure {
+            if let diagnosticDescription = event.diagnosticDescription {
+                Self.logger.error(
+                    "CloudKit \(event.isExport ? "export" : event.isImport ? "import" : "setup") failed:\n\(diagnosticDescription, privacy: .public)"
+                )
+            }
+            switch failure {
+            case .quotaExceeded:
+                syncErrorMessage = L10n.text(
+                    "iCloud 储存空间不足，无法同步。请在系统设置中释放或升级 iCloud 空间后等待自动重试。",
+                    english: "There is not enough iCloud storage to sync. Free up or upgrade iCloud storage in Settings, then wait for an automatic retry."
+                )
+            case .conflict:
+                hasCloudConflict = true
+                syncErrorMessage = L10n.text(
+                    "iCloud 与本机存档发生冲突，请选择要保留的版本。",
+                    english: "The iCloud and local saves conflict. Choose which version to keep."
+                )
+            case .other(let errorDescription):
+                syncErrorMessage = L10n.text(
+                    "iCloud 同步失败：\(errorDescription)",
+                    english: "iCloud sync failed: \(errorDescription)"
+                )
+            }
         }
-    }
-}
-
-private struct AppleUserIdentifierStore {
-    private let service = "noorg.LifeMedals.apple-account"
-    private let account = "current-user"
-
-    var userIdentifier: String? {
-        var query = baseQuery
-        query[kSecReturnData as String] = true
-        query[kSecMatchLimit as String] = kSecMatchLimitOne
-
-        var item: CFTypeRef?
-        guard
-            SecItemCopyMatching(query as CFDictionary, &item) == errSecSuccess,
-            let data = item as? Data
-        else { return nil }
-        return String(data: data, encoding: .utf8)
-    }
-
-    func save(userIdentifier: String) throws {
-        guard let data = userIdentifier.data(using: .utf8) else {
-            throw KeychainError.invalidValue
-        }
-
-        deleteUserIdentifier()
-        var query = baseQuery
-        query[kSecValueData as String] = data
-        let status = SecItemAdd(query as CFDictionary, nil)
-        guard status == errSecSuccess else {
-            throw KeychainError.unhandled(status)
-        }
-    }
-
-    func deleteUserIdentifier() {
-        SecItemDelete(baseQuery as CFDictionary)
-    }
-
-    private var baseQuery: [String: Any] {
-        [
-            kSecClass as String: kSecClassGenericPassword,
-            kSecAttrService as String: service,
-            kSecAttrAccount as String: account
-        ]
-    }
-
-    private enum KeychainError: Error {
-        case invalidValue
-        case unhandled(OSStatus)
     }
 }
